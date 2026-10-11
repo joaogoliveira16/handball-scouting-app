@@ -2,6 +2,11 @@
 FROM nginx:1.27-alpine
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY . /usr/share/nginx/html
+
+# Só os ficheiros da aplicação (sem Dockerfile nem nginx.conf dentro do site)
+COPY index.html banco.html dashboard.html /usr/share/nginx/html/
+COPY css/ /usr/share/nginx/html/css/
+COPY js/ /usr/share/nginx/html/js/
+COPY lib/ /usr/share/nginx/html/lib/
 
 EXPOSE 80
