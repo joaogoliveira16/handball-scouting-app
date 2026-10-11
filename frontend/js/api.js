@@ -58,3 +58,19 @@ export const ROTULO_DISTANCIA = {
   ATE_6M: 'Até 6 m', DE_6_A_9M: '6 a 9 m', LINHA_9M: 'Linha de 9 m (9–11 m)', MAIS_9M: 'Mais de 11 m',
 };
 export const ORDEM_DISTANCIA = ['ATE_6M', 'DE_6_A_9M', 'LINHA_9M', 'MAIS_9M'];
+
+export const POSICOES = [
+  { codigo: 'GR', rotulo: 'Guarda-redes' },
+  { codigo: 'PE', rotulo: 'Ponta esquerda' },
+  { codigo: 'LE', rotulo: 'Lateral esquerdo' },
+  { codigo: 'CE', rotulo: 'Central' },
+  { codigo: 'LD', rotulo: 'Lateral direito' },
+  { codigo: 'PD', rotulo: 'Ponta direita' },
+  { codigo: 'PV', rotulo: 'Pivô' },
+];
+export const ROTULO_POSICAO = Object.fromEntries(POSICOES.map((p) => [p.codigo, p.rotulo]));
+
+/** Ligação de descarga do Excel de um jogo (ou só de uma equipa, se equipaId for dado). */
+export function urlExcel(jogoId, equipaId = null) {
+  return `/api/jogos/${jogoId}/exportar.xlsx${equipaId == null ? '' : `?equipaId=${equipaId}`}`;
+}

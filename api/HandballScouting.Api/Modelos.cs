@@ -17,9 +17,18 @@ public record NovoEventoRequest(
     short Parte,             // 1 ou 2
     int SegundoJogo);        // segundos desde o início do jogo
 
+public record NovaEquipaRequest(string? Nome);
+
+public record JogadorRequest(int Numero, string? Nome, string? Posicao);
+
+public record NovoJogoRequest(int CasaId, int ForaId, string? Local, DateTimeOffset? DataHora);
+
+public record ConvocatoriaRequest(List<int>? JogadorIds);
+
 public record ResultadoRegisto(bool Ok, int Status, string? Erro, long? Id)
 {
     public static ResultadoRegisto Sucesso(long id) => new(true, 201, null, id);
+    public static ResultadoRegisto Atualizado() => new(true, 200, null, null);
     public static ResultadoRegisto Falha(int status, string erro) => new(false, status, erro, null);
 }
 
@@ -55,6 +64,53 @@ public class JogadorInfo
     public short Numero { get; set; }
     public string Nome { get; set; } = "";
     public string Posicao { get; set; } = "";
+    public bool Convocado { get; set; }
+}
+
+public class EquipaLinha
+{
+    public int Id { get; set; }
+    public string Nome { get; set; } = "";
+    public long Jogadores { get; set; }
+}
+
+public class JogadorEquipa
+{
+    public int Id { get; set; }
+    public int EquipaId { get; set; }
+    public short Numero { get; set; }
+    public string Nome { get; set; } = "";
+    public string Posicao { get; set; } = "";
+    public long Eventos { get; set; }
+}
+
+public class EventoExport
+{
+    public long Id { get; set; }
+    public int EquipaId { get; set; }
+    public string EquipaNome { get; set; } = "";
+    public string Tipo { get; set; } = "";
+    public string TipoNome { get; set; } = "";
+    public short? JogadorNumero { get; set; }
+    public string? JogadorNome { get; set; }
+    public string? JogadorPosicao { get; set; }
+    public string? Resultado { get; set; }
+    public string Situacao { get; set; } = "";
+    public string? Corredor { get; set; }
+    public string? Distancia { get; set; }
+    public decimal? X { get; set; }
+    public decimal? Y { get; set; }
+    public short Parte { get; set; }
+    public int SegundoJogo { get; set; }
+}
+
+/// <summary>Tudo o que o Excel precisa de um jogo.</summary>
+public class DadosExportacao
+{
+    public JogoDetalhe Jogo { get; set; } = new();
+    public EstatisticasJogo Estatisticas { get; set; } = new();
+    public List<EventoExport> Eventos { get; set; } = new();
+    public List<TipoEvento> Tipos { get; set; } = new();
 }
 
 public class JogoLinha
@@ -79,6 +135,7 @@ public class JogoDetalhe
     public string CasaNome { get; set; } = "";
     public int ForaId { get; set; }
     public string ForaNome { get; set; } = "";
+    public int MaxConvocados { get; set; } = CadastroValidador.MaxConvocados;
     public List<JogadorInfo> Jogadores { get; set; } = new();
 }
 

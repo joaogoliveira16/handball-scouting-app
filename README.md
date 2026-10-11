@@ -4,6 +4,8 @@ Plataforma de scouting e play-by-play para andebol, em tempo real.
 
 O adjunto, no banco e com um tablet, toca num mapa do campo para marcar **onde** foi o remate, escolhe **quem** rematou e carrega no resultado (**golo, defesa, fora, poste ou bloqueado**). O treinador e os adeptos veem um dashboard que se atualiza sozinho, sem recarregar a página, para decidir o momento certo de pedir um time-out.
 
+Antes do jogo gerem-se as **equipas e os jogadores**, cria-se o **jogo** e escolhe-se a **convocatória** (até 16 jogadores por equipa). No fim (ou durante o jogo) exportam-se as **estatísticas para Excel**. A interface tem um visual escuro e futurista, pensado para tablet.
+
 ## Como funciona
 
 ```
@@ -33,6 +35,20 @@ Abre **http://localhost:8080**. Há dois jogos de exemplo: o jogo 1 está vazio 
 - **No tablet**: liga-o à mesma rede do computador e abre `http://<IP-do-computador>:8080`.
 - **Configuração** (porta, palavra-passe): copia `.env.example` para `.env`.
 - **Recomeçar do zero**: `docker compose down -v` apaga a base de dados; ao arrancar de novo os scripts de `db/init` voltam a correr.
+- **Já tinhas a app a correr de uma versão anterior?** A convocatória precisa de uma tabela nova. Sem apagar nada, corre uma vez:
+  ```bash
+  docker compose exec -T db psql -U scouting -d scouting < db/init/05_convocados.sql
+  docker compose up -d --build
+  ```
+  (ou então `docker compose down -v` e arrancar de novo, o que apaga os dados.)
+
+## Preparar o jogo
+
+1. **Equipas e jogadores** (`equipas.html`, botão *Equipas* no topo da lista de jogos): cria equipas, e para cada uma adiciona, edita ou apaga jogadores (número 1–99, nome e posição). O número livre mais baixo é sugerido. Um jogador que já tem eventos registados não pode ser apagado (os dados do jogo ficariam incoerentes).
+2. **Novo jogo** (lista de jogos, *Novo jogo*): escolhe a equipa da casa, a de fora e, se quiseres, o local e a data e hora. Depois de criar, abre-se a convocatória.
+3. **Convocatória** (`convocatoria.html?jogo=ID`): toca nos jogadores que vão ao jogo, até **16 por equipa**. *Todos* e *Nenhum* aceleram a escolha e há um aviso se não houver guarda-redes convocado. Fica guardada no servidor; podes voltar a alterá-la a qualquer momento.
+
+Enquanto um jogo não tiver convocatória guardada numa equipa, o banco mostra todos os jogadores dessa equipa (e sugere fazer a convocatória). Com convocatória, o banco só mostra os convocados.
 
 ## Usar no jogo
 
@@ -51,6 +67,19 @@ Ainda no banco:
 - **Desfazer**: `↶ Desfazer último` ou o `✕` ao lado de cada evento.
 
 **Dashboard** (`dashboard.html?jogo=ID`): placar, eficácia por equipa, parcial dos últimos 5 minutos (com aviso quando há uma diferença de 3 ou mais golos), mapa de remates com filtros, jogadores, zonas, guarda-redes, outros eventos e últimos eventos.
+
+## Exportar para Excel
+
+No dashboard, na lista de jogos e na convocatória há botões **⬇ Excel**:
+
+- **Jogo completo**: as duas equipas.
+- **Só uma equipa**: no dashboard, escolhe a aba da equipa (*Ver: ...*) e usa o botão Excel dessa aba.
+
+Também se pode pedir diretamente: `GET /api/jogos/2/exportar.xlsx` (jogo completo) ou `GET /api/jogos/2/exportar.xlsx?equipaId=2` (uma equipa).
+
+O ficheiro `.xlsx` tem uma folha por assunto: **Resumo** (resultado, remates, golos e eficácia por equipa, parcial dos últimos 5 minutos), **Jogadores** (remates, golos e eficácia, com a indicação de quem foi convocado), **Por posição**, **Por corredor**, **Por distância**, **Por parte**, **Guarda-redes** (defesas, golos sofridos e % de defesa), **Outros eventos** e **Eventos** (todos os eventos com tempo, jogador, resultado e coordenadas). Os cabeçalhos ficam fixos e as tabelas têm filtros, por isso dá para ordenar e filtrar logo no Excel. Os valores são números (não texto), por isso servem para fórmulas e gráficos.
+
+A data e hora que aparecem no ficheiro usam o fuso horário `Europe/Lisbon`. Para mudar, define `FUSO_HORARIO` no `.env` (por exemplo `Atlantic/Azores`).
 
 ## Mapa e zonas
 
@@ -91,7 +120,17 @@ docker compose exec db psql -U scouting -d scouting
 | Método | Rota | Para quê |
 |--------|------|----------|
 | GET | `/api/jogos` | Lista de jogos com resultado |
-| GET | `/api/jogos/{id}` | Jogo e jogadores das duas equipas |
+| POST | `/api/jogos` | Cria um jogo: `{ "casaId", "foraId", "local", "dataHora" }` (local e data opcionais) |
+| GET | `/api/jogos/{id}` | Jogo e jogadores das duas equipas (com `convocado`) |
+| GET | `/api/jogos/{id}/convocados` | Ids dos jogadores convocados e máximo por equipa |
+| PUT | `/api/jogos/{id}/convocados` | Substitui a convocatória: `{ "jogadorIds": [1, 2, ...] }` (máx. 16 por equipa) |
+| GET | `/api/jogos/{id}/exportar.xlsx` | Estatísticas em Excel (`?equipaId=` para uma só equipa) |
+| GET | `/api/equipas` | Equipas com o número de jogadores |
+| POST | `/api/equipas` | Cria uma equipa: `{ "nome" }` |
+| GET | `/api/equipas/{id}/jogadores` | Plantel (com o número de eventos de cada jogador) |
+| POST | `/api/equipas/{id}/jogadores` | Adiciona um jogador: `{ "numero", "nome", "posicao" }` |
+| PUT | `/api/jogadores/{id}` | Edita um jogador |
+| DELETE | `/api/jogadores/{id}` | Apaga um jogador (409 se tiver eventos) |
 | GET | `/api/tipos-evento` | Tipos de evento disponíveis |
 | GET | `/api/jogos/{id}/estatisticas` | Estado completo (o mesmo que o dashboard recebe) |
 | GET | `/api/jogos/{id}/estatisticas/eficacia` | Eficácia com filtros |
@@ -109,18 +148,9 @@ curl -X POST http://localhost:8080/api/jogos/1/eventos -H "Content-Type: applica
 }'
 ```
 
-## Dados reais: equipas, jogadores e jogos
+## Dados reais
 
-Os dados de `db/init/03_equipas_jogadores.sql` são fictícios. Para os teus, edita esse ficheiro (e apaga `04_demo_eventos.sql`) antes de criar a base de dados, ou insere diretamente:
-
-```sql
-INSERT INTO equipas (nome) VALUES ('A minha equipa'), ('Adversário');
-INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo)
-VALUES (3, 1, 'Nome do GR', 'GR'), (3, 7, 'Nome do ponta', 'PE');   -- usa os ids das equipas criadas
-INSERT INTO jogos (equipa_casa_id, equipa_fora_id, local) VALUES (3, 4, 'Pavilhão X');
-```
-
-Ainda não há ecrãs para gerir equipas, jogadores e jogos: por agora fazem-se em SQL.
+As equipas, jogadores e jogos de `db/init/03_equipas_jogadores.sql` e `04_demo_eventos.sql` são fictícios, só para experimentares. Cria os teus pelos ecrãs da app (**Equipas** e **Novo jogo**). Se quiseres começar sem os exemplos, apaga esses dois ficheiros antes de criar a base de dados.
 
 ## Adicionar um novo tipo de evento
 
@@ -140,18 +170,26 @@ Um tipo com `e_remate = TRUE` seria um evento com posição no mapa, jogador e r
 ## Testes e CI
 
 ```bash
-dotnet test api/HandballScouting.sln        # regras de validação dos eventos (xUnit)
+dotnet test api/HandballScouting.sln        # validação, exportação para Excel e cadastro (xUnit)
 
 # SQL: com o PostgreSQL a correr e PGHOST, PGUSER, PGPASSWORD e PGDATABASE definidos
 psql -v ON_ERROR_STOP=1 -f db/tests/zonas.sql          # zonas do campo
+psql -v ON_ERROR_STOP=1 -f db/tests/convocados.sql     # convocatória
 python3 db/tests/validar_consultas.py                  # todas as consultas contra o esquema
 ```
+
+Há ainda testes que usam a **API verdadeira** e um browser (pasta `tests/`, ver `tests/README.md`):
+
+- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (estatísticas, equipas, jogadores, jogos, convocatória, eventos, atualizações em tempo real e descarga do Excel);
+- `tests/integracao/verificar_excel.py`: abre os `.xlsx` descarregados e confere os números com os dados de exemplo;
+- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar equipas e jogadores, convocatória, registar remates no banco e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
 
 O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada pull request:
 
 1. **API**: restaura, compila e corre os testes .NET.
 2. **Base de dados**: cria o esquema num PostgreSQL temporário, carrega os dados, corre `db/tests` e valida as consultas.
-3. **Docker**: valida o `docker-compose.yml` e compila as imagens da API e do frontend. Em `main`, publica-as no GitHub Container Registry (`ghcr.io/<utilizador>/<repositório>/api` e `/frontend`).
+3. **Integração**: publica e arranca a API contra um PostgreSQL temporário e corre os testes de `tests/` (API, Excel e browser). As capturas de ecrã e os `.xlsx` gerados ficam disponíveis como artefacto da execução (`resultados-integracao`).
+4. **Docker**: valida o `docker-compose.yml` e compila as imagens da API e do frontend. Em `main`, publica-as no GitHub Container Registry (`ghcr.io/<utilizador>/<repositório>/api` e `/frontend`).
 
 ## Limitações atuais
 
@@ -162,10 +200,11 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 ## Estrutura
 
 ```
-api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/) e testes
-db/init/               esquema, dados base, equipas/jogadores e demo (correm por ordem)
+api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
+db/init/               esquema, dados base, equipas/jogadores, demo e convocatória (correm por ordem)
 db/tests/              testes SQL
-frontend/              páginas (index, banco, dashboard), JS e CSS; lib/ tem o cliente SignalR
+frontend/              páginas (jogos, equipas, convocatória, banco, dashboard), JS, CSS e fontes; lib/ tem o cliente SignalR
+tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)
 docker-compose.yml     os 3 contentores
 .github/workflows/     CI
 ```

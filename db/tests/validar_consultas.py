@@ -13,8 +13,9 @@ import subprocess
 import sys
 
 PASTA = pathlib.Path(__file__).resolve().parents[2] / "api" / "HandballScouting.Api" / "Sql"
-# "IN @ids" é expandido pelo Dapper em (@ids1, @ids2...), por isso não dá para fazer PREPARE tal e qual
-IGNORAR = {"jogadores_basico.sql"}
+# "IN @ids" é expandido pelo Dapper em (@ids1, @ids2...) e substituir_convocados.sql tem duas instruções:
+# nenhuma delas se pode fazer PREPARE tal e qual (são testadas no teste de integração)
+IGNORAR = {"jogadores_basico.sql", "substituir_convocados.sql"}
 
 erros = 0
 for ficheiro in sorted(PASTA.glob("*.sql")):

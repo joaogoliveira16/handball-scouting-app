@@ -69,6 +69,23 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
         };
     }
 
+    /// <summary>Tudo o que o ficheiro Excel precisa (null se o jogo não existir).</summary>
+    public async Task<DadosExportacao?> ObterExportacaoAsync(int jogoId, CancellationToken ct = default)
+    {
+        var jogo = await JogoAsync(jogoId, ct);
+        var estatisticas = jogo is null ? null : await ObterAsync(jogoId, ct);
+        if (jogo is null || estatisticas is null) return null;
+
+        await using var con = await dados.OpenConnectionAsync(ct);
+        return new DadosExportacao
+        {
+            Jogo = jogo,
+            Estatisticas = estatisticas,
+            Eventos = (await Consulta<EventoExport>(con, "eventos_todos", new { jogoId }, ct)).ToList(),
+            Tipos = (await Consulta<TipoEvento>(con, "tipos_evento", null, ct)).ToList()
+        };
+    }
+
     /// <summary>Eficácia de remate com filtros opcionais (jogador, posição, corredor, distância, parte...).</summary>
     public async Task<ResultadoEficacia> EficaciaAsync(int jogoId, FiltroRemates f, CancellationToken ct = default)
     {

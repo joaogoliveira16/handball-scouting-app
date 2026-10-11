@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#050914">
+  <title>Equipas · Scouting de Andebol</title>
+  <link rel="stylesheet" href="css/estilo.css">
+</head>
+<body>
+  <header class="topo">
+    <a class="marca" href="./"><span class="marca-icone" aria-hidden="true"></span>Scouting <b>Andebol</b></a>
+    <nav class="menu" aria-label="Principal">
+      <a href="./">Jogos</a>
+      <a href="equipas.html" aria-current="page">Equipas</a>
+    </nav>
+  </header>
+
+  <main class="pagina">
+    <h1>Equipas e jogadores</h1>
+    <p class="sub">Cria equipas e junta jogadores ao plantel. Os convocados de cada jogo escolhem-se na página <strong>Convocatória</strong> do jogo.</p>
+
+    <div class="duas-colunas">
+      <aside class="cartao">
+        <h2>Equipas</h2>
+        <ul class="lista-equipas" id="equipas"></ul>
+        <form id="form-equipa" class="formulario" novalidate>
+          <label class="largo">Nova equipa
+            <input id="nome-equipa" maxlength="80" placeholder="Nome da equipa" autocomplete="off" required>
+          </label>
+          <p class="erro-formulario largo" id="erro-equipa" role="alert"></p>
+          <button class="botao primario largo" type="submit">＋ Adicionar equipa</button>
+        </form>
+      </aside>
+
+      <section class="cartao" id="plantel">
+        <p class="vazio">A carregar…</p>
+      </section>
+    </div>
+  </main>
+
+  <div id="aviso" class="aviso" role="status"></div>
+  <script type="module" src="js/equipas.js"></script>
+</body>
+</html>

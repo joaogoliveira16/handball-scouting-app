@@ -26,6 +26,8 @@ services:
     restart: unless-stopped
     environment:
       ConnectionStrings__Default: Host=db;Port=5432;Database=${POSTGRES_DB:-scouting};Username=${POSTGRES_USER:-scouting};Password=${POSTGRES_PASSWORD:-scouting}
+      # Fuso horário das datas nos ficheiros Excel
+      Exportacao__FusoHorario: ${FUSO_HORARIO:-Europe/Lisbon}
     depends_on:
       db:
         condition: service_healthy

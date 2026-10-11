@@ -1,0 +1,15 @@
+{
+  "name": "handball-scouting-testes",
+  "private": true,
+  "type": "module",
+  "description": "Testes de integração da API (HTTP + SignalR + Excel) e testes de ponta a ponta das páginas (Chromium). Ver README.md da pasta.",
+  "scripts": {
+    "integracao": "node integracao/integracao.mjs",
+    "e2e": "node e2e/fluxos.mjs"
+  },
+  "devDependencies": {
+    "@microsoft/signalr": "^8.0.7",
+    "pg": "^8.13.0",
+    "playwright": "1.56.0"
+  }
+}

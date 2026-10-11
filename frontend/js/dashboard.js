@@ -2,9 +2,9 @@
 import { h, substituir } from './dom.js';
 import {
   formatarTempo, percentagem, RESULTADOS, ROTULO_RESULTADO, ROTULO_SITUACAO,
-  ROTULO_CORREDOR, ORDEM_CORREDOR, ROTULO_DISTANCIA, ORDEM_DISTANCIA,
+  ROTULO_CORREDOR, ORDEM_CORREDOR, ROTULO_DISTANCIA, ORDEM_DISTANCIA, urlExcel,
 } from './api.js';
-import { criarCampo, simboloLegenda } from './campo.js';
+import { criarCampo, novoSvgCampo, simboloLegenda } from './campo.js';
 import { ligar, TEXTO_ESTADO } from './tempo-real.js';
 
 const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
@@ -67,7 +67,7 @@ function blocoEficacia() {
       h('div', { class: 'numeros' },
         numero(e.remates, 'remates'), numero(e.golos, 'golos'), numero(percentagem(e.eficacia), 'eficácia')),
       barra(e.eficacia, ladoDe(e)),
-      h('div', { class: 'meta', style: 'margin-top:6px;color:#6b7280;font-size:.85rem' },
+      h('div', { class: 'meta-equipa' },
         `${e.defesas} defesas · ${e.fora} fora · ${e.poste} poste · ${e.bloqueados} bloqueados`)))));
 }
 
@@ -82,7 +82,7 @@ function blocoParcial() {
 }
 
 function blocoMapa(selecionada) {
-  const svgCampo = h('svg', { class: 'campo' });
+  const svgCampo = novoSvgCampo(); // h('svg') criaria um elemento HTML, que o browser não desenha
   const remates = estado.dados.remates.filter((r) => r.equipaId === selecionada.equipaId);
   const visiveis = remates.filter((r) => estado.filtros.has(r.resultado));
   const filtros = RESULTADOS.map((r) => h('button', {
@@ -215,10 +215,14 @@ function desenhar() {
   if (!equipas.some((e) => e.equipaId === estado.equipaId)) estado.equipaId = equipas[0].equipaId;
   const selecionada = equipaPorId(estado.equipaId);
 
-  const abas = h('div', { class: 'separador-abas largo' }, equipas.map((e) => h('button', {
-    type: 'button', class: e.equipaId === estado.equipaId ? 'ativo' : '',
-    onclick: () => { estado.equipaId = e.equipaId; desenhar(); },
-  }, `Ver: ${e.nome}`)));
+  const abas = h('div', { class: 'separador-abas largo' },
+    equipas.map((e) => h('button', {
+      type: 'button', class: e.equipaId === estado.equipaId ? 'ativo' : '',
+      onclick: () => { estado.equipaId = e.equipaId; desenhar(); },
+    }, `Ver: ${e.nome}`)),
+    h('div', { class: 'exportar' },
+      h('a', { class: 'botao-link pequeno', href: urlExcel(jogoId, selecionada.equipaId), download: '' }, `⬇ Excel · ${selecionada.nome}`),
+      h('a', { class: 'botao-link suave pequeno', href: urlExcel(jogoId), download: '' }, '⬇ Excel · jogo completo')));
 
   const dados = estado.dados;
   substituir(painel,
@@ -246,5 +250,7 @@ function mostrarEstadoLigacao(codigo) {
   el.className = `ligacao ${codigo === 'ligado' ? 'ok' : codigo}`;
   el.textContent = TEXTO_ESTADO[codigo];
 }
+
+document.getElementById('excel-jogo').href = urlExcel(jogoId);
 
 ligar(jogoId, receber, mostrarEstadoLigacao);

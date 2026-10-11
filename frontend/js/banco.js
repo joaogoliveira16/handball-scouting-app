@@ -90,10 +90,13 @@ function desenharRelogio() {
 const equipaAtacante = () => (estado.lado === 'casa' ? estado.jogo.casaId : estado.jogo.foraId);
 const equipaAdversaria = () => (estado.lado === 'casa' ? estado.jogo.foraId : estado.jogo.casaId);
 const jogadoresDe = (equipaId) => estado.jogo.jogadores.filter((j) => j.equipaId === equipaId);
+const temConvocatoria = (equipaId) => jogadoresDe(equipaId).some((j) => j.convocado);
+/** Jogadores disponíveis no banco: os convocados; se a equipa ainda não tem convocatória, todos. */
+const plantelDe = (equipaId) => (temConvocatoria(equipaId) ? jogadoresDe(equipaId).filter((j) => j.convocado) : jogadoresDe(equipaId));
 const nomeCurto = (nome) => nome.split(' ')[0];
 
 function guardaRedesAdversario() {
-  const lista = jogadoresDe(equipaAdversaria()).filter((j) => j.posicao === 'GR');
+  const lista = plantelDe(equipaAdversaria()).filter((j) => j.posicao === 'GR');
   const escolhido = estado.grPorEquipa[equipaAtacante()];
   return lista.find((j) => j.id === escolhido) ?? lista[0] ?? null;
 }
@@ -147,16 +150,27 @@ function desenharSeletorEquipa() {
 }
 
 function desenharJogadores() {
-  const jogadores = jogadoresDe(equipaAtacante())
+  const jogadores = plantelDe(equipaAtacante())
     .filter((j) => j.posicao !== 'GR')
     .sort((a, b) => a.numero - b.numero);
-  substituir(document.getElementById('jogadores'), jogadores.map((j) => h('button', {
-    type: 'button', class: `botao-jogador${estado.jogadorId === j.id ? ' ativo' : ''}`,
-    onclick: () => {
-      estado.jogadorId = estado.jogadorId === j.id ? null : j.id;
-      desenharTudo();
-    },
-  }, h('b', {}, j.numero), h('small', {}, nomeCurto(j.nome)), h('em', {}, j.posicao))));
+  const grelha = document.getElementById('jogadores');
+  grelha.dataset.lado = estado.lado;
+  substituir(grelha, jogadores.length
+    ? jogadores.map((j) => h('button', {
+      type: 'button', class: `botao-jogador${estado.jogadorId === j.id ? ' ativo' : ''}`,
+      onclick: () => {
+        estado.jogadorId = estado.jogadorId === j.id ? null : j.id;
+        desenharTudo();
+      },
+    }, h('b', {}, j.numero), h('small', {}, nomeCurto(j.nome)), h('em', {}, j.posicao)))
+    : h('p', { class: 'vazio' }, 'Sem jogadores de campo convocados.'));
+
+  const nota = document.getElementById('nota-convocatoria');
+  nota.hidden = temConvocatoria(equipaAtacante());
+  if (!nota.hidden && !nota.firstChild) {
+    nota.append('Sem convocatória: a mostrar todos os jogadores. ',
+      h('a', { href: `convocatoria.html?jogo=${jogoId}` }, 'Escolher convocados'));
+  }
 }
 
 function desenharSituacoes() {
@@ -171,7 +185,7 @@ function desenharSituacoes() {
 }
 
 function desenharGuardaRedes() {
-  const lista = jogadoresDe(equipaAdversaria()).filter((j) => j.posicao === 'GR');
+  const lista = plantelDe(equipaAdversaria()).filter((j) => j.posicao === 'GR');
   const atual = guardaRedesAdversario();
   const seletor = document.getElementById('guarda-redes');
   substituir(seletor, lista.length

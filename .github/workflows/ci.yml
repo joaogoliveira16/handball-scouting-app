@@ -61,10 +61,108 @@ jobs:
       - name: Validar as consultas da API contra o esquema
         run: python3 db/tests/validar_consultas.py
 
+  integracao:
+    name: Integração - API real, Excel e browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: scouting
+          POSTGRES_USER: scouting
+          POSTGRES_PASSWORD: scouting
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scouting -d scouting"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: scouting
+      PGPASSWORD: scouting
+      PGDATABASE: scouting
+      API_URL: http://localhost:5080
+      EXCEL_DIR: ${{ github.workspace }}/tests/resultados
+      E2E_DIR: ${{ github.workspace }}/tests/resultados
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Criar esquema e dados (db/init)
+        run: |
+          for f in db/init/*.sql; do
+            psql -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+
+      - name: Publicar e arrancar a API
+        run: tests/api.sh arrancar
+
+      - name: Instalar as dependências dos testes
+        working-directory: tests
+        run: npm ci
+
+      - name: Teste de integração da API (HTTP, SignalR, Excel)
+        working-directory: tests
+        run: node integracao/integracao.mjs
+
+      - name: Verificar os ficheiros Excel descarregados
+        run: |
+          pip install --quiet openpyxl
+          python3 tests/integracao/verificar_excel.py tests/resultados
+
+      - name: Base de dados limpa e API de novo para os testes de browser
+        run: |
+          tests/api.sh parar
+          psql -d postgres -v ON_ERROR_STOP=1 -q -c "DROP DATABASE scouting WITH (FORCE)" -c "CREATE DATABASE scouting"
+          for f in db/init/*.sql; do
+            psql -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+          tests/api.sh arrancar
+
+      - name: Instalar o Chromium
+        working-directory: tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Testes de browser (Chromium)
+        working-directory: tests
+        run: node e2e/fluxos.mjs
+
+      - name: Últimas linhas do registo da API
+        if: failure()
+        run: |
+          if [ -f tests/resultados/api.log ]; then
+            texto=$(tail -n 40 tests/resultados/api.log | cut -c1-220 | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')
+            echo "::error title=Registo da API (últimas linhas)::${texto}"
+          fi
+
+      - name: Guardar capturas, ficheiros Excel e registos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-integracao
+          path: tests/resultados
+          if-no-files-found: ignore
+
   docker:
     name: Imagens Docker
     runs-on: ubuntu-latest
-    needs: [api, base-de-dados]
+    needs: [api, base-de-dados, integracao]
     permissions:
       contents: read
       packages: write

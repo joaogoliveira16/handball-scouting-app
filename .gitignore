@@ -156,3 +156,8 @@ vite.config.ts.timestamp-*
 
 # Python
 __pycache__/
+
+# Testes (tests/): dependências e resultados (capturas, Excel, registos)
+tests/node_modules/
+tests/resultados/
+tests/publicado/

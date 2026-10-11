@@ -3,15 +3,42 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#050914">
   <title>Scouting de Andebol</title>
   <link rel="stylesheet" href="css/estilo.css">
 </head>
 <body>
+  <header class="topo">
+    <a class="marca" href="./"><span class="marca-icone" aria-hidden="true"></span>Scouting <b>Andebol</b></a>
+    <nav class="menu" aria-label="Principal">
+      <a href="./" aria-current="page">Jogos</a>
+      <a href="equipas.html">Equipas</a>
+    </nav>
+  </header>
+
   <main class="pagina">
-    <h1>Scouting de Andebol</h1>
-    <p class="sub">Escolhe o jogo. O adjunto usa o <strong>Banco</strong>; treinador e adeptos veem o <strong>Dashboard</strong>.</p>
+    <h1>Centro de scouting</h1>
+    <p class="sub">Cria o jogo e escolhe os convocados. O adjunto usa o <strong>Banco</strong>; treinador e adeptos veem o <strong>Dashboard</strong> em direto; no fim exporta tudo para <strong>Excel</strong>.</p>
+
+    <details class="cartao novo-jogo" id="novo-jogo">
+      <summary>Novo jogo</summary>
+      <form id="form-jogo" class="formulario" novalidate>
+        <label>Equipa da casa <select id="casa" required></select></label>
+        <label>Equipa de fora <select id="fora" required></select></label>
+        <label>Local <input id="local" maxlength="120" placeholder="Pavilhão…" autocomplete="off"></label>
+        <label>Data e hora <input id="data-hora" type="datetime-local"></label>
+        <p class="erro-formulario largo" id="erro-jogo" role="alert"></p>
+        <div class="largo acoes-formulario">
+          <button class="botao primario" type="submit" id="criar-jogo">Criar jogo e escolher convocados</button>
+          <a class="botao-link suave" href="equipas.html">Gerir equipas e jogadores</a>
+        </div>
+      </form>
+    </details>
+
+    <h2 class="seccao">Jogos</h2>
     <div id="jogos"><p class="vazio">A carregar jogos…</p></div>
   </main>
+
   <div id="aviso" class="aviso" role="status"></div>
   <script type="module" src="js/index.js"></script>
 </body>

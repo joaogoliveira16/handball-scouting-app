@@ -5,9 +5,13 @@
 const NS = 'http://www.w3.org/2000/svg';
 const ESCALA = 4;
 
+// Mesmas cores neon do tema (css/estilo.css: --r-golo, --r-defesa...)
 export const CORES = {
-  GOLO: '#16803c', DEFESA: '#1d4ed8', FORA: '#6b7280', POSTE: '#c2410c', BLOQUEADO: '#7e22ce',
+  GOLO: '#2cffa0', DEFESA: '#38bdf8', FORA: '#94a3b8', POSTE: '#ffb020', BLOQUEADO: '#c084fc',
 };
+
+const CONTORNO_MARCADOR = '#050914';
+let contadorCampos = 0; // para os ids do SVG serem únicos se houver mais do que um campo na página
 
 function svg(nome, atributos = {}, pai = null) {
   const el = document.createElementNS(NS, nome);
@@ -16,13 +20,21 @@ function svg(nome, atributos = {}, pai = null) {
   return el;
 }
 
+/** Cria um elemento <svg> do campo (em páginas onde não está escrito no HTML). */
+export function novoSvgCampo() {
+  const el = svg('svg', { class: 'campo' });
+  return el;
+}
+
 /** Desenha o símbolo de um resultado (formas diferentes além das cores, para se distinguir bem). */
-export function desenharMarcador(pai, x, y, resultado, { raio = 7, titulo = null } = {}) {
+export function desenharMarcador(pai, x, y, resultado, { raio = 7, titulo = null, halo = true } = {}) {
   const cx = x * ESCALA;
   const cy = y * ESCALA;
-  const cor = CORES[resultado] ?? '#111827';
+  const cor = CORES[resultado] ?? '#e8f1ff';
   const g = svg('g', { class: 'marcador' }, pai);
-  const base = { fill: cor, stroke: '#ffffff', 'stroke-width': 1.5 };
+  // halo suave por baixo do símbolo (dá o brilho neon sem usar filtros pesados)
+  if (halo) svg('circle', { cx, cy, r: raio + 5, fill: cor, class: 'marcador-halo' }, g);
+  const base = { fill: cor, stroke: CONTORNO_MARCADOR, 'stroke-width': 1.5 };
   switch (resultado) {
     case 'DEFESA':
       svg('rect', { ...base, x: cx - raio, y: cy - raio, width: raio * 2, height: raio * 2 }, g);
@@ -50,7 +62,7 @@ export function desenharMarcador(pai, x, y, resultado, { raio = 7, titulo = null
 export function simboloLegenda(resultado) {
   const el = svg('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true' });
   const g = svg('g', {}, el);
-  desenharMarcador(g, 2.5, 2.5, resultado, { raio: 6 });
+  desenharMarcador(g, 2.5, 2.5, resultado, { raio: 6, halo: false });
   return el;
 }
 
@@ -64,15 +76,23 @@ export function criarCampo(elemento, { aoClicar = null } = {}) {
   elemento.setAttribute('aria-label', 'Mapa do meio-campo de ataque');
   elemento.replaceChildren();
 
+  const n = ++contadorCampos;
+  const idRecorte = `recorte-campo-${n}`;
+  const idGrelha = `grelha-campo-${n}`;
+
   const defs = svg('defs', {}, elemento);
-  const recorte = svg('clipPath', { id: 'recorte-campo' }, defs);
+  const recorte = svg('clipPath', { id: idRecorte }, defs);
   svg('rect', { x: 0, y: 0, width: 400, height: 400 }, recorte);
+  // grelha de 1 m x 1 m (o campo tem 20 m, 400 unidades)
+  const grelha = svg('pattern', { id: idGrelha, width: 20, height: 20, patternUnits: 'userSpaceOnUse' }, defs);
+  svg('path', { d: 'M20 0H0V20', class: 'campo-grelha' }, grelha);
 
   svg('rect', { x: 0, y: 0, width: 400, height: 400, class: 'campo-chao' }, elemento);
+  svg('rect', { x: 0, y: 0, width: 400, height: 400, fill: `url(#${idGrelha})` }, elemento);
   // Área de baliza (dentro dos 6 m)
   svg('path', { d: 'M50 0A120 120 0 0 0 170 120L230 120A120 120 0 0 0 350 0Z', class: 'campo-area' }, elemento);
 
-  const linhas = svg('g', { class: 'campo-linhas', 'clip-path': 'url(#recorte-campo)' }, elemento);
+  const linhas = svg('g', { class: 'campo-linhas', 'clip-path': `url(#${idRecorte})` }, elemento);
   svg('path', { d: 'M50 0A120 120 0 0 0 170 120L230 120A120 120 0 0 0 350 0', class: 'linha-6m' }, linhas);
   svg('path', {
     d: 'M-10 0A180 180 0 0 0 170 180L230 180A180 180 0 0 0 410 0',
@@ -121,6 +141,7 @@ export function criarCampo(elemento, { aoClicar = null } = {}) {
       if (!ponto) return;
       const cx = ponto.x * ESCALA;
       const cy = ponto.y * ESCALA;
+      svg('circle', { cx, cy, r: 13, class: 'pendente-onda' }, camadaPendente);
       svg('circle', { cx, cy, r: 13, class: 'pendente-anel' }, camadaPendente);
       svg('path', { d: `M${cx - 8} ${cy}H${cx + 8}M${cx} ${cy - 8}V${cy + 8}`, class: 'pendente-cruz' }, camadaPendente);
     },
