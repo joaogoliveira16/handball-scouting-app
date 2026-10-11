@@ -6,8 +6,9 @@ public class EventoValidadorTests
 {
     private static NovoEventoRequest Remate(
         int? jogadorId = 4, string? resultado = "GOLO", decimal? x = 50, decimal? y = 40,
-        short parte = 1, int segundo = 600, string? situacao = null, int? gr = 9) =>
-        new("REMATE", 1, jogadorId, gr, resultado, situacao, x, y, parte, segundo);
+        short parte = 1, int segundo = 600, string? situacao = null, int? gr = 9,
+        decimal? balizaX = null, decimal? balizaY = null) =>
+        new("REMATE", 1, jogadorId, gr, resultado, situacao, x, y, parte, segundo, balizaX, balizaY);
 
     [Fact]
     public void Remate_valido_nao_tem_erros()
@@ -85,6 +86,64 @@ public class EventoValidadorTests
     public void Evento_que_nao_e_remate_nao_aceita_resultado_nem_coordenadas()
     {
         var invalido = new NovoEventoRequest("PERDA_BOLA", 1, 5, null, "GOLO", null, 50, 50, 1, 450);
+        Assert.NotEmpty(EventoValidador.Validar(invalido, eRemate: false));
+    }
+
+    // ------------------------- Local da defesa na baliza -------------------------
+
+    [Fact]
+    public void Defesa_com_local_na_baliza_e_valida()
+    {
+        Assert.Empty(EventoValidador.Validar(Remate(resultado: "DEFESA", balizaX: 20, balizaY: 80), eRemate: true));
+    }
+
+    [Fact]
+    public void Defesa_sem_local_na_baliza_continua_valida()
+    {
+        Assert.Empty(EventoValidador.Validar(Remate(resultado: "DEFESA"), eRemate: true));
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(100, 100)]
+    public void Os_limites_da_baliza_sao_aceites(double x, double y)
+    {
+        Assert.Empty(EventoValidador.Validar(Remate(resultado: "DEFESA", balizaX: (decimal)x, balizaY: (decimal)y), eRemate: true));
+    }
+
+    [Theory]
+    [InlineData(-1, 50)]
+    [InlineData(101, 50)]
+    [InlineData(50, -0.5)]
+    [InlineData(50, 100.5)]
+    public void Local_fora_da_baliza_e_invalido(double x, double y)
+    {
+        var erros = EventoValidador.Validar(Remate(resultado: "DEFESA", balizaX: (decimal)x, balizaY: (decimal)y), eRemate: true);
+        Assert.Contains(erros, e => e.Contains("balizaX"));
+    }
+
+    [Fact]
+    public void Os_dois_pontos_da_baliza_vem_juntos()
+    {
+        Assert.Contains(EventoValidador.Validar(Remate(resultado: "DEFESA", balizaX: 20), eRemate: true), e => e.Contains("balizaX"));
+        Assert.Contains(EventoValidador.Validar(Remate(resultado: "DEFESA", balizaY: 20), eRemate: true), e => e.Contains("balizaX"));
+    }
+
+    [Theory]
+    [InlineData("GOLO")]
+    [InlineData("FORA")]
+    [InlineData("POSTE")]
+    [InlineData("BLOQUEADO")]
+    public void Local_na_baliza_so_existe_numa_defesa(string resultado)
+    {
+        var erros = EventoValidador.Validar(Remate(resultado: resultado, balizaX: 50, balizaY: 50), eRemate: true);
+        Assert.Contains(erros, e => e.Contains("só existe numa defesa"));
+    }
+
+    [Fact]
+    public void Evento_que_nao_e_remate_nao_aceita_local_na_baliza()
+    {
+        var invalido = new NovoEventoRequest("PERDA_BOLA", 1, 5, null, null, null, null, null, 1, 450, 50, 50);
         Assert.NotEmpty(EventoValidador.Validar(invalido, eRemate: false));
     }
 }

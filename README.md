@@ -35,12 +35,20 @@ Abre **http://localhost:8080**. Há dois jogos de exemplo: o jogo 1 está vazio 
 - **No tablet**: liga-o à mesma rede do computador e abre `http://<IP-do-computador>:8080`.
 - **Configuração** (porta, palavra-passe): copia `.env.example` para `.env`.
 - **Recomeçar do zero**: `docker compose down -v` apaga a base de dados; ao arrancar de novo os scripts de `db/init` voltam a correr.
-- **Já tinhas a app a correr de uma versão anterior?** A convocatória precisa de uma tabela nova. Sem apagar nada, corre uma vez:
-  ```bash
-  docker compose exec -T db psql -U scouting -d scouting < db/init/05_convocados.sql
+- **Já tinhas a app a correr de uma versão anterior?** As versões novas acrescentam à base de dados a convocatória (`05_convocados.sql`) e o local da defesa na baliza (`06_baliza.sql`). Sem apagar nada, atualiza o código (`git pull`) e corre os dois ficheiros, que podem repetir-se sem problema:
+  ```powershell
+  # PowerShell (Windows)
+  Get-Content db/init/05_convocados.sql -Raw | docker compose exec -T db psql -U scouting -d scouting
+  Get-Content db/init/06_baliza.sql -Raw | docker compose exec -T db psql -U scouting -d scouting
   docker compose up -d --build
   ```
-  (ou então `docker compose down -v` e arrancar de novo, o que apaga os dados.)
+  ```bash
+  # Linux, macOS
+  docker compose exec -T db psql -U scouting -d scouting < db/init/05_convocados.sql
+  docker compose exec -T db psql -U scouting -d scouting < db/init/06_baliza.sql
+  docker compose up -d --build
+  ```
+  (ou então `docker compose down -v` e arrancar de novo, o que apaga os dados.) O `06_baliza.sql` também marca o local das defesas do jogo de exemplo 2, se ainda não houver nenhum local guardado.
 
 ## Preparar o jogo
 
@@ -59,6 +67,8 @@ Enquanto um jogo não tiver convocatória guardada numa equipa, o banco mostra t
 3. Toca no jogador.
 4. Toca no resultado. O remate fica registado e o mapa limpa-se para o seguinte.
 
+**Defesa**: ao tocar em *Defesa* aparece a **baliza** (vista de frente, do lado de quem remata) com o nome do guarda-redes adversário. Toca no sítio onde ele defendeu a bola e a defesa fica registada com esse local. *Registar sem local* grava a defesa sem o ponto (útil quando não deu para ver) e *Cancelar* (ou `Esc`) não regista nada e mantém o mapa e o jogador escolhidos.
+
 Ainda no banco:
 - **7 metros** põe logo o ponto na marca dos 7 m. **Contra-ataque** é outra situação de remate.
 - O **guarda-redes** adversário vem pré-escolhido (o de menor número); muda-se na lista se houver troca.
@@ -66,7 +76,7 @@ Ainda no banco:
 - **Relógio**: o tempo de jogo é guardado com cada evento (necessário para o parcial dos últimos minutos). Fica guardado no tablet, por isso recarregar a página não o perde. Usa `1.ª parte` para passar à 2.ª parte (aos 30:00) e `✎` para acertar o minuto.
 - **Desfazer**: `↶ Desfazer último` ou o `✕` ao lado de cada evento.
 
-**Dashboard** (`dashboard.html?jogo=ID`): placar, eficácia por equipa, parcial dos últimos 5 minutos (com aviso quando há uma diferença de 3 ou mais golos), mapa de remates com filtros, jogadores, zonas, guarda-redes, outros eventos e últimos eventos.
+**Dashboard** (`dashboard.html?jogo=ID`): placar, eficácia por equipa, parcial dos últimos 5 minutos (com aviso quando há uma diferença de 3 ou mais golos), mapa de remates com filtros, **defesas na baliza** (onde o guarda-redes adversário defendeu os remates da equipa escolhida, com a contagem por zona e a zona mais atacada), jogadores, zonas, guarda-redes, outros eventos e últimos eventos.
 
 ## Exportar para Excel
 
@@ -77,7 +87,7 @@ No dashboard, na lista de jogos e na convocatória há botões **⬇ Excel**:
 
 Também se pode pedir diretamente: `GET /api/jogos/2/exportar.xlsx` (jogo completo) ou `GET /api/jogos/2/exportar.xlsx?equipaId=2` (uma equipa).
 
-O ficheiro `.xlsx` tem uma folha por assunto: **Resumo** (resultado, remates, golos e eficácia por equipa, parcial dos últimos 5 minutos), **Jogadores** (remates, golos e eficácia, com a indicação de quem foi convocado), **Por posição**, **Por corredor**, **Por distância**, **Por parte**, **Guarda-redes** (defesas, golos sofridos e % de defesa), **Outros eventos** e **Eventos** (todos os eventos com tempo, jogador, resultado e coordenadas). Os cabeçalhos ficam fixos e as tabelas têm filtros, por isso dá para ordenar e filtrar logo no Excel. Os valores são números (não texto), por isso servem para fórmulas e gráficos.
+O ficheiro `.xlsx` tem uma folha por assunto: **Resumo** (resultado, remates, golos e eficácia por equipa, parcial dos últimos 5 minutos), **Jogadores** (remates, golos e eficácia, com a indicação de quem foi convocado), **Por posição**, **Por corredor**, **Por distância**, **Por parte**, **Guarda-redes** (defesas, golos sofridos e % de defesa), **Defesas na baliza** (por guarda-redes, quantas defesas em cada uma das 9 zonas da baliza e quantas sem local), **Outros eventos** e **Eventos** (todos os eventos com tempo, jogador, resultado, coordenadas no mapa e, nas defesas, o guarda-redes e o local na baliza). Os cabeçalhos ficam fixos e as tabelas têm filtros, por isso dá para ordenar e filtrar logo no Excel. Os valores são números (não texto), por isso servem para fórmulas e gráficos.
 
 A data e hora que aparecem no ficheiro usam o fuso horário `Europe/Lisbon`. Para mudar, define `FUSO_HORARIO` no `.env` (por exemplo `Atlantic/Azores`).
 
@@ -93,6 +103,16 @@ O PostgreSQL calcula sozinho duas colunas de `eventos` a partir de `x` e `y` (co
 | `distancia` | `ATE_6M`, `DE_6_A_9M`, `LINHA_9M` (9 a 11 m), `MAIS_9M` |
 
 A distância é medida à baliza, com a mesma geometria das linhas de 6 m e 9 m desenhadas no mapa. As fronteiras estão nas funções `zona_corredor` e `zona_distancia`; se quiseres outros limites, é lá que se mudam.
+
+### Baliza
+
+A baliza (3 m × 2 m) vista de frente, do lado de quem remata, guarda `baliza_x` e `baliza_y` em percentagem: `baliza_x` vai do poste esquerdo (0) ao direito (100) e `baliza_y` vai da trave (0) ao chão (100). Só existem em remates com resultado `DEFESA`, são opcionais, e vêm sempre os dois ou nenhum (a base de dados recusa o resto). O PostgreSQL calcula a coluna `baliza_zona` (3 × 3):
+
+| Linha | Colunas |
+|-------|---------|
+| `ALTO`, `MEIO`, `BAIXO` | `ESQ`, `CENTRO`, `DIR` (por exemplo `ALTO_ESQ`, `BAIXO_DIR`) |
+
+Os limites estão na função `zona_baliza` (`db/init/06_baliza.sql`) e a vista `v_remates` expõe as três colunas.
 
 ## Consultas SQL
 
@@ -139,6 +159,8 @@ docker compose exec db psql -U scouting -d scouting
 | DELETE | `/api/jogos/{id}/eventos/{eventoId}` | Apaga um evento |
 | WS | `/hub/jogo` | Hub SignalR: `EntrarNoJogo(jogoId)` e mensagem `EstatisticasAtualizadas` |
 
+Numa defesa podes juntar `"balizaX"` e `"balizaY"` (0 a 100, os dois juntos) com o sítio onde o guarda-redes defendeu; em qualquer outro resultado a API responde 400. O estado das estatísticas devolve `balizaX`, `balizaY` e `balizaZona` em cada remate do mapa e `balizaZona` nos últimos eventos.
+
 Exemplo de remate:
 
 ```bash
@@ -175,14 +197,15 @@ dotnet test api/HandballScouting.sln        # validação, exportação para Exc
 # SQL: com o PostgreSQL a correr e PGHOST, PGUSER, PGPASSWORD e PGDATABASE definidos
 psql -v ON_ERROR_STOP=1 -f db/tests/zonas.sql          # zonas do campo
 psql -v ON_ERROR_STOP=1 -f db/tests/convocados.sql     # convocatória
+psql -v ON_ERROR_STOP=1 -f db/tests/baliza.sql         # zonas e regras da baliza
 python3 db/tests/validar_consultas.py                  # todas as consultas contra o esquema
 ```
 
 Há ainda testes que usam a **API verdadeira** e um browser (pasta `tests/`, ver `tests/README.md`):
 
-- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (estatísticas, equipas, jogadores, jogos, convocatória, eventos, atualizações em tempo real e descarga do Excel);
+- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, atualizações em tempo real e descarga do Excel);
 - `tests/integracao/verificar_excel.py`: abre os `.xlsx` descarregados e confere os números com os dados de exemplo;
-- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar equipas e jogadores, convocatória, registar remates no banco e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
+- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar equipas e jogadores, convocatória, registar remates no banco, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
 
 O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada pull request:
 

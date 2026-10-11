@@ -26,10 +26,16 @@ export function novoSvgCampo() {
   return el;
 }
 
-/** Desenha o símbolo de um resultado (formas diferentes além das cores, para se distinguir bem). */
-export function desenharMarcador(pai, x, y, resultado, { raio = 7, titulo = null, halo = true } = {}) {
-  const cx = x * ESCALA;
-  const cy = y * ESCALA;
+/** Desenha o símbolo de um resultado no campo (x e y em 0–100). */
+export function desenharMarcador(pai, x, y, resultado, opcoes = {}) {
+  return desenharSimbolo(pai, x * ESCALA, y * ESCALA, resultado, opcoes);
+}
+
+/**
+ * Desenha o símbolo de um resultado numa posição em unidades do SVG (formas diferentes além das cores,
+ * para se distinguir bem). Usado no campo e na baliza.
+ */
+export function desenharSimbolo(pai, cx, cy, resultado, { raio = 7, titulo = null, halo = true } = {}) {
   const cor = CORES[resultado] ?? '#e8f1ff';
   const g = svg('g', { class: 'marcador' }, pai);
   // halo suave por baixo do símbolo (dá o brilho neon sem usar filtros pesados)

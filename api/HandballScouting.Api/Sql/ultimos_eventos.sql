@@ -7,6 +7,7 @@ SELECT e.id,
        j.nome   AS jogador_nome,
        e.resultado,
        e.situacao,
+       e.baliza_zona,
        e.parte,
        e.segundo_jogo,
        e.criado_em

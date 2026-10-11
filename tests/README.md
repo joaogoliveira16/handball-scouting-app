@@ -4,9 +4,9 @@ Testes que usam a **API verdadeira** (ASP.NET Core + PostgreSQL), ao contrário 
 
 | Ficheiro | O que faz |
 |----------|-----------|
-| `integracao/integracao.mjs` | Chama a API por HTTP e SignalR: estatísticas dos dados de exemplo, equipas, jogadores, novo jogo, convocatória, eventos, atualizações em tempo real e descarga do Excel. Guarda os `.xlsx` em `resultados/`. |
+| `integracao/integracao.mjs` | Chama a API por HTTP e SignalR: estatísticas dos dados de exemplo, equipas, jogadores, novo jogo, convocatória, eventos, local das defesas na baliza, atualizações em tempo real e descarga do Excel. Guarda os `.xlsx` em `resultados/`. |
 | `integracao/verificar_excel.py` | Abre os `.xlsx` guardados (openpyxl) e confere folhas, totais e filtros por equipa. |
-| `e2e/fluxos.mjs` | Abre as páginas num Chromium (Playwright) e usa-as como um utilizador. Regista remates no banco e confirma que o dashboard recebe o golo por WebSocket. |
+| `e2e/fluxos.mjs` | Abre as páginas num Chromium (Playwright) e usa-as como um utilizador. Regista remates no banco (incluindo a janela da baliza ao tocar em Defesa: tocar na baliza, sem local, cancelar) e confirma que o dashboard recebe o golo e as defesas por WebSocket. |
 | `e2e/servidor.mjs` | Faz o papel do nginx: serve `frontend/` e reencaminha `/api` e `/hub` (incluindo WebSockets) para a API. |
 | `api.sh` | Publica e arranca a API em `http://localhost:5080` (usado pelo CI). |
 

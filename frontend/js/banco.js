@@ -1,9 +1,10 @@
 // Página do banco (adjunto): toca no mapa, escolhe o jogador e carrega no resultado.
 import { h, substituir, avisar } from './dom.js';
 import {
-  obter, enviar, formatarTempo, RESULTADOS, ROTULO_RESULTADO, SITUACOES,
+  obter, enviar, formatarTempo, RESULTADOS, ROTULO_RESULTADO, SITUACOES, ROTULO_ZONA_BALIZA, zonaBaliza,
 } from './api.js';
 import { criarCampo } from './campo.js';
+import { criarBaliza } from './baliza.js';
 import { ligar, TEXTO_ESTADO } from './tempo-real.js';
 
 const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
@@ -21,6 +22,7 @@ const estado = {
   situacao: 'POSICIONAL',
   grPorEquipa: {},       // equipaId -> id do guarda-redes adversário escolhido
   aEnviar: false,
+  aEscolherBaliza: false, // janela da baliza aberta
   ligado: false,
 };
 
@@ -216,7 +218,8 @@ function descreverEvento(e) {
     h('span', { class: 'texto' },
       h('span', { class: `ponto-equipa ${lado}` }),
       e.resultado
-        ? [h('span', { class: 'etiqueta', 'data-resultado': e.resultado }, ROTULO_RESULTADO[e.resultado]), ' ', quem]
+        ? [h('span', { class: 'etiqueta', 'data-resultado': e.resultado }, ROTULO_RESULTADO[e.resultado]), ' ', quem,
+          e.balizaZona ? h('span', { class: 'zona-baliza' }, ` · ${ROTULO_ZONA_BALIZA[e.balizaZona]}`) : null]
         : [h('span', { class: 'etiqueta neutra' }, e.tipoNome), ' ', quem]),
     h('button', { type: 'button', class: 'apagar', title: 'Apagar este evento', onclick: () => apagarEvento(e) }, '✕'));
 }
@@ -238,6 +241,44 @@ function desenharDica() {
     ? `Falta: ${falta.join(' e ')}.`
     : 'Pronto: carrega no resultado para registar.';
 }
+
+// ---------------------------------------------------------------------
+// Janela da baliza (onde o guarda-redes defendeu)
+// ---------------------------------------------------------------------
+const janelaBaliza = document.getElementById('janela-baliza');
+let resolverJanela = null;
+let focoAntes = null;
+
+criarBaliza(document.getElementById('baliza'), {
+  aoClicar: ({ x, y }) => fecharJanelaBaliza({ x, y }),
+});
+
+/** Abre a janela. Devolve {x, y} se tocou na baliza, null se escolheu "sem local" e undefined se cancelou. */
+function pedirLocalDaDefesa(guardaRedes) {
+  return new Promise((resolve) => {
+    resolverJanela = resolve;
+    focoAntes = document.activeElement;
+    document.getElementById('sub-baliza').textContent = guardaRedes
+      ? `Guarda-redes adversário: #${guardaRedes.numero} ${guardaRedes.nome}`
+      : 'Sem guarda-redes escolhido';
+    janelaBaliza.hidden = false;
+    document.getElementById('baliza-cancelar').focus({ preventScroll: true });
+  });
+}
+
+function fecharJanelaBaliza(resultado) {
+  if (!resolverJanela) return;
+  const resolver = resolverJanela;
+  resolverJanela = null;
+  janelaBaliza.hidden = true;
+  focoAntes?.focus?.({ preventScroll: true });
+  resolver(resultado);
+}
+
+document.getElementById('baliza-cancelar').addEventListener('click', () => fecharJanelaBaliza(undefined));
+document.getElementById('baliza-sem-local').addEventListener('click', () => fecharJanelaBaliza(null));
+janelaBaliza.addEventListener('click', (evento) => { if (evento.target === janelaBaliza) fecharJanelaBaliza(undefined); });
+document.addEventListener('keydown', (evento) => { if (evento.key === 'Escape') fecharJanelaBaliza(undefined); });
 
 // ---------------------------------------------------------------------
 // Ações
@@ -269,22 +310,39 @@ async function registar(corpo, mensagem) {
   }
 }
 
-function registarRemate(resultado) {
-  if (estado.aEnviar) return;
+async function registarRemate(resultado) {
+  if (estado.aEnviar || estado.aEscolherBaliza) return;
   if (!estado.ponto || !estado.jogadorId) {
     avisar(!estado.ponto ? 'Toca primeiro no mapa.' : 'Escolhe o jogador.', { erro: true });
     return;
   }
   const jogador = estado.jogo.jogadores.find((j) => j.id === estado.jogadorId);
-  registar({
+  const guardaRedes = guardaRedesAdversario();
+  const ponto = estado.ponto;
+  const corpo = {
     ...corpoBase('REMATE'),
-    jogadorId: estado.jogadorId,
-    guardaRedesId: guardaRedesAdversario()?.id ?? null,
+    jogadorId: jogador.id,
+    guardaRedesId: guardaRedes?.id ?? null,
     resultado,
     situacao: estado.situacao,
-    x: estado.ponto.x,
-    y: estado.ponto.y,
-  }, `${ROTULO_RESULTADO[resultado]} · #${jogador.numero} ${jogador.nome}`);
+    x: ponto.x,
+    y: ponto.y,
+  };
+  let descricao = `${ROTULO_RESULTADO[resultado]} · #${jogador.numero} ${jogador.nome}`;
+
+  // Numa defesa, abre a baliza para marcar onde o guarda-redes defendeu a bola
+  if (resultado === 'DEFESA') {
+    estado.aEscolherBaliza = true;
+    const escolha = await pedirLocalDaDefesa(guardaRedes);
+    estado.aEscolherBaliza = false;
+    if (escolha === undefined) return; // cancelou: nada fica registado
+    if (escolha) {
+      corpo.balizaX = escolha.x;
+      corpo.balizaY = escolha.y;
+      descricao += ` · ${ROTULO_ZONA_BALIZA[zonaBaliza(escolha.x, escolha.y)]}`;
+    }
+  }
+  registar(corpo, descricao);
 }
 
 function registarOutro(tipo) {

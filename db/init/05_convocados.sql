@@ -1,6 +1,7 @@
 -- Convocatória: jogadores convocados para cada jogo.
 -- Este ficheiro é idempotente: também serve para atualizar uma base de dados já existente:
---   docker compose exec -T db psql -U scouting -d scouting < db/init/05_convocados.sql
+--   Get-Content db/init/05_convocados.sql -Raw | docker compose exec -T db psql -U scouting -d scouting   (PowerShell)
+--   docker compose exec -T db psql -U scouting -d scouting < db/init/05_convocados.sql                     (Linux, macOS)
 --
 -- Um jogo sem convocados numa equipa significa "ainda sem convocatória": a app mostra
 -- todos os jogadores dessa equipa. O máximo de convocados por equipa (16) é validado pela API.

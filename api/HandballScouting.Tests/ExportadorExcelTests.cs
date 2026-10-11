@@ -15,12 +15,16 @@ public class ExportadorExcelTests
 
     private static EventoExport Remate(
         long id, int equipa, int numero, string nome, string posicao, string resultado,
-        string corredor, string distancia, short parte, int segundo) => new()
+        string corredor, string distancia, short parte, int segundo,
+        int? grId = null, int? grEquipa = null, int? grNumero = null, string? grNome = null,
+        decimal? balizaX = null, decimal? balizaY = null, string? zona = null) => new()
     {
         Id = id, EquipaId = equipa, EquipaNome = equipa == Casa ? "Águias do Norte" : "Leões do Sul",
         Tipo = "REMATE", TipoNome = "Remate", JogadorNumero = (short)numero, JogadorNome = nome, JogadorPosicao = posicao,
         Resultado = resultado, Situacao = "POSICIONAL", Corredor = corredor, Distancia = distancia,
-        X = 50.5m, Y = 30m, Parte = parte, SegundoJogo = segundo
+        X = 50.5m, Y = 30m, Parte = parte, SegundoJogo = segundo,
+        GuardaRedesId = grId, GuardaRedesEquipaId = grEquipa, GuardaRedesNumero = (short?)grNumero, GuardaRedesNome = grNome,
+        BalizaX = balizaX, BalizaY = balizaY, BalizaZona = zona
     };
 
     /// <summary>
@@ -106,8 +110,10 @@ public class ExportadorExcelTests
                 Remate(1, Casa, 7, "Tiago Alves", "PE", "GOLO", "PONTA_ESQ", "ATE_6M", 1, 120),
                 Remate(2, Casa, 9, "Pedro Lima", "LE", "GOLO", "LATERAL_ESQ", "LINHA_9M", 2, 2300),
                 Remate(3, Fora, 8, "Davi Cruz", "LD", "FORA", "CENTRAL", "MAIS_9M", 2, 2400),
-                Remate(4, Casa, 9, "Pedro Lima", "LE", "DEFESA", "LATERAL_ESQ", "LINHA_9M", 2, 2500),
-                Remate(5, Fora, 6, "Ivo Pinto", "CE", "GOLO", "CENTRAL", "DE_6_A_9M", 2, 3725),
+                Remate(4, Casa, 9, "Pedro Lima", "LE", "DEFESA", "LATERAL_ESQ", "LINHA_9M", 2, 2500,
+                    grId: 11, grEquipa: Fora, grNumero: 12, grNome: "Hugo Dias", balizaX: 20.5m, balizaY: 15m, zona: "ALTO_ESQ"),
+                Remate(5, Fora, 6, "Ivo Pinto", "CE", "GOLO", "CENTRAL", "DE_6_A_9M", 2, 3725,
+                    grId: 1, grEquipa: Casa, grNumero: 1, grNome: "Rui Gomes"),
                 new EventoExport
                 {
                     Id = 6, EquipaId = Fora, EquipaNome = "Leões do Sul", Tipo = "FALTA_OFENSIVA", TipoNome = "Falta ofensiva",
@@ -126,7 +132,11 @@ public class ExportadorExcelTests
     public void O_livro_tem_as_folhas_esperadas_pela_ordem_certa()
     {
         Assert.Equal(
-            new List<string> { "Resumo", "Jogadores", "Por posição", "Por corredor", "Por distância", "Por parte", "Guarda-redes", "Outros eventos", "Eventos" },
+            new List<string>
+            {
+                "Resumo", "Jogadores", "Por posição", "Por corredor", "Por distância", "Por parte", "Guarda-redes",
+                "Defesas na baliza", "Outros eventos", "Eventos"
+            },
             LeitorXlsx.NomesDasFolhas(Gerar(Amostra())));
     }
 
@@ -338,6 +348,96 @@ public class ExportadorExcelTests
         Assert.Equal("Linha de 9 m (9–11 m)", golo[11]);
         Assert.Equal("50.5", golo[12]);
         Assert.Equal("30", golo[13]);
+        Assert.Equal("", golo[14]);                       // guarda-redes (este remate não tem)
+        Assert.Equal("", golo[15]);                       // zona da baliza
+    }
+
+    [Fact]
+    public void Eventos_mostra_o_guarda_redes_e_o_local_da_defesa_na_baliza()
+    {
+        var linhas = LeitorXlsx.Linhas(Gerar(Amostra()), "Eventos");
+        Assert.Equal(
+            new[] { "Guarda-redes", "Zona da baliza", "Baliza X (%)", "Baliza Y (%)" },
+            linhas[0].Skip(14).ToArray());
+
+        var defesa = linhas[4]; // evento 4
+        Assert.Equal("Defesa", defesa[8]);
+        Assert.Equal("#12 Hugo Dias", defesa[14]);
+        Assert.Equal("Alto à esquerda", defesa[15]);
+        Assert.Equal("20.5", defesa[16]);
+        Assert.Equal("15", defesa[17]);
+    }
+
+    // ------------------------- Defesas na baliza -------------------------
+
+    private static List<string[]> TabelaDefesas(byte[] ficheiro) =>
+        LeitorXlsx.Linhas(ficheiro, "Defesas na baliza").Where(l => l.Length > 3).ToList();
+
+    [Fact]
+    public void Defesas_na_baliza_tem_uma_coluna_por_zona_na_ordem_da_baliza()
+    {
+        var cabecalho = TabelaDefesas(Gerar(Amostra()))[0];
+        Assert.Equal(
+            new[]
+            {
+                "Equipa", "Nº", "Nome",
+                "Alto à esquerda", "Alto ao centro", "Alto à direita",
+                "Meio à esquerda", "Meio ao centro", "Meio à direita",
+                "Baixo à esquerda", "Baixo ao centro", "Baixo à direita",
+                "Sem local", "Total de defesas"
+            },
+            cabecalho);
+    }
+
+    [Fact]
+    public void Defesas_na_baliza_conta_as_defesas_de_cada_guarda_redes_por_zona()
+    {
+        var linhas = TabelaDefesas(Gerar(Amostra())).Skip(1).Select(l => string.Join("|", l)).ToArray();
+        // só o Hugo Dias (Leões do Sul) defendeu; o Rui Gomes só sofreu golos e não aparece
+        Assert.Equal(new[] { "Leões do Sul|12|Hugo Dias|1|0|0|0|0|0|0|0|0|0|1" }, linhas);
+    }
+
+    [Fact]
+    public void Defesa_sem_local_conta_em_sem_local_e_defesa_sem_guarda_redes_fica_numa_linha_propria()
+    {
+        var dados = Amostra();
+        // o Hugo defende mais duas: uma no meio e outra sem local
+        dados.Eventos.Add(Remate(7, Casa, 7, "Tiago Alves", "PE", "DEFESA", "PONTA_ESQ", "ATE_6M", 2, 2600,
+            grId: 11, grEquipa: Fora, grNumero: 12, grNome: "Hugo Dias", balizaX: 50m, balizaY: 50m, zona: "MEIO_CENTRO"));
+        dados.Eventos.Add(Remate(8, Casa, 7, "Tiago Alves", "PE", "DEFESA", "PONTA_ESQ", "ATE_6M", 2, 2700,
+            grId: 11, grEquipa: Fora, grNumero: 12, grNome: "Hugo Dias"));
+        // uma defesa da equipa de fora sem guarda-redes registado: a equipa do guarda-redes é a da casa
+        dados.Eventos.Add(Remate(9, Fora, 8, "Davi Cruz", "LD", "DEFESA", "CENTRAL", "MAIS_9M", 2, 2800));
+
+        var linhas = TabelaDefesas(Gerar(dados)).Skip(1).Select(l => string.Join("|", l)).ToArray();
+        Assert.Equal(
+            new[]
+            {
+                "Águias do Norte||(sem guarda-redes)|0|0|0|0|0|0|0|0|0|1|1",
+                "Leões do Sul|12|Hugo Dias|1|0|0|0|1|0|0|0|0|1|3"
+            },
+            linhas);
+    }
+
+    [Fact]
+    public void Defesas_na_baliza_de_uma_equipa_so_mostra_os_guarda_redes_dessa_equipa()
+    {
+        var dados = Amostra();
+        dados.Eventos.Add(Remate(7, Fora, 8, "Davi Cruz", "LD", "DEFESA", "CENTRAL", "MAIS_9M", 2, 2800,
+            grId: 1, grEquipa: Casa, grNumero: 1, grNome: "Rui Gomes", balizaX: 90m, balizaY: 90m, zona: "BAIXO_DIR"));
+
+        var casa = TabelaDefesas(Gerar(dados, equipaId: Casa)).Skip(1).Select(l => string.Join("|", l)).ToArray();
+        Assert.Equal(new[] { "Águias do Norte|1|Rui Gomes|0|0|0|0|0|0|0|0|1|0|1" }, casa);
+
+        var fora = TabelaDefesas(Gerar(dados, equipaId: Fora)).Skip(1).Select(l => string.Join("|", l)).ToArray();
+        Assert.Equal(new[] { "Leões do Sul|12|Hugo Dias|1|0|0|0|0|0|0|0|0|0|1" }, fora);
+    }
+
+    [Fact]
+    public void Defesas_na_baliza_explica_o_lado_na_nota_final()
+    {
+        var todas = LeitorXlsx.Linhas(Gerar(Amostra()), "Defesas na baliza");
+        Assert.Contains(todas, l => l.Length == 1 && l[0].Contains("vistas de frente"));
     }
 
     [Fact]

@@ -56,7 +56,9 @@ public class EventosService(NpgsqlDataSource dados, SqlLoader sql)
             x = req.X,
             y = req.Y,
             parte = req.Parte,
-            segundoJogo = req.SegundoJogo
+            segundoJogo = req.SegundoJogo,
+            balizaX = req.BalizaX,
+            balizaY = req.BalizaY
         }, cancellationToken: ct));
 
         return ResultadoRegisto.Sucesso(id);

@@ -2,9 +2,10 @@
 import { h, substituir } from './dom.js';
 import {
   formatarTempo, percentagem, RESULTADOS, ROTULO_RESULTADO, ROTULO_SITUACAO,
-  ROTULO_CORREDOR, ORDEM_CORREDOR, ROTULO_DISTANCIA, ORDEM_DISTANCIA, urlExcel,
+  ROTULO_CORREDOR, ORDEM_CORREDOR, ROTULO_DISTANCIA, ORDEM_DISTANCIA, ROTULO_ZONA_BALIZA, urlExcel,
 } from './api.js';
 import { criarCampo, novoSvgCampo, simboloLegenda } from './campo.js';
+import { criarBaliza, novoSvgBaliza } from './baliza.js';
 import { ligar, TEXTO_ESTADO } from './tempo-real.js';
 
 const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
@@ -104,6 +105,38 @@ function blocoMapa(selecionada) {
   return cartaoMapa;
 }
 
+/** Onde o guarda-redes adversário defendeu os remates da equipa escolhida (baliza vista de quem remata). */
+function blocoBaliza(selecionada) {
+  const defesas = estado.dados.remates.filter((r) => r.equipaId === selecionada.equipaId && r.resultado === 'DEFESA');
+  const comLocal = defesas.filter((r) => r.balizaX != null && r.balizaY != null);
+  const adversaria = estado.dados.equipas.find((e) => e.equipaId !== selecionada.equipaId);
+
+  const porZona = {};
+  for (const r of comLocal) porZona[r.balizaZona] = (porZona[r.balizaZona] ?? 0) + 1;
+
+  const svgBaliza = novoSvgBaliza();
+  const semLocal = defesas.length - comLocal.length;
+  const resumo = defesas.length === 0
+    ? 'Ainda sem defesas.'
+    : `${comLocal.length} de ${defesas.length} ${defesas.length === 1 ? 'defesa' : 'defesas'} com local marcado${semLocal ? ` (${semLocal} sem local)` : ''}.`;
+
+  // a zona mais atacada, para ler o mapa de relance
+  const [zonaTop, totalTop] = Object.entries(porZona).sort((a, b) => b[1] - a[1])[0] ?? [];
+
+  const cartaoBaliza = cartao(`Defesas na baliza · ${selecionada.nome}`,
+    h('p', { class: 'vazio', style: 'margin:0 0 8px' }, `Remates de ${selecionada.nome} defendidos por ${adversaria.nome}.`),
+    h('div', { class: 'baliza-dash' }, svgBaliza),
+    h('p', { class: 'vazio', style: 'text-align:center' }, resumo),
+    zonaTop
+      ? h('p', { class: 'zona-top' }, 'Mais defesas: ', h('b', {}, ROTULO_ZONA_BALIZA[zonaTop]), ` (${totalTop})`)
+      : null,
+    h('p', { class: 'vazio', style: 'text-align:center;font-size:0.85rem' }, 'Baliza vista de frente, do lado de quem remata.'));
+  const baliza = criarBaliza(svgBaliza);
+  baliza.contagens(porZona);
+  baliza.marcadores(comLocal);
+  return cartaoBaliza;
+}
+
 function blocoJogadores(selecionada) {
   const linhas = estado.dados.jogadores
     .filter((j) => j.equipaId === selecionada.equipaId)
@@ -188,7 +221,8 @@ function blocoUltimosEventos() {
         e.resultado
           ? h('span', { class: 'etiqueta', 'data-resultado': e.resultado }, ROTULO_RESULTADO[e.resultado])
           : h('span', { class: 'etiqueta neutra' }, e.tipoNome),
-        ` ${quem}${situacao}`));
+        ` ${quem}${situacao}`,
+        e.balizaZona ? h('span', { class: 'zona-baliza' }, ` · ${ROTULO_ZONA_BALIZA[e.balizaZona]}`) : null));
   });
   return cartao('Últimos eventos', lista.length
     ? h('ol', { class: 'lista-eventos' }, lista)
@@ -231,6 +265,7 @@ function desenhar() {
     blocoParcial(),
     abas,
     blocoMapa(selecionada),
+    blocoBaliza(selecionada),
     blocoJogadores(selecionada),
     blocoZonas('Por corredor', dados.porCorredor, ORDEM_CORREDOR, ROTULO_CORREDOR, selecionada),
     blocoZonas('Por distância', dados.porDistancia, ORDEM_DISTANCIA, ROTULO_DISTANCIA, selecionada),

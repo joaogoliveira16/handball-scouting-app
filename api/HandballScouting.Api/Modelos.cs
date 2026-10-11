@@ -15,7 +15,9 @@ public record NovoEventoRequest(
     decimal? X,              // 0 a 100 (só em remates)
     decimal? Y,              // 0 a 100 (só em remates)
     short Parte,             // 1 ou 2
-    int SegundoJogo);        // segundos desde o início do jogo
+    int SegundoJogo,         // segundos desde o início do jogo
+    decimal? BalizaX = null, // 0 a 100: onde o guarda-redes defendeu (só em DEFESA), da esquerda para a direita de quem remata
+    decimal? BalizaY = null); // 0 a 100: da trave (0) ao chão (100)
 
 public record NovaEquipaRequest(string? Nome);
 
@@ -100,6 +102,13 @@ public class EventoExport
     public string? Distancia { get; set; }
     public decimal? X { get; set; }
     public decimal? Y { get; set; }
+    public decimal? BalizaX { get; set; }
+    public decimal? BalizaY { get; set; }
+    public string? BalizaZona { get; set; }
+    public int? GuardaRedesId { get; set; }
+    public int? GuardaRedesEquipaId { get; set; }
+    public short? GuardaRedesNumero { get; set; }
+    public string? GuardaRedesNome { get; set; }
     public short Parte { get; set; }
     public int SegundoJogo { get; set; }
 }
@@ -226,6 +235,7 @@ public class EventoResumo
     public string? JogadorNome { get; set; }
     public string? Resultado { get; set; }
     public string Situacao { get; set; } = "";
+    public string? BalizaZona { get; set; }
     public short Parte { get; set; }
     public int SegundoJogo { get; set; }
     public DateTime CriadoEm { get; set; }
@@ -241,6 +251,9 @@ public class RemateMapa
     public decimal Y { get; set; }
     public string Resultado { get; set; } = "";
     public string Situacao { get; set; } = "";
+    public decimal? BalizaX { get; set; }
+    public decimal? BalizaY { get; set; }
+    public string? BalizaZona { get; set; }
 }
 
 /// <summary>Resultado das consultas com filtros (eficácia de remate)</summary>

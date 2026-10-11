@@ -503,6 +503,34 @@ table.tabela td.suave { color: var(--suave); }
 }
 
 /* ---------- Movimento reduzido ---------- */
+/* ---------- Baliza (SVG) e janela para marcar a defesa ---------- */
+.baliza { width: 100%; height: auto; display: block; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.baliza-fundo { fill: rgba(6, 17, 42, 0.92); }
+.baliza-rede line { stroke: rgba(34, 211, 238, 0.13); stroke-width: 1; }
+.baliza-zona { fill: transparent; stroke: rgba(130, 170, 255, 0.3); stroke-width: 1; stroke-dasharray: 5 6; transition: fill 0.12s; }
+.baliza.interativa { cursor: crosshair; }
+.baliza.interativa .baliza-zona:hover { fill: rgba(56, 189, 248, 0.16); }
+.baliza-contagem { font: 900 38px var(--fonte-display); fill: #e8f1ff; text-anchor: middle; dominant-baseline: central; pointer-events: none; opacity: 0.9; }
+.baliza-poste { fill: #e8f1ff; filter: drop-shadow(0 0 5px rgba(34, 211, 238, 0.9)); }
+.baliza-chao { stroke: rgba(130, 170, 255, 0.55); stroke-width: 3; }
+.baliza-etiqueta { font: 500 12px var(--fonte-display); letter-spacing: 0.1em; fill: #6d86b8; }
+.baliza-dash { max-width: 440px; margin: 0 auto; }
+.zona-baliza { color: var(--r-defesa); font-weight: 700; }
+.zona-top { margin: 4px 0 6px; text-align: center; color: var(--suave); }
+.zona-top b { color: var(--r-defesa); }
+
+.janela-fundo {
+  position: fixed; inset: 0; z-index: 60; padding: 16px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(2, 6, 16, 0.84); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+.janela { width: min(640px, 100%); max-height: 100%; overflow: auto; }
+.janela h2 { margin: 0 0 4px; font: 700 1.2rem var(--fonte-display); letter-spacing: 0.06em; color: var(--r-defesa); text-shadow: 0 0 12px rgba(56, 189, 248, 0.6); }
+.janela-sub { margin: 0 0 10px; color: var(--suave); font-weight: 600; letter-spacing: 0.04em; }
+.janela-nota { margin: 10px 0 0; text-align: center; color: var(--suave); font-size: 0.95rem; }
+.janela-acoes { display: flex; gap: 10px; justify-content: space-between; margin-top: 14px; flex-wrap: wrap; }
+.janela-acoes .botao { flex: 1; min-width: 150px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

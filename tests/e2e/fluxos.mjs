@@ -268,27 +268,76 @@ await passo('Banco regista, dashboard recebe em tempo real', async () => {
   await empurrar(dash, jogoId);
   ok(await esperarPor(async () => (await texto(dash.locator('#golos-casa'))) === '1'), 'dashboard: o golo aparece no placar sem recarregar (WebSocket)');
   ok(await esperarPor(async () => (await texto(banco.locator('#golos-casa'))) === '1'), 'banco: o placar também atualiza');
-  ok(await esperarPor(async () => (await dash.locator('.camada-marcadores .marcador').count()) === 1), 'dashboard: o remate aparece no mapa');
+  ok(await esperarPor(async () => (await dash.locator('svg.campo .camada-marcadores .marcador').count()) === 1), 'dashboard: o remate aparece no mapa');
   await captura(dash, 'dashboard-tempo-real');
 
-  // um segundo remate: defesa do guarda-redes
+  // um segundo remate: defesa do guarda-redes -> abre a baliza para marcar onde ele defendeu
   await banco.locator('#campo').click({ position: { x: caixa.width * 0.25, y: caixa.height * 0.55 } });
   await banco.locator('.botao-jogador').nth(1).click();
   await banco.click('.botao-resultado[data-resultado="DEFESA"]');
-  ok(await esperarPor(async () => (await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 2), 'banco: a defesa ficou na base de dados');
-  await empurrar(banco, jogoId);
-  await empurrar(dash, jogoId);
-  ok(await esperarPor(async () => (await dash.locator('.camada-marcadores .marcador').count()) === 2), 'dashboard: 2 remates no mapa');
-  ok((await texto(dash.locator('#golos-casa'))) === '1', 'dashboard: a defesa não altera o placar');
+  await banco.waitForSelector('#janela-baliza:not([hidden])');
+  ok((await banco.locator('#baliza .baliza-zona').count()) === 9, 'baliza: ao tocar em Defesa aparece a baliza com 9 zonas');
+  ok((await banco.locator('#sub-baliza').textContent()).startsWith('Guarda-redes adversário: #'), 'baliza: a janela diz qual é o guarda-redes adversário');
+  await captura(banco, 'banco-baliza');
+  ok((await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 1, 'baliza: enquanto a janela está aberta a defesa ainda não foi gravada');
 
-  // desfazer o último
-  await banco.click('#btn-desfazer');
-  ok(await esperarPor(async () => (await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 1), 'banco: "Desfazer último" apaga a defesa');
+  // cancelar: nada fica registado e a escolha (mapa + jogador) mantém-se
+  await banco.click('#baliza-cancelar');
+  ok(await banco.locator('#janela-baliza').isHidden(), 'baliza: "Cancelar" fecha a janela');
+  await new Promise((r) => setTimeout(r, 400));
+  ok((await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 1, 'baliza: cancelar não regista a defesa');
+  ok((await banco.locator('#dica.pronto').count()) === 1, 'baliza: depois de cancelar o mapa e o jogador continuam escolhidos');
+
+  // tocar na zona "alto à esquerda" da baliza
+  await banco.click('.botao-resultado[data-resultado="DEFESA"]');
+  await banco.waitForSelector('#janela-baliza:not([hidden])');
+  await banco.locator('#baliza .baliza-zona[data-zona="ALTO_ESQ"]').click();
+  ok(await esperarPor(async () => (await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 2), 'baliza: a defesa ficou na base de dados depois de tocar na baliza');
+  ok(await banco.locator('#janela-baliza').isHidden(), 'baliza: a janela fecha depois de tocar');
+  const [defesa] = await q("SELECT * FROM eventos WHERE jogo_id = $1 AND resultado = 'DEFESA'", [jogoId]);
+  ok(defesa?.baliza_zona === 'ALTO_ESQ', `baliza: zona calculada pela base de dados = ALTO_ESQ (${defesa?.baliza_zona})`);
+  ok(defesa && Number(defesa.baliza_x) < 33.4 && Number(defesa.baliza_y) < 33.4, `baliza: coordenadas do toque (${defesa?.baliza_x}, ${defesa?.baliza_y})`);
+  ok(await esperarPor(async () => (await texto(banco.locator('#aviso'))).includes('altoàesquerda')), 'baliza: o aviso diz onde foi a defesa');
   await empurrar(banco, jogoId);
   await empurrar(dash, jogoId);
-  ok(await esperarPor(async () => (await dash.locator('.camada-marcadores .marcador').count()) === 1), 'dashboard: volta a 1 remate no mapa');
+  ok(await esperarPor(async () => (await banco.locator('#ultimos .zona-baliza').count()) >= 1), 'banco: últimos eventos mostram a zona da defesa');
+  ok(await esperarPor(async () => (await dash.locator('svg.campo .camada-marcadores .marcador').count()) === 2), 'dashboard: 2 remates no mapa');
+  ok((await texto(dash.locator('#golos-casa'))) === '1', 'dashboard: a defesa não altera o placar');
+  ok(await esperarPor(async () => (await dash.locator('.baliza-dash .camada-marcadores .marcador').count()) === 1), 'dashboard: a defesa aparece na baliza');
+  ok((await texto(dash.locator('.baliza-dash .baliza-zona[data-zona="ALTO_ESQ"] + .baliza-contagem'))) === '1', 'dashboard: a zona alto à esquerda tem 1 defesa');
+  ok((await dash.locator('.zona-top').textContent()).includes('alto à esquerda'), 'dashboard: "Mais defesas" aponta para alto à esquerda');
+  await captura(dash, 'dashboard-baliza');
+
+  // terceiro remate: defesa sem local
+  await banco.locator('#campo').click({ position: { x: caixa.width * 0.7, y: caixa.height * 0.4 } });
+  await banco.locator('.botao-jogador').nth(2).click();
+  await banco.click('.botao-resultado[data-resultado="DEFESA"]');
+  await banco.waitForSelector('#janela-baliza:not([hidden])');
+  await banco.click('#baliza-sem-local');
+  ok(await esperarPor(async () => (await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 3), 'baliza: "Registar sem local" grava a defesa');
+  const semLocal = (await q("SELECT * FROM eventos WHERE jogo_id = $1 AND resultado = 'DEFESA' ORDER BY id DESC", [jogoId]))[0];
+  ok(semLocal && semLocal.baliza_x === null && semLocal.baliza_y === null && semLocal.baliza_zona === null, 'baliza: sem local fica sem coordenadas nem zona');
+  await empurrar(banco, jogoId);
+  await empurrar(dash, jogoId);
+  ok(await esperarPor(async () => (await dash.locator('svg.campo .camada-marcadores .marcador').count()) === 3), 'dashboard: 3 remates no mapa');
+  ok(await esperarPor(async () => (await dash.locator('.baliza-dash + p').textContent()).includes('1 de 2 defesas com local marcado (1 sem local)')), 'dashboard: o resumo conta a defesa sem local à parte');
+  ok((await dash.locator('.baliza-dash .camada-marcadores .marcador').count()) === 1, 'dashboard: a defesa sem local não aparece na baliza');
+
+  // desfazer o último (a defesa sem local)
+  await banco.click('#btn-desfazer');
+  ok(await esperarPor(async () => (await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 2), 'banco: "Desfazer último" apaga a defesa sem local');
+  await empurrar(banco, jogoId);
+  // o botão desfaz o 1.º da lista: espera que ela deixe de mostrar o evento já apagado
+  await esperarPor(async () => (await banco.locator('#ultimos li').count()) === 2);
+  await banco.click('#btn-desfazer');
+  ok(await esperarPor(async () => (await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 1), 'banco: "Desfazer último" apaga a defesa da baliza');
+  await empurrar(banco, jogoId);
+  await empurrar(dash, jogoId);
+  ok(await esperarPor(async () => (await dash.locator('svg.campo .camada-marcadores .marcador').count()) === 1), 'dashboard: volta a 1 remate no mapa');
+  ok(await esperarPor(async () => (await dash.locator('.baliza-dash .camada-marcadores .marcador').count()) === 0), 'dashboard: a baliza fica sem defesas');
 
   // apagar o golo -> placar 0–0
+  await esperarPor(async () => (await banco.locator('#ultimos li:not(.vazio)').count()) === 1);
   await banco.click('#btn-desfazer');
   ok(await esperarPor(async () => (await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 0), 'banco: o golo foi apagado');
   await empurrar(dash, jogoId);
@@ -320,7 +369,7 @@ await passo('Dashboard: exportar para Excel', async () => {
     ok(bytes.length > 2000 && bytes[0] === 0x50 && bytes[1] === 0x4b, `dashboard: o ficheiro descarregado é um .xlsx válido (${bytes.length} bytes)`);
   }
 
-  ok((await p.locator('.camada-marcadores .marcador').count()) > 0, 'dashboard: o mapa desenha os remates (SVG real)');
+  ok((await p.locator('svg.campo .camada-marcadores .marcador').count()) > 0, 'dashboard: o mapa desenha os remates (SVG real)');
   const caixa = await p.locator('svg.campo').boundingBox();
   ok(caixa && caixa.width > 200 && caixa.height > 200, 'dashboard: o mapa tem tamanho visível');
   await captura(p, 'dashboard');

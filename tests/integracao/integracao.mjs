@@ -83,6 +83,13 @@ await passo('Estatísticas (GROUP BY / COUNT) sobre os dados de exemplo', async 
   ok(casa?.eCasa === true && casa?.golos === 6 && fora?.golos === 9, `placar 6–9 (${casa?.golos}–${fora?.golos})`);
   ok(casa?.remates === 17 && fora?.remates === 16, `remates 17 e 16 (${casa?.remates} e ${fora?.remates})`);
   ok(est.json?.remates?.length === 33, `mapa com 33 remates (${est.json?.remates?.length})`);
+  const defesasExemplo = est.json?.remates?.filter((r) => r.resultado === 'DEFESA') ?? [];
+  ok(defesasExemplo.length === 11 && defesasExemplo.every((r) => r.balizaX != null && r.balizaY != null && r.balizaZona),
+    `jogo 2: as 11 defesas de exemplo têm local na baliza (${defesasExemplo.length})`, JSON.stringify(defesasExemplo[0]));
+  ok(est.json.remates.filter((r) => r.resultado !== 'DEFESA').every((r) => r.balizaX == null && r.balizaY == null && r.balizaZona == null),
+    'jogo 2: só as defesas têm local na baliza');
+  const zonasExemplo = new Set(defesasExemplo.map((r) => r.balizaZona));
+  ok(zonasExemplo.size === 9, `jogo 2: as defesas de exemplo cobrem as 9 zonas da baliza (${zonasExemplo.size})`);
   ok(est.json?.parcial?.length === 2 && est.json.parcial.find((p) => p.equipaId === fora?.equipaId)?.golos === 3, 'parcial dos últimos 5 minutos: 3 golos da equipa de fora');
   ok(est.json?.guardaRedes?.length >= 2, 'estatísticas de guarda-redes presentes');
   ok(est.json?.outrosEventos?.length > 0, 'outros eventos (faltas, perdas...) presentes');
@@ -277,6 +284,13 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
   ok((await http('POST', `/api/jogos/${id}/eventos`, { ...remate, guardaRedesId: lateralFora(jogoNovo) })).status === 400, 'guarda-redes que não é guarda-redes = 400');
   ok((await http('POST', `/api/jogos/${id}/eventos`, { ...remate, tipoEvento: 'NAO_EXISTE' })).status === 400, 'tipo de evento inexistente = 400');
   ok((await http('POST', '/api/jogos/99999/eventos', remate)).status === 404, 'evento num jogo inexistente = 404');
+  const defesaBaliza = { ...remate, resultado: 'DEFESA', balizaX: 50, balizaY: 50 };
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { ...defesaBaliza, balizaY: undefined })).status === 400, 'baliza: só o X sem o Y = 400');
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { ...defesaBaliza, balizaX: undefined })).status === 400, 'baliza: só o Y sem o X = 400');
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { ...defesaBaliza, balizaX: 100.5 })).status === 400, 'baliza: X acima de 100 = 400');
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { ...defesaBaliza, balizaY: -1 })).status === 400, 'baliza: Y abaixo de 0 = 400');
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { ...remate, balizaX: 50, balizaY: 50 })).status === 400, 'baliza: um golo não tem local de defesa = 400');
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { tipoEvento: 'FALTA_OFENSIVA', equipaId: casaId, jogadorId: lateralCasa, parte: 1, segundoJogo: 200, balizaX: 50, balizaY: 50 })).status === 400, 'baliza: uma falta não tem local na baliza = 400');
   ok(recebidos.length === 0, 'pedidos recusados não enviam nada ao dashboard');
 
   // golo -> o dashboard recebe a atualização
@@ -288,8 +302,8 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
   ok(recebidos.at(-1)?.remates?.length === 1 && Number(recebidos.at(-1).remates[0].x) === 50, 'o mapa recebido tem o remate nas coordenadas enviadas');
 
   // defesa e evento sem resultado
-  const defesa = await http('POST', `/api/jogos/${id}/eventos`, { ...remate, resultado: 'DEFESA', x: 20, y: 60, segundoJogo: 180 });
-  ok(defesa.status === 201, 'POST remate (defesa)', descricao(defesa));
+  const defesa = await http('POST', `/api/jogos/${id}/eventos`, { ...remate, resultado: 'DEFESA', x: 20, y: 60, segundoJogo: 180, balizaX: 83.5, balizaY: 91.2 });
+  ok(defesa.status === 201, 'POST remate (defesa com local na baliza)', descricao(defesa));
   const falta = await http('POST', `/api/jogos/${id}/eventos`, { tipoEvento: 'FALTA_OFENSIVA', equipaId: casaId, jogadorId: lateralCasa, parte: 1, segundoJogo: 200 });
   ok(falta.status === 201, 'POST falta ofensiva sem resultado nem coordenadas', descricao(falta));
   ok(await ate(() => recebidos.length >= 3), 'mais duas atualizações recebidas');
@@ -301,6 +315,23 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
   // as estatísticas por HTTP batem com as recebidas
   const http_ = await http('GET', `/api/jogos/${id}/estatisticas`);
   ok(http_.json?.equipas?.find((e) => e.equipaId === casaId)?.remates === 2, 'GET estatísticas coincide com o tempo real');
+
+  // local da defesa na baliza: chega ao mapa e aos últimos eventos
+  const defesaMapa = ultimo.remates.find((r) => r.id === defesa.json.id);
+  ok(Number(defesaMapa?.balizaX) === 83.5 && Number(defesaMapa?.balizaY) === 91.2 && defesaMapa?.balizaZona === 'BAIXO_DIR',
+    'baliza: o remate recebido traz o local e a zona (baixo à direita)', JSON.stringify(defesaMapa));
+  ok(ultimo.ultimosEventos.find((e) => e.id === defesa.json.id)?.balizaZona === 'BAIXO_DIR', 'baliza: os últimos eventos trazem a zona da defesa');
+  const golosNoMapa = ultimo.remates.find((r) => r.resultado === 'GOLO');
+  ok(golosNoMapa && golosNoMapa.balizaX == null && golosNoMapa.balizaZona == null, 'baliza: o golo não tem local de defesa');
+
+  // defesa sem local (continua válida)
+  const semLocal = await http('POST', `/api/jogos/${id}/eventos`, { ...remate, resultado: 'DEFESA', x: 25, y: 70, segundoJogo: 190 });
+  ok(semLocal.status === 201, 'POST remate (defesa sem local na baliza)', descricao(semLocal));
+  ok(await ate(() => recebidos.length >= 4), 'a defesa sem local também atualiza o dashboard');
+  const semLocalMapa = recebidos.at(-1).remates.find((r) => r.id === semLocal.json.id);
+  ok(semLocalMapa && semLocalMapa.balizaX == null && semLocalMapa.balizaY == null && semLocalMapa.balizaZona == null,
+    'baliza: a defesa sem local fica sem coordenadas nem zona', JSON.stringify(semLocalMapa));
+  ok(recebidos.at(-1).remates.filter((r) => r.balizaZona != null).length === 1, 'baliza: só uma das duas defesas tem local');
 
   // apagar -> nova atualização
   const antes = recebidos.length;

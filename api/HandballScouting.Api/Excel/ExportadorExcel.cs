@@ -29,6 +29,19 @@ public static class ExportadorExcel
     private static readonly List<string> OrdemCorredor = new() { "PONTA_ESQ", "LATERAL_ESQ", "CENTRAL", "LATERAL_DIR", "PONTA_DIR" };
     private static readonly List<string> OrdemDistancia = new() { "ATE_6M", "DE_6_A_9M", "LINHA_9M", "MAIS_9M" };
 
+    // Zonas da baliza (3 x 3), da esquerda para a direita de quem remata, de cima para baixo
+    private static readonly List<string> OrdemZonaBaliza = new()
+    {
+        "ALTO_ESQ", "ALTO_CENTRO", "ALTO_DIR", "MEIO_ESQ", "MEIO_CENTRO", "MEIO_DIR", "BAIXO_ESQ", "BAIXO_CENTRO", "BAIXO_DIR"
+    };
+
+    private static readonly Dictionary<string, string> RotuloZonaBaliza = new()
+    {
+        ["ALTO_ESQ"] = "Alto à esquerda", ["ALTO_CENTRO"] = "Alto ao centro", ["ALTO_DIR"] = "Alto à direita",
+        ["MEIO_ESQ"] = "Meio à esquerda", ["MEIO_CENTRO"] = "Meio ao centro", ["MEIO_DIR"] = "Meio à direita",
+        ["BAIXO_ESQ"] = "Baixo à esquerda", ["BAIXO_CENTRO"] = "Baixo ao centro", ["BAIXO_DIR"] = "Baixo à direita"
+    };
+
     private static readonly Dictionary<string, string> RotuloResultado = new()
     {
         ["GOLO"] = "Golo", ["DEFESA"] = "Defesa", ["FORA"] = "Fora", ["POSTE"] = "Poste", ["BLOQUEADO"] = "Bloqueado"
@@ -87,6 +100,7 @@ public static class ExportadorExcel
             FolhaPorDistancia(contexto),
             FolhaPorParte(contexto),
             FolhaGuardaRedes(contexto),
+            FolhaDefesasNaBaliza(contexto),
             FolhaOutrosEventos(contexto),
             FolhaEventos(contexto)
         });
@@ -274,6 +288,44 @@ public static class ExportadorExcel
         return folha;
     }
 
+    /// <summary>Defesas de cada guarda-redes por zona da baliza (3 x 3). O local é opcional: sem ele a defesa conta em "Sem local".</summary>
+    private static FolhaXlsx FolhaDefesasNaBaliza(Contexto c)
+    {
+        var cabecalho = new List<string> { "Equipa", "Nº", "Nome" };
+        cabecalho.AddRange(OrdemZonaBaliza.Select(z => RotuloZonaBaliza[z]));
+        cabecalho.Add("Sem local");
+        cabecalho.Add("Total de defesas");
+        var folha = Tabela("Defesas na baliza", cabecalho.ToArray());
+
+        // A equipa do guarda-redes é a que não rematou; se a defesa não tem guarda-redes, fica numa linha à parte
+        int EquipaDoGuardaRedes(EventoExport e) =>
+            e.GuardaRedesEquipaId ?? (e.EquipaId == c.Jogo.CasaId ? c.Jogo.ForaId : c.Jogo.CasaId);
+
+        var grupos = c.Dados.Eventos
+            .Where(e => e.Resultado == "DEFESA" && c.TiposRemate.Contains(e.Tipo) && c.Inclui(EquipaDoGuardaRedes(e)))
+            .GroupBy(e => (Equipa: EquipaDoGuardaRedes(e), Gr: e.GuardaRedesId))
+            .OrderBy(g => c.OrdemEquipa(g.Key.Equipa)).ThenBy(g => g.First().GuardaRedesNumero ?? short.MaxValue);
+
+        foreach (var grupo in grupos)
+        {
+            var primeiro = grupo.First();
+            var celulas = new List<Celula>
+            {
+                Celula.Texto(c.NomeEquipa(grupo.Key.Equipa)),
+                primeiro.GuardaRedesNumero is { } n ? Celula.Numero(n) : Celula.Vazia,
+                Celula.Texto(primeiro.GuardaRedesNome ?? "(sem guarda-redes)")
+            };
+            celulas.AddRange(OrdemZonaBaliza.Select(z => Celula.Numero((long)grupo.Count(e => e.BalizaZona == z))));
+            celulas.Add(Celula.Numero((long)grupo.Count(e => e.BalizaZona is null)));
+            celulas.Add(Celula.Numero((long)grupo.Count()));
+            folha.Adicionar(celulas.ToArray());
+        }
+
+        folha.LinhaVazia();
+        folha.Adicionar(Celula.Texto("Esquerda e direita são vistas de frente, do lado de quem remata."));
+        return folha;
+    }
+
     private static FolhaXlsx FolhaOutrosEventos(Contexto c)
     {
         var folha = Tabela("Outros eventos", "Equipa", "Evento", "Total");
@@ -291,7 +343,8 @@ public static class ExportadorExcel
     private static FolhaXlsx FolhaEventos(Contexto c)
     {
         var folha = Tabela("Eventos", "Nº", "Parte", "Tempo", "Equipa", "Evento", "Jogador Nº", "Jogador", "Posição",
-            "Resultado", "Situação", "Corredor", "Distância", "X (%)", "Y (%)");
+            "Resultado", "Situação", "Corredor", "Distância", "X (%)", "Y (%)",
+            "Guarda-redes", "Zona da baliza", "Baliza X (%)", "Baliza Y (%)");
         folha.FiltroNoCabecalho = true;
 
         foreach (var e in c.Dados.Eventos.Where(e => c.Inclui(e.EquipaId)).OrderBy(e => e.Id))
@@ -305,7 +358,10 @@ public static class ExportadorExcel
                 Celula.Texto(Rotulo(RotuloSituacao, e.Situacao)),
                 Celula.Texto(e.Corredor is null ? null : Rotulo(RotuloCorredor, e.Corredor)),
                 Celula.Texto(e.Distancia is null ? null : Rotulo(RotuloDistancia, e.Distancia)),
-                Celula.Numero(e.X), Celula.Numero(e.Y));
+                Celula.Numero(e.X), Celula.Numero(e.Y),
+                Celula.Texto(e.GuardaRedesNumero is { } g ? $"#{g} {e.GuardaRedesNome}" : null),
+                Celula.Texto(e.BalizaZona is null ? null : Rotulo(RotuloZonaBaliza, e.BalizaZona)),
+                Celula.Numero(e.BalizaX), Celula.Numero(e.BalizaY));
         }
         return folha;
     }

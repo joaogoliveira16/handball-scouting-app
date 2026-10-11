@@ -59,6 +59,24 @@ export const ROTULO_DISTANCIA = {
 };
 export const ORDEM_DISTANCIA = ['ATE_6M', 'DE_6_A_9M', 'LINHA_9M', 'MAIS_9M'];
 
+// Baliza (3 m x 2 m) vista de frente, do lado de quem remata, dividida em 3 x 3 zonas.
+// Mesmas zonas e limites que a função zona_baliza da base de dados (db/init/06_baliza.sql).
+export const ORDEM_ZONA_BALIZA = [
+  'ALTO_ESQ', 'ALTO_CENTRO', 'ALTO_DIR', 'MEIO_ESQ', 'MEIO_CENTRO', 'MEIO_DIR', 'BAIXO_ESQ', 'BAIXO_CENTRO', 'BAIXO_DIR',
+];
+export const ROTULO_ZONA_BALIZA = {
+  ALTO_ESQ: 'alto à esquerda', ALTO_CENTRO: 'alto ao centro', ALTO_DIR: 'alto à direita',
+  MEIO_ESQ: 'meio à esquerda', MEIO_CENTRO: 'meio ao centro', MEIO_DIR: 'meio à direita',
+  BAIXO_ESQ: 'baixo à esquerda', BAIXO_CENTRO: 'baixo ao centro', BAIXO_DIR: 'baixo à direita',
+};
+
+/** Zona da baliza de um ponto (x e y em 0–100): trave = 0, chão = 100; esquerda = 0, direita = 100. */
+export function zonaBaliza(x, y) {
+  const linha = y < 100 / 3 ? 'ALTO' : y < 200 / 3 ? 'MEIO' : 'BAIXO';
+  const coluna = x < 100 / 3 ? 'ESQ' : x < 200 / 3 ? 'CENTRO' : 'DIR';
+  return `${linha}_${coluna}`;
+}
+
 export const POSICOES = [
   { codigo: 'GR', rotulo: 'Guarda-redes' },
   { codigo: 'PE', rotulo: 'Ponta esquerda' },

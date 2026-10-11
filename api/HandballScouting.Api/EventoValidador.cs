@@ -30,9 +30,19 @@ public static class EventoValidador
             if (r.X is null || r.Y is null || r.X < 0 || r.X > 100 || r.Y < 0 || r.Y > 100)
                 erros.Add("x e y são obrigatórios num remate e têm de estar entre 0 e 100.");
         }
-        else if (r.Resultado is not null || r.X is not null || r.Y is not null || r.GuardaRedesId is not null)
+        else if (r.Resultado is not null || r.X is not null || r.Y is not null || r.GuardaRedesId is not null
+                 || r.BalizaX is not null || r.BalizaY is not null)
         {
             erros.Add("eventos que não são remates não levam resultado, coordenadas nem guarda-redes.");
+        }
+
+        // Local da defesa na baliza: opcional, mas os dois pontos vêm juntos, dentro da baliza e só numa defesa
+        if (eRemate && (r.BalizaX is not null || r.BalizaY is not null))
+        {
+            if (r.BalizaX is null || r.BalizaY is null || r.BalizaX < 0 || r.BalizaX > 100 || r.BalizaY < 0 || r.BalizaY > 100)
+                erros.Add("balizaX e balizaY vêm juntos e têm de estar entre 0 e 100.");
+            if (r.Resultado != "DEFESA")
+                erros.Add("o local na baliza só existe numa defesa.");
         }
 
         return erros;

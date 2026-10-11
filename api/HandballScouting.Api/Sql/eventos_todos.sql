@@ -13,11 +13,19 @@ SELECT e.id,
        e.distancia,
        e.x,
        e.y,
+       e.baliza_x,
+       e.baliza_y,
+       e.baliza_zona,
+       e.guarda_redes_id,
+       gr.equipa_id AS guarda_redes_equipa_id,
+       gr.numero    AS guarda_redes_numero,
+       gr.nome      AS guarda_redes_nome,
        e.parte,
        e.segundo_jogo
 FROM eventos e
 JOIN equipas eq     ON eq.id = e.equipa_id
 JOIN tipos_evento t ON t.codigo = e.tipo_evento_codigo
-LEFT JOIN jogadores j ON j.id = e.jogador_id
+LEFT JOIN jogadores j  ON j.id  = e.jogador_id
+LEFT JOIN jogadores gr ON gr.id = e.guarda_redes_id
 WHERE e.jogo_id = @jogoId
 ORDER BY e.id;

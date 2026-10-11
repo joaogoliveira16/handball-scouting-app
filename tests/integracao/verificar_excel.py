@@ -49,7 +49,10 @@ def abrir(nome):
 
 
 FOLHAS = ["Resumo", "Jogadores", "Por posição", "Por corredor", "Por distância", "Por parte",
-          "Guarda-redes", "Outros eventos", "Eventos"]
+          "Guarda-redes", "Defesas na baliza", "Outros eventos", "Eventos"]
+
+ZONAS = ["Alto à esquerda", "Alto ao centro", "Alto à direita", "Meio à esquerda", "Meio ao centro", "Meio à direita",
+         "Baixo à esquerda", "Baixo ao centro", "Baixo à direita"]
 
 # ----------------------------------------------------------------------------- jogo completo
 jogo = abrir("jogo-2.xlsx")
@@ -97,6 +100,22 @@ if jogo:
        "Guarda-redes: defesas + golos sofridos = remates à baliza em cada linha", str(grs))
     ok(sum(g["Golos sofridos"] for g in grs) == 15, "Guarda-redes: 15 golos sofridos no total (os 15 golos do jogo)", str(grs))
 
+    # Defesas na baliza: uma linha por guarda-redes, uma coluna por zona (os dados de exemplo têm 11 defesas, todas com local)
+    baliza = [l for l in tabela(jogo, "Defesas na baliza") if l.get("Nº") is not None]
+    ok(list(tabela(jogo, "Defesas na baliza")[0].keys())[:3 + 9 + 2] == ["Equipa", "Nº", "Nome", *ZONAS, "Sem local", "Total de defesas"],
+       "Defesas na baliza: cabeçalho com as 9 zonas", str(list(tabela(jogo, "Defesas na baliza")[0].keys())))
+    ok(len(baliza) == 4, "Defesas na baliza: 4 linhas (os 4 guarda-redes que defenderam)", str(len(baliza)))
+    ok(sum(b["Total de defesas"] for b in baliza) == 11, "Defesas na baliza: 11 defesas no total", str(baliza))
+    ok(all(sum(b[z] for z in ZONAS) + b["Sem local"] == b["Total de defesas"] for b in baliza),
+       "Defesas na baliza: zonas + sem local = total em cada guarda-redes", str(baliza))
+    ok(all(b["Sem local"] == 0 for b in baliza), "Defesas na baliza: nos dados de exemplo todas as defesas têm local", str(baliza))
+    por_zona = [sum(b[z] for b in baliza) for z in ZONAS]
+    ok(por_zona == [1, 1, 1, 1, 3, 1, 1, 1, 1], "Defesas na baliza: totais por zona dos dados de exemplo", str(por_zona))
+    defesas_gr = {(g["Equipa"], g["Nome"]): g["Defesas"] for g in grs}
+    defesas_baliza = {(b["Equipa"], b["Nome"]): b["Total de defesas"] for b in baliza}
+    ok(defesas_gr == defesas_baliza, "Defesas na baliza: coincide com as defesas da folha Guarda-redes",
+       f"{defesas_gr} != {defesas_baliza}")
+
     outros = {(l["Equipa"], l["Evento"]): l["Total"] for l in tabela(jogo, "Outros eventos")}
     ok(sum(outros.values()) == 6, "Outros eventos: 6 no total (2 faltas, 2 perdas, 1 dois minutos, 1 timeout)", str(outros))
 
@@ -105,6 +124,16 @@ if jogo:
     ok([e["Nº"] for e in eventos] == list(range(1, 40)), "Eventos: numeração 1..39")
     ok(sum(1 for e in eventos if e["Evento"] == "Remate") == 33, "Eventos: 33 remates")
     ok(sum(1 for e in eventos if e["Resultado"] == "Golo") == 15, "Eventos: 15 golos")
+    defesas = [e for e in eventos if e["Resultado"] == "Defesa"]
+    ok(len(defesas) == 11 and all(e["Zona da baliza"] in ZONAS for e in defesas),
+       "Eventos: as 11 defesas têm a zona da baliza", str([e["Zona da baliza"] for e in defesas]))
+    ok(all(isinstance(e["Baliza X (%)"], (int, float)) and 0 <= e["Baliza X (%)"] <= 100
+           and isinstance(e["Baliza Y (%)"], (int, float)) and 0 <= e["Baliza Y (%)"] <= 100 for e in defesas),
+       "Eventos: coordenadas da baliza entre 0 e 100 nas defesas")
+    ok(all(e["Zona da baliza"] is None and e["Baliza X (%)"] is None for e in eventos if e["Resultado"] != "Defesa"),
+       "Eventos: só as defesas têm local na baliza")
+    ok(all(isinstance(e["Guarda-redes"], str) and e["Guarda-redes"].startswith("#") for e in defesas),
+       "Eventos: as defesas indicam o guarda-redes (#nº nome)", str([e["Guarda-redes"] for e in defesas][:3]))
     tempos = [e["Tempo"] for e in eventos]
     ok(all(isinstance(t, str) and len(t) >= 5 and t[2] == ":" for t in tempos), "Eventos: tempo no formato mm:ss", str(tempos[:3]))
 
@@ -128,6 +157,9 @@ if equipa:
        "equipa: por corredor só dos Leões, 16 remates", str(corredores))
     grs = tabela(equipa, "Guarda-redes")
     ok({g["Equipa"] for g in grs} == {"Leões do Sul"}, "equipa: só o guarda-redes dos Leões", str(grs))
+    baliza = [l for l in tabela(equipa, "Defesas na baliza") if l.get("Nº") is not None]
+    ok(len(baliza) >= 1 and {b["Equipa"] for b in baliza} == {"Leões do Sul"}, "equipa: defesas na baliza só dos guarda-redes dos Leões", str(baliza))
+    ok(sum(b["Total de defesas"] for b in baliza) == sum(g["Defesas"] for g in grs), "equipa: defesas na baliza = defesas da folha Guarda-redes", str(baliza))
 
 # ----------------------------------------------------------------------------- jogo novo, quase vazio
 novo = abrir("jogo-novo.xlsx")
@@ -135,6 +167,18 @@ if novo:
     ok(novo.sheetnames == FOLHAS, "jogo-novo.xlsx: mesmas folhas", str(novo.sheetnames))
     eventos = tabela(novo, "Eventos")
     ok(len(eventos) >= 1, "jogo novo: tem os eventos registados no teste", str(len(eventos)))
+    # o teste de integração registou 2 defesas ao "GR B": uma em baixo à direita (83,5 / 91,2) e outra sem local
+    defesas = [e for e in eventos if e["Resultado"] == "Defesa"]
+    ok(len(defesas) == 2, "jogo novo: 2 defesas registadas", str(len(defesas)))
+    com_local = [e for e in defesas if e["Zona da baliza"] is not None]
+    ok(len(com_local) == 1 and com_local[0]["Zona da baliza"] == "Baixo à direita"
+       and abs(com_local[0]["Baliza X (%)"] - 83.5) < 0.001 and abs(com_local[0]["Baliza Y (%)"] - 91.2) < 0.001,
+       "jogo novo: a defesa com local aparece em 'Baixo à direita' (83,5 / 91,2)", str(com_local))
+    ok(sum(1 for e in defesas if e["Zona da baliza"] is None and e["Baliza X (%)"] is None) == 1, "jogo novo: a outra defesa fica sem local")
+    baliza = [l for l in tabela(novo, "Defesas na baliza") if l.get("Nº") is not None]
+    gr_b = [b for b in baliza if b["Nome"] == "GR B"]
+    ok(len(gr_b) == 1 and gr_b[0]["Baixo à direita"] == 1 and gr_b[0]["Sem local"] == 1 and gr_b[0]["Total de defesas"] == 2,
+       "jogo novo: GR B tem 1 defesa em baixo à direita e 1 sem local", str(gr_b))
 
 print()
 if falhas:
