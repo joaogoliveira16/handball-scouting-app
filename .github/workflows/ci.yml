@@ -1,0 +1,112 @@
+name: CI
+
+# Corre em cada push para main e em cada pull request. Em main, publica ainda as imagens Docker no GHCR.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API (.NET) - compilar e testar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet restore api/HandballScouting.sln
+      - run: dotnet build api/HandballScouting.sln --no-restore -c Release
+      - run: dotnet test api/HandballScouting.sln --no-build -c Release
+
+  base-de-dados:
+    name: Base de dados - esquema, dados e consultas
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: scouting
+          POSTGRES_USER: scouting
+          POSTGRES_PASSWORD: scouting
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scouting -d scouting"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: scouting
+      PGPASSWORD: scouting
+      PGDATABASE: scouting
+    steps:
+      - uses: actions/checkout@v4
+      - name: Criar esquema e dados (db/init)
+        run: |
+          for f in db/init/*.sql; do
+            echo "A correr $f"
+            psql -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+      - name: Testes SQL (db/tests)
+        run: |
+          for f in db/tests/*.sql; do
+            echo "A correr $f"
+            psql -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - name: Validar as consultas da API contra o esquema
+        run: python3 db/tests/validar_consultas.py
+
+  docker:
+    name: Imagens Docker
+    runs-on: ubuntu-latest
+    needs: [api, base-de-dados]
+    permissions:
+      contents: read
+      packages: write
+    env:
+      PUBLICAR: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nome das imagens (minúsculas)
+        run: echo "IMAGEM=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Validar o docker-compose.yml
+        run: docker compose config --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login no GitHub Container Registry
+        if: env.PUBLICAR == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Imagem da API
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          push: ${{ env.PUBLICAR == 'true' }}
+          tags: |
+            ${{ env.IMAGEM }}/api:latest
+            ${{ env.IMAGEM }}/api:${{ github.sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: Imagem do frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: ${{ env.PUBLICAR == 'true' }}
+          tags: |
+            ${{ env.IMAGEM }}/frontend:latest
+            ${{ env.IMAGEM }}/frontend:${{ github.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max

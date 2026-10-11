@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HandballScouting.Api", "HandballScouting.Api\HandballScouting.Api.csproj", "{280BFEF4-D23F-49E8-893A-F2A1CDD1F5F3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HandballScouting.Tests", "HandballScouting.Tests\HandballScouting.Tests.csproj", "{D00EB43D-6DD8-4724-869F-825B703CA3BE}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{280BFEF4-D23F-49E8-893A-F2A1CDD1F5F3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{280BFEF4-D23F-49E8-893A-F2A1CDD1F5F3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{280BFEF4-D23F-49E8-893A-F2A1CDD1F5F3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{280BFEF4-D23F-49E8-893A-F2A1CDD1F5F3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D00EB43D-6DD8-4724-869F-825B703CA3BE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D00EB43D-6DD8-4724-869F-825B703CA3BE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D00EB43D-6DD8-4724-869F-825B703CA3BE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D00EB43D-6DD8-4724-869F-825B703CA3BE}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Banco · Scouting de Andebol</title>
+  <link rel="stylesheet" href="css/estilo.css">
+</head>
+<body>
+  <header class="topo">
+    <a class="voltar" href="./" aria-label="Voltar à lista de jogos">←</a>
+    <div class="placar">
+      <span class="eq eq-casa" id="nome-casa">Casa</span>
+      <strong id="golos-casa">0</strong>
+      <span>–</span>
+      <strong id="golos-fora">0</strong>
+      <span class="eq eq-fora" id="nome-fora">Fora</span>
+    </div>
+    <div class="relogio">
+      <button id="btn-parte" type="button" title="Mudar de parte">1.ª parte</button>
+      <span class="tempo" id="tempo">00:00</span>
+      <button id="btn-relogio" type="button" title="Iniciar / pausar o relógio">▶</button>
+      <button id="btn-ajustar" type="button" title="Ajustar o minuto de jogo">✎</button>
+    </div>
+    <span class="ligacao" id="ligacao">a ligar…</span>
+  </header>
+
+  <main class="banco">
+    <section>
+      <div class="a-atacar" id="seletor-equipa"></div>
+      <svg id="campo" class="campo"></svg>
+      <div class="dica" id="dica"></div>
+    </section>
+
+    <section>
+      <h2 style="margin-top:0">1 · Jogador que rematou</h2>
+      <div class="grelha-jogadores" id="jogadores"></div>
+
+      <h2>2 · Resultado (regista o remate)</h2>
+      <div class="resultados" id="resultados"></div>
+
+      <div class="linha-opcoes">
+        <div class="segmentos" id="situacoes"></div>
+        <label class="campo-gr">Guarda-redes <select id="guarda-redes"></select></label>
+      </div>
+
+      <h2>Outros eventos</h2>
+      <div class="outros" id="outros"></div>
+
+      <h2 class="titulo-com-acao">
+        <span>Últimos eventos</span>
+        <button type="button" id="btn-desfazer">↶ Desfazer último</button>
+      </h2>
+      <ol class="lista-eventos" id="ultimos"></ol>
+    </section>
+  </main>
+
+  <div id="aviso" class="aviso" role="status"></div>
+  <script src="lib/signalr.min.js"></script>
+  <script type="module" src="js/banco.js"></script>
+</body>
+</html>

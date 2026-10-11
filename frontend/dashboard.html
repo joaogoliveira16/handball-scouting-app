@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard · Scouting de Andebol</title>
+  <link rel="stylesheet" href="css/estilo.css">
+</head>
+<body>
+  <header class="topo">
+    <a class="voltar" href="./" aria-label="Voltar à lista de jogos">←</a>
+    <div class="placar">
+      <span class="eq eq-casa" id="nome-casa">Casa</span>
+      <strong id="golos-casa">0</strong>
+      <span>–</span>
+      <strong id="golos-fora">0</strong>
+      <span class="eq eq-fora" id="nome-fora">Fora</span>
+    </div>
+    <span class="ligacao" id="ligacao">a ligar…</span>
+  </header>
+
+  <main id="painel" class="dash">
+    <p class="vazio largo">A aguardar dados do jogo…</p>
+  </main>
+
+  <div id="aviso" class="aviso" role="status"></div>
+  <script src="lib/signalr.min.js"></script>
+  <script type="module" src="js/dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+name: handball-scouting
+
+services:
+  # 1) Base de dados. Os scripts de db/init correm só na primeira vez (volume vazio).
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-scouting}
+      POSTGRES_USER: ${POSTGRES_USER:-scouting}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scouting}
+    volumes:
+      - dados_pg:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5432:5432"   # só acessível a partir deste computador (DBeaver, psql...)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # 2) API ASP.NET Core + hub SignalR (WebSockets)
+  api:
+    build: ./api
+    restart: unless-stopped
+    environment:
+      ConnectionStrings__Default: Host=db;Port=5432;Database=${POSTGRES_DB:-scouting};Username=${POSTGRES_USER:-scouting};Password=${POSTGRES_PASSWORD:-scouting}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # 3) Frontend (nginx): páginas estáticas e proxy para /api e /hub
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "${PORTA_WEB:-8080}:80"
+    depends_on:
+      - api
+
+volumes:
+  dados_pg:
