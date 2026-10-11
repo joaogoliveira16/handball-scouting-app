@@ -92,8 +92,10 @@ if jogo:
     ok(sum(l["Remates"] for l in posicoes) == 33, "Por posição: 33 remates no total", str(posicoes))
 
     grs = tabela(jogo, "Guarda-redes")
-    ok(len(grs) == 2 and sum(g["Defesas"] + g["Golos sofridos"] for g in grs) == sum(g["Remates à baliza"] for g in grs),
-       "Guarda-redes: defesas + golos sofridos = remates à baliza", str(grs))
+    ok(len(grs) == 4, "Guarda-redes: 4 linhas (2 guarda-redes por equipa tiveram remates)", str(len(grs)))
+    ok(all(g["Defesas"] + g["Golos sofridos"] == g["Remates à baliza"] for g in grs),
+       "Guarda-redes: defesas + golos sofridos = remates à baliza em cada linha", str(grs))
+    ok(sum(g["Golos sofridos"] for g in grs) == 15, "Guarda-redes: 15 golos sofridos no total (os 15 golos do jogo)", str(grs))
 
     outros = {(l["Equipa"], l["Evento"]): l["Total"] for l in tabela(jogo, "Outros eventos")}
     ok(sum(outros.values()) == 6, "Outros eventos: 6 no total (2 faltas, 2 perdas, 1 dois minutos, 1 timeout)", str(outros))
