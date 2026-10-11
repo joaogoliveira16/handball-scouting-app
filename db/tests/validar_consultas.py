@@ -13,9 +13,10 @@ import subprocess
 import sys
 
 PASTA = pathlib.Path(__file__).resolve().parents[2] / "api" / "HandballScouting.Api" / "Sql"
-# "IN @ids" é expandido pelo Dapper em (@ids1, @ids2...) e substituir_convocados.sql tem duas instruções:
-# nenhuma delas se pode fazer PREPARE tal e qual (são testadas no teste de integração)
-IGNORAR = {"jogadores_basico.sql", "substituir_convocados.sql"}
+# substituir_convocados.sql tem duas instruções e o PREPARE só aceita uma (é testado no teste de integração).
+# Listas de ids usam "= ANY(@ids)": o Npgsql envia a lista como um array do PostgreSQL (o "IN @ids" que o
+# Dapper expande para (@ids1, @ids2...) não funciona com o Npgsql).
+IGNORAR = {"substituir_convocados.sql"}
 
 erros = 0
 for ficheiro in sorted(PASTA.glob("*.sql")):
