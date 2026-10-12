@@ -2,6 +2,7 @@
 import { h, substituir, avisar } from './dom.js';
 import { obter, enviar, ROTULO_POSICAO, urlExcel } from './api.js';
 import { exigirConta } from './conta.js';
+import { abrirLeituraDeFoto } from './foto-lista.js';
 
 const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
 if (!jogoId) location.replace('./');
@@ -17,6 +18,7 @@ const estado = {
   guardados: new Set(),      // ids guardados no servidor
   semLista: new Set(),       // equipas que ainda não tinham convocatória guardada
   aGuardar: false,
+  aLerFoto: false,
 };
 
 const equipas = () => [
@@ -70,6 +72,46 @@ function escolherTodos(equipaId) {
 function escolherNenhum(equipaId) {
   for (const j of plantelDe(equipaId)) estado.selecionados.delete(j.id);
   desenhar();
+}
+
+/**
+ * Lê a lista de uma foto ou de um print: os jogadores da imagem passam a ser os convocados desta equipa.
+ * Os que ainda não existem na equipa são criados (já ficam gravados); a convocatória em si só se grava em "Guardar".
+ */
+async function lerDeFoto(equipa) {
+  if (estado.aLerFoto) return;
+  const resultado = await abrirLeituraDeFoto({
+    equipaNome: equipa.nome, plantel: plantelDe(equipa.id), maximo: estado.max,
+    convocadosAtuais: new Set(convocadosDe(equipa.id).map((j) => j.id)),
+  });
+  if (!resultado) return;
+
+  estado.aLerFoto = true;
+  desenhar();
+  const ids = new Set();
+  const falhas = [];
+  let novos = 0;
+  try {
+    for (const linha of resultado.jogadores) {
+      if (linha.jogadorId) { ids.add(linha.jogadorId); continue; }
+      try {
+        const { id } = await enviar('POST', `/api/equipas/${equipa.id}/jogadores`, { numero: linha.numero, nome: linha.nome, posicao: linha.posicao });
+        estado.jogo.jogadores.push({ id, equipaId: equipa.id, numero: linha.numero, nome: linha.nome, posicao: linha.posicao, convocado: false });
+        ids.add(id);
+        novos += 1;
+      } catch (erro) {
+        falhas.push(`#${linha.numero} ${linha.nome} (${erro.message})`);
+      }
+    }
+    for (const j of plantelDe(equipa.id)) estado.selecionados.delete(j.id);
+    for (const id of ids) estado.selecionados.add(id);
+    estado.semLista.delete(equipa.id);   // a seleção agora é explícita
+  } finally {
+    estado.aLerFoto = false;
+    desenhar();
+  }
+  if (falhas.length) avisar(`Não foi possível adicionar: ${falhas.join('; ')}.`, { erro: true });
+  else avisar(`${ids.size} convocados${novos ? `, ${novos} novos na equipa` : ''}. Guarda a convocatória para confirmar.`);
 }
 
 async function guardar() {
@@ -126,7 +168,11 @@ function colunaEquipa(equipa) {
       h('span', { class: `contador${cheia ? ' cheio' : ''}` }, escolhidos.length, h('small', {}, ` / ${estado.max}`)),
       h('div', { class: 'atalhos' },
         h('button', { type: 'button', class: 'botao suave pequeno', onclick: () => escolherTodos(equipa.id) }, 'Todos'),
-        h('button', { type: 'button', class: 'botao suave pequeno', onclick: () => escolherNenhum(equipa.id) }, 'Nenhum'))),
+        h('button', { type: 'button', class: 'botao suave pequeno', onclick: () => escolherNenhum(equipa.id) }, 'Nenhum'),
+        h('button', {
+          type: 'button', class: 'botao suave pequeno', disabled: estado.aLerFoto, onclick: () => lerDeFoto(equipa),
+          title: 'Escolhe uma foto ou um print da convocatória e a app lê os jogadores',
+        }, 'Ler de uma foto'))),
     plantel.length
       ? h('div', { class: 'grelha-azulejos' }, plantel.map((j) => azulejo(j, cheia)))
       : h('p', { class: 'vazio' }, 'Esta equipa ainda não tem jogadores.'),

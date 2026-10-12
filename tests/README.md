@@ -1,14 +1,15 @@
-# Testes de integração e de browser
+# Testes de integração, de browser e do frontend
 
 Testes que usam a **API verdadeira** (ASP.NET Core + PostgreSQL), ao contrário dos testes xUnit de `api/HandballScouting.Tests`, que testam código isolado. Correm no CI (job *Integração*), mas também podes corrê-los no teu computador.
 
 | Ficheiro | O que faz |
 |----------|-----------|
-| `integracao/integracao.mjs` | Chama a API por HTTP e SignalR: contas (registo, email de confirmação lido na caixa de correio de teste, confirmar pelo link, reenviar, entrada bloqueada até confirmar, saída, sessão por cookie, travão de tentativas), isolamento entre duas contas, link de partilha (`?c=`) para ver o jogo sem conta, estatísticas dos dados de exemplo, equipas, jogadores, novo jogo, convocatória, eventos, local das defesas na baliza, atualizações em tempo real e descarga do Excel. Guarda os `.xlsx` em `resultados/`. |
+| `unidade/*.test.mjs` | Testes unitários do frontend, sem browser nem API (`npm run unidade`, usa o `node --test`): `lista-jogadores.test.mjs` confere a leitura das listas de jogadores a partir do texto que o OCR devolve (texto lido de verdade pelo Tesseract em fichas de jogo, listas e prints de chat; números trocados por letras, cabeçalhos, horas, duplicados, nomes em maiúsculas). |
+| `integracao/integracao.mjs` | Chama a API por HTTP e SignalR: contas (registo, email de confirmação lido na caixa de correio de teste, confirmar pelo link, reenviar, entrada bloqueada até confirmar, saída, sessão por cookie, travão de tentativas), recuperação da palavra-passe (email com o link, código de uso único, sessões terminadas, palavra-passe antiga deixa de servir, link reutilizado ou inventado recusado, travão de pedidos), isolamento entre duas contas, link de partilha (`?c=`) para ver o jogo sem conta, estatísticas dos dados de exemplo, equipas, jogadores, novo jogo, convocatória, eventos, local das defesas na baliza, atualizações em tempo real e descarga do Excel. Guarda os `.xlsx` em `resultados/`. |
 | `integracao/verificar_excel.py` | Abre os `.xlsx` guardados (openpyxl) e confere folhas, totais e filtros por equipa. |
-| `e2e/fluxos.mjs` | Abre as páginas num Chromium (Playwright) e usa-as como um utilizador: cria a conta, sai e entra, trata do plantel e da convocatória, regista remates no banco (incluindo a janela da baliza ao tocar em Defesa) e confirma que o dashboard recebe o golo e as defesas por WebSocket, também para quem só tem o link de partilha (outro browser, sem sessão). Também testa o email de confirmação (link no email, «Reenviar email», link inválido) e a área de convidado (colar o link, lista de jogos neste dispositivo). Uma segunda conta confirma que não vê nada da primeira. |
+| `e2e/fluxos.mjs` | Abre as páginas num Chromium (Playwright) e usa-as como um utilizador: cria a conta, sai e entra, trata do plantel e da convocatória, regista remates no banco (incluindo a janela da baliza ao tocar em Defesa) e confirma que o dashboard recebe o golo e as defesas por WebSocket, também para quem só tem o link de partilha (outro browser, sem sessão). Também testa o email de confirmação (link no email, «Reenviar email», link inválido), a recuperação da palavra-passe (pedir o link na página de entrada, abrir o do email, escolher a nova, entrar com ela, link usado a segunda vez) e a leitura da lista de uma foto na convocatória (desenha uma ficha de jogo, lê-a com o leitor verdadeiro, confere os jogadores lidos, corrige à mão, confirma e verifica a base de dados; uma imagem em branco e «Cancelar» não mudam nada), e a área de convidado (colar o link, lista de jogos neste dispositivo). Uma segunda conta confirma que não vê nada da primeira. |
 | `e2e/servidor.mjs` | Faz o papel do nginx: serve `frontend/` e reencaminha `/api` e `/hub` (incluindo WebSockets) para a API. |
-| `correio.mjs` | Lê os emails da caixa de correio de teste (API HTTP do Mailpit) e tira deles o código do link de confirmação. |
+| `correio.mjs` | Lê os emails da caixa de correio de teste (API HTTP do Mailpit) e tira deles o código do link de confirmação ou de recuperação da palavra-passe. |
 | `api.sh` | Publica e arranca a API em `http://localhost:5080`, a enviar emails para o Mailpit em `localhost:1025` (usado pelo CI). |
 
 ## Correr localmente
@@ -28,6 +29,7 @@ tests/api.sh arrancar
 # 3. Dependências (uma vez) e testes
 cd tests
 npm ci
+npm run unidade
 node integracao/integracao.mjs
 python3 integracao/verificar_excel.py resultados
 

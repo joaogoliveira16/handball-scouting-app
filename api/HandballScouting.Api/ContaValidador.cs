@@ -32,11 +32,18 @@ public static partial class ContaValidador
         if (email.Length == 0) erros.Add("o email é obrigatório.");
         else if (email.Length > 160 || !PadraoEmail().IsMatch(email)) erros.Add("o email não é válido.");
 
-        var palavraPasse = r.PalavraPasse ?? "";
-        if (palavraPasse.Length < MinPalavraPasse) erros.Add($"a palavra-passe tem de ter pelo menos {MinPalavraPasse} caracteres.");
-        else if (palavraPasse.Length > MaxPalavraPasse) erros.Add($"a palavra-passe tem no máximo {MaxPalavraPasse} caracteres.");
-        else if (string.IsNullOrWhiteSpace(palavraPasse)) erros.Add("a palavra-passe não pode ser só espaços.");
+        if (ErroPalavraPasse(r.PalavraPasse) is { } erroPalavraPasse) erros.Add(erroPalavraPasse);
 
         return erros;
+    }
+
+    /// <summary>O que está mal numa palavra-passe nova (uma frase em minúsculas, sem maiúscula inicial); null se estiver boa.</summary>
+    public static string? ErroPalavraPasse(string? palavraPasse)
+    {
+        var p = palavraPasse ?? "";
+        if (p.Length < MinPalavraPasse) return $"a palavra-passe tem de ter pelo menos {MinPalavraPasse} caracteres.";
+        if (p.Length > MaxPalavraPasse) return $"a palavra-passe tem no máximo {MaxPalavraPasse} caracteres.";
+        if (string.IsNullOrWhiteSpace(p)) return "a palavra-passe não pode ser só espaços.";
+        return null;
     }
 }

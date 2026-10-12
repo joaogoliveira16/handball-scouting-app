@@ -127,6 +127,10 @@ jobs:
         working-directory: tests
         run: npm ci
 
+      - name: Testes unitários do frontend (leitura das listas de jogadores)
+        working-directory: tests
+        run: npm run unidade
+
       - name: Teste de integração da API (HTTP, SignalR, Excel)
         working-directory: tests
         run: node integracao/integracao.mjs

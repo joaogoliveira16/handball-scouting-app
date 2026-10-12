@@ -15,6 +15,7 @@ const painelConfirmar = document.getElementById('painel-confirmar');
 const textoConfirmar = document.getElementById('texto-confirmar');
 const estadoConfirmar = document.getElementById('estado-confirmar');
 const botaoReenviar = document.getElementById('reenviar');
+const painelEsqueci = document.getElementById('painel-esqueci');
 
 const REGEX_EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const CODIGO_POR_CONFIRMAR = 'email_por_confirmar';
@@ -31,6 +32,7 @@ function mostrar(modo, comFoco = true) {
   const registo = modo === 'registo';
   entrada.hidden = false;
   painelConfirmar.hidden = true;
+  painelEsqueci.hidden = true;
   formEntrar.hidden = registo;
   formRegisto.hidden = !registo;
   for (const [aba, ativa] of [[abaEntrar, !registo], [abaRegisto, registo]]) {
@@ -125,6 +127,59 @@ document.getElementById('ja-confirmei').addEventListener('click', () => {
   document.getElementById('entrar-senha').focus();
 });
 document.getElementById('outro-email').addEventListener('click', () => { clearInterval(temporizadorReenvio); mostrar('registo'); });
+
+// ---------------------------------------------------------------------
+// Esqueci a palavra-passe
+// ---------------------------------------------------------------------
+const formEsqueci = document.getElementById('form-esqueci');
+const erroEsqueci = document.getElementById('erro-esqueci');
+const okEsqueci = document.getElementById('ok-esqueci');
+const botaoEsqueci = document.getElementById('botao-esqueci');
+
+function mostrarEsqueci(email) {
+  entrada.hidden = true;
+  painelConfirmar.hidden = true;
+  painelEsqueci.hidden = false;
+  titulo.textContent = 'Recuperar a palavra-passe';
+  subtitulo.textContent = 'Escreve o email da conta e enviamos-te um link para escolheres outra.';
+  document.title = 'Recuperar a palavra-passe · Scouting de Andebol';
+  erroEsqueci.textContent = '';
+  okEsqueci.hidden = true;
+  botaoEsqueci.textContent = 'Enviar link';
+  document.getElementById('esqueci-email').value = email;
+  document.getElementById('dica-teste-esqueci').hidden = true;
+  document.getElementById('esqueci-email').focus();
+}
+
+document.getElementById('esqueci').addEventListener('click', () => mostrarEsqueci(valor('entrar-email').trim()));
+document.getElementById('voltar-entrar').addEventListener('click', () => {
+  const email = valor('esqueci-email').trim();
+  mostrar('entrar', false);
+  document.getElementById('entrar-email').value = email;
+  document.getElementById(email ? 'entrar-senha' : 'entrar-email').focus();
+});
+
+formEsqueci.addEventListener('submit', async (evento) => {
+  evento.preventDefault();
+  const email = valor('esqueci-email').trim();
+  erroEsqueci.textContent = '';
+  okEsqueci.hidden = true;
+  if (!REGEX_EMAIL.test(email)) { erroEsqueci.textContent = 'Escreve um email válido.'; return; }
+
+  botaoEsqueci.disabled = true;
+  try {
+    await enviar('POST', '/api/conta/esqueci-palavra-passe', { email });
+    // A resposta é a mesma exista a conta ou não: não se revela quem tem conta
+    okEsqueci.textContent = `Se existir uma conta com ${email}, enviámos-lhe um link para escolher a palavra-passe nova. Vale 1 hora. Se não o vires, procura no spam.`;
+    okEsqueci.hidden = false;
+    botaoEsqueci.textContent = 'Enviar outra vez';
+    document.getElementById('dica-teste-esqueci').hidden = !['localhost', '127.0.0.1'].includes(location.hostname);
+  } catch (falha) {
+    erroEsqueci.textContent = falha.message;
+  } finally {
+    botaoEsqueci.disabled = false;
+  }
+});
 
 // ---------------------------------------------------------------------
 // Formulários

@@ -564,6 +564,10 @@ table.tabela td.suave { color: var(--suave); }
 .entrar-convidado p { margin: 0 0 10px; color: var(--suave); font-size: 0.95rem; }
 .entrar-convidado .botao-link { width: 100%; }
 .entrar-caixa form .botao.pequeno { justify-self: start; }
+/* ligação com aspeto de texto, para ações pequenas dentro de um formulário (Esqueci a palavra-passe) */
+.link-botao { justify-self: start; padding: 4px 0; border: 0; background: none; font: inherit; font-size: 0.93rem; font-weight: 600; color: var(--texto-casa); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.link-botao:hover { color: var(--tinta); }
+.caixa-centro form.cartao label small { color: var(--suave); font-weight: 400; }
 
 /* jogos que o convidado já abriu */
 .lista-vistos { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
@@ -632,6 +636,35 @@ table.tabela td.suave { color: var(--suave); }
 .janela-nota { margin: 12px 0 0; text-align: center; color: var(--suave); font-size: 0.95rem; }
 .janela-acoes { display: flex; gap: 10px; justify-content: space-between; margin-top: 16px; flex-wrap: wrap; }
 .janela-acoes .botao { flex: 1; min-width: 150px; }
+
+/* ---------- Ler a lista de uma foto (janela da convocatória) ---------- */
+.janela-foto { width: min(760px, 100%); }
+.foto-corpo { display: grid; gap: 12px; }
+.foto-corpo p { margin: 0; }
+.foto-corpo .suave { color: var(--suave); }
+.foto-corpo .pequeno-texto { font-size: 0.9rem; }
+.foto-previa { max-width: 100%; max-height: 220px; justify-self: center; border: 1px solid var(--linha); border-radius: var(--raio-controlo); object-fit: contain; background: #fff; }
+.foto-corpo progress { width: 100%; height: 10px; accent-color: var(--foco); }
+table.lista-foto td { vertical-align: middle; }
+table.lista-foto input[type=text], table.lista-foto select { width: 100%; min-width: 150px; min-height: 40px; padding: 6px 10px; }
+table.lista-foto input[type=checkbox] { width: 22px; height: 22px; }
+table.lista-foto .campo-numero { width: 72px; min-height: 40px; padding: 6px 8px; text-align: center; }
+table.lista-foto .nome-lido { color: var(--alerta); }
+.estado-linha { font-size: 0.9rem; color: var(--suave); white-space: nowrap; }
+.estado-linha.novo { color: var(--texto-casa); font-weight: 600; }
+.estado-linha.alerta { color: var(--perigo); font-weight: 600; }
+.resumo-foto { font-weight: 600; }
+.texto-lido pre { margin: 8px 0 0; padding: 10px; max-height: 180px; overflow: auto; background: var(--realce); border-radius: var(--raio-controlo); font-size: 0.85rem; white-space: pre-wrap; }
+.janela-foto .janela-acoes .botao { flex: 1 1 auto; min-width: 120px; }
+/* No telemóvel cada jogador passa a um bloco (a tabela não cabe): marca e número, nome, posição e estado por baixo */
+@media (max-width: 640px) {
+  table.lista-foto, table.lista-foto tbody { display: block; }
+  table.lista-foto thead { display: none; }
+  table.lista-foto tr { display: grid; grid-template-columns: 26px 76px minmax(0, 1fr); gap: 6px 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--linha); }
+  table.lista-foto td { display: block; padding: 0; border: 0; min-width: 0; }
+  table.lista-foto td:nth-child(n+4) { grid-column: 2 / -1; }
+  table.lista-foto input[type=text], table.lista-foto select { min-width: 0; }
+}
 
 /* ---------- Movimento reduzido ---------- */
 @media (prefers-reduced-motion: reduce) {

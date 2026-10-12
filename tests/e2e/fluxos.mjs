@@ -301,6 +301,110 @@ await passo('Contas: criar conta, confirmar o email, sair e entrar', async () =>
   await ctxNovo.close();
 });
 
+// ======================= Recuperar a palavra-passe =======================
+await passo('Recuperar a palavra-passe', async () => {
+  const email = `recuperar-${sufixo}@exemplo.pt`;
+  const NOVA = 'palavra-passe-nova-9';
+  const ctxR = await novoContexto();   // outra pessoa, noutro browser
+
+  // Uma conta confirmada (a primeira conta confirmada já ficou com os dados de exemplo)
+  let p = await pagina('/entrar.html?modo=registo', { contexto: ctxR, tolerar: ['401'] });
+  await registarPelaPagina(p, { nome: 'Rita Recupera', email, senha: SENHA });
+  await p.waitForSelector('#painel-confirmar:not([hidden])');
+  await p.close();
+  const confirmacao = await abrirLinkDoEmail(email, { contexto: ctxR });
+  await confirmacao.v.close();
+  const [{ id: contaId }] = await q('SELECT id FROM utilizadores WHERE email = $1', [email]);
+  ok((await q('SELECT 1 FROM equipas WHERE dono_id = $1', [contaId])).length === 0, 'recuperar: esta conta não é a primeira confirmada (não herda dados de exemplo)');
+
+  // «Esqueci a palavra-passe» leva o email escrito para o ecrã de recuperação
+  p = await pagina('/entrar.html', { contexto: ctxR, tolerar: ['401', '400'] });
+  await p.fill('#entrar-email', email);
+  await p.click('#esqueci');
+  ok((await p.locator('#painel-esqueci').isVisible()) && (await p.locator('#entrada').isHidden()), 'esqueci: abre o ecrã de recuperação e esconde o formulário de entrada');
+  ok((await p.inputValue('#esqueci-email')) === email, 'esqueci: leva o email que já estava escrito');
+  await captura(p, 'esqueci');
+  await p.fill('#esqueci-email', 'sem-arroba');
+  await p.click('#botao-esqueci');
+  ok((await p.locator('#erro-esqueci').textContent()).includes('email válido'), 'esqueci: email inválido recusado com mensagem');
+  await p.fill('#esqueci-email', email);
+  await p.click('#botao-esqueci');
+  await p.waitForSelector('#ok-esqueci:not([hidden])');
+  ok((await p.locator('#ok-esqueci').textContent()).includes('Se existir uma conta') && (await p.locator('#botao-esqueci').textContent()) === 'Enviar outra vez',
+    'esqueci: a resposta não revela se a conta existe (e oferece enviar outra vez)');
+  const [mensagem] = await esperarMensagens(email, 2);
+  const texto = (await lerMensagem(mensagem.ID)).Text;
+  ok(/palavra-passe/i.test(mensagem.Subject) && texto.includes('Olá Rita Recupera,') && texto.includes('redefinir.html?t='), 'email: chegou o email de recuperação com o nome e o link');
+  const token = await ultimoToken(email, 2, 'redefinir');
+  ok(!!token, 'email: o link tem um código');
+  await p.click('#voltar-entrar');
+  ok((await p.locator('#form-entrar').isVisible()) && (await p.inputValue('#entrar-email')) === email, 'esqueci: «Voltar a entrar» regressa ao formulário com o email');
+  await p.close();
+
+  // Email sem conta: o ecrã responde igual e não segue nenhum email
+  const sem = await pagina('/entrar.html', { contexto: ctxR, tolerar: ['401'] });
+  await sem.click('#esqueci');
+  await sem.fill('#esqueci-email', `ninguem-${sufixo}@exemplo.pt`);
+  await sem.click('#botao-esqueci');
+  await sem.waitForSelector('#ok-esqueci:not([hidden])');
+  ok((await sem.locator('#ok-esqueci').textContent()).includes('Se existir uma conta'), 'esqueci: email sem conta recebe a mesma resposta');
+  ok((await mensagensPara(`ninguem-${sufixo}@exemplo.pt`)).length === 0, 'esqueci: para um email sem conta não segue nenhum email');
+  await sem.close();
+
+  // A página do link: validações e palavra-passe nova
+  const r = await pagina(`/redefinir.html?t=${token}`, { contexto: ctxR, tolerar: ['400'] });
+  await r.waitForSelector('#escolher:not([hidden])');
+  ok(await r.evaluate(() => document.activeElement?.id === 'nova-senha'), 'redefinir: o campo da palavra-passe nova já está pronto a escrever');
+  await captura(r, 'redefinir');
+  await r.click('#botao-nova');
+  ok((await r.locator('#erro-nova').textContent()).includes('pelo menos 8'), 'redefinir: palavra-passe curta recusada com mensagem');
+  await r.fill('#nova-senha', ' '.repeat(10));
+  await r.click('#botao-nova');
+  ok((await r.locator('#erro-nova').textContent()).includes('só espaços'), 'redefinir: palavra-passe só com espaços recusada');
+  await r.fill('#nova-senha', NOVA);
+  await r.click('#ver-nova');
+  ok((await r.getAttribute('#nova-senha', 'type')) === 'text' && (await r.textContent('#ver-nova')) === 'Esconder', 'redefinir: «Mostrar» revela a palavra-passe');
+  await r.click('#botao-nova');
+  await r.waitForSelector('#feito:not([hidden])');
+  ok((await r.locator('#feito h1').textContent()) === 'Palavra-passe alterada', 'redefinir: mostra «Palavra-passe alterada»');
+  ok(!new URL(r.url()).searchParams.has('t'), 'redefinir: o código sai do endereço depois de usado');
+  await captura(r, 'redefinir-feito');
+  const [conta] = await q('SELECT palavra_passe_hash FROM utilizadores WHERE id = $1', [contaId]);
+  ok(/^pbkdf2-sha256\$600000\$/.test(conta.palavra_passe_hash) && !conta.palavra_passe_hash.includes(NOVA), 'base de dados: a palavra-passe nova fica só como hash PBKDF2');
+  ok((await q('SELECT 1 FROM redefinicoes_palavra_passe WHERE utilizador_id = $1', [contaId])).length === 0, 'base de dados: o link ficou gasto');
+  await r.close();
+
+  // O mesmo link já não serve; a página explica e oferece um link novo
+  const gasto = await pagina(`/redefinir.html?t=${token}`, { contexto: ctxR, tolerar: ['400'] });
+  await gasto.waitForSelector('#escolher:not([hidden])');
+  await gasto.fill('#nova-senha', 'outra-palavra-passe-1');
+  await gasto.click('#botao-nova');
+  await gasto.waitForSelector('#falhou:not([hidden])');
+  ok((await gasto.locator('#erro-link').textContent()).includes('já foi usado') && (await gasto.locator('#form-novo-link').isVisible()), 'redefinir: um link já usado explica o motivo e oferece um link novo');
+  ok(!new URL(gasto.url()).searchParams.has('t'), 'redefinir: o código recusado também sai do endereço');
+  await gasto.fill('#novo-email', email);
+  await gasto.click('#botao-novo-link');
+  await gasto.waitForSelector('#ok-novo-link:not([hidden])');
+  ok((await esperarMensagens(email, 3)).length === 3, 'redefinir: pedir um link novo envia outro email');
+  await gasto.close();
+  const semCodigo = await pagina('/redefinir.html', { contexto: ctxR, tolerar: ['400'] });
+  await semCodigo.waitForSelector('#falhou:not([hidden])');
+  ok((await semCodigo.locator('#erro-link').textContent()).includes('Falta o código'), 'redefinir: sem código no endereço explica o que falta');
+  await semCodigo.close();
+
+  // Entrar: a palavra-passe antiga já não serve, a nova sim
+  p = await pagina('/entrar.html', { contexto: ctxR, tolerar: ['401', '400'] });
+  await p.fill('#entrar-email', email); await p.fill('#entrar-senha', SENHA);
+  await p.click('#botao-entrar');
+  await p.waitForFunction(() => document.getElementById('erro-entrar').textContent.length > 0);
+  ok((await p.locator('#erro-entrar').textContent()) === 'Email ou palavra-passe errados.', 'entrar: a palavra-passe antiga já não entra');
+  await p.fill('#entrar-senha', NOVA);
+  await Promise.all([p.waitForURL((u) => u.pathname === '/'), p.click('#botao-entrar')]);
+  ok(true, 'entrar: a palavra-passe nova entra');
+  await p.close();
+  await ctxR.close();
+});
+
 // ======================= Equipas e jogadores =======================
 await passo('Equipas e jogadores', async () => {
   const p = await pagina('/equipas.html');
@@ -433,6 +537,106 @@ await passo('Máximo de 16 convocados por equipa', async () => {
   await col.getByRole('button', { name: 'Nenhum' }).click();
   ok((await texto(col.locator('.contador'))) === '0/16', 'máximo: "Nenhum" limpa a seleção');
   await p.close();
+});
+
+// ======================= Convocatória: ler a lista de uma foto =======================
+await passo('Convocatória: ler a lista de uma foto', async () => {
+  // A "foto" é um print de uma ficha de jogo desenhada aqui mesmo; o leitor (OCR) é o verdadeiro, a correr no browser.
+  const ficha = [[1, 'RUI MESQUITA (GR)'], [3, 'TIAGO REIS'], [5, 'JOEL MOTA'], [7, 'ANDRÉ FERREIRA'], [9, 'MIGUEL CARVALHO'],
+    [10, 'JOÃO PEREIRA'], [11, 'DIOGO MARQUES'], [13, 'FRANCISCO LOPES'], [17, 'RICARDO ALVES'], [21, 'BRUNO COSTA']];
+  const desenho = await browser.newPage({ viewport: { width: 800, height: 600 } });
+  await desenho.setContent(`<style>body{font-family:Arial,Helvetica,sans-serif;margin:30px;background:#fff}table{border-collapse:collapse;font-size:22px}td,th{border:1px solid #333;padding:6px 14px}</style>
+    <h2>FICHA DE JOGO — CONVOCATÓRIA</h2><p>Equipa: FALCÕES</p>
+    <table><tr><th>N.º</th><th>NOME</th><th>LIC.</th></tr>${ficha.map(([n, nome], i) => `<tr><td>${n}</td><td>${nome}</td><td>${120000 + i * 37}</td></tr>`).join('')}</table>`);
+  const ficheiroFicha = path.join(E2E_DIR, 'e2e-foto-ficha.png');
+  await desenho.screenshot({ path: ficheiroFicha, fullPage: true });
+  await desenho.setContent('<body style="background:#fff"></body>');
+  const ficheiroVazio = path.join(E2E_DIR, 'e2e-foto-vazia.png');
+  await desenho.screenshot({ path: ficheiroVazio });
+  await desenho.close();
+
+  // Uma equipa com dois jogadores que estão na ficha (#1 e #7, o #7 com outro nome) e um que não está (#20)
+  const [eq] = await q('INSERT INTO equipas (nome, dono_id) VALUES ($1, $2) RETURNING id', [`Falcões ${sufixo}`, donoId]);
+  for (const [n, nome, pos] of [[1, 'Rui Mesquita', 'GR'], [7, 'André Fonseca', 'LE'], [20, 'Zé Fora', 'PD']]) {
+    await q('INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1,$2,$3,$4)', [eq.id, n, nome, pos]);
+  }
+  const [jogo] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [eq.id, aguias.id, donoId]);
+  const toleradas = ['Error in ', 'Estimating resolution', 'Invalid resolution'];   // o leitor escreve avisos na consola
+  const p = await pagina(`/convocatoria.html?jogo=${jogo.id}`, { tolerar: toleradas });
+  await p.waitForSelector('.azulejo');
+  const coluna = p.locator('.coluna-equipa').nth(0);
+  ok((await coluna.getByRole('button', { name: 'Ler de uma foto' }).count()) === 1, 'foto: botão "Ler de uma foto" em cada equipa');
+  await coluna.getByRole('button', { name: 'Ler de uma foto' }).click();
+  const janela = p.locator('.janela-foto');
+  await janela.waitFor();
+  ok((await janela.locator('input[type=file]').count()) === 1, 'foto: a janela deixa escolher uma imagem');
+
+  // Uma imagem em branco não dá jogadores: avisa e deixa tentar outra
+  await janela.locator('input[type=file]').setInputFiles(ficheiroVazio);
+  await janela.locator('.aviso-inline').waitFor({ timeout: 120000 });
+  ok((await janela.locator('.aviso-inline').textContent()).includes('Não consegui ler nenhum jogador'), 'foto: imagem sem lista avisa que não leu ninguém');
+  ok((await janela.locator('table.lista-foto tbody tr').count()) === 0, 'foto: imagem sem lista não inventa jogadores');
+  await janela.getByRole('button', { name: 'Outra imagem' }).click();
+
+  // A ficha: o leitor tem de apanhar quase todos, e os que já existem ficam ligados aos jogadores da equipa
+  const t0 = Date.now();
+  await janela.locator('input[type=file]').setInputFiles(ficheiroFicha);
+  await janela.locator('table.lista-foto').waitFor({ timeout: 120000 });
+  console.log(`   (lido em ${Date.now() - t0} ms)`);
+  const lidas = await janela.locator('table.lista-foto tbody tr').evaluateAll((trs) => trs.map((tr) => ({
+    numero: Number(tr.querySelector('.campo-numero').value), incluir: tr.querySelector('input[type=checkbox]').checked,
+    nome: (tr.children[2].querySelector('input')?.value ?? tr.children[2].firstElementChild?.textContent ?? '').trim(),
+    estado: tr.children[4].textContent.trim() })));
+  const certos = ficha.filter(([n]) => lidas.some((l) => l.numero === n)).length;
+  ok(certos >= 8, `foto: leu os números de pelo menos 8 dos 10 jogadores da ficha (leu ${certos}: ${lidas.map((l) => l.numero).join(', ')})`);
+  const apelidoBate = ficha.filter(([n, nome]) => {
+    const l = lidas.find((x) => x.numero === n);
+    const sem = (t) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+    return l && sem(l.nome).replace(/\s/g, '').includes(sem(nome.replace(/ \(GR\)/, '').split(' ').at(-1)));
+  }).length;
+  ok(apelidoBate >= 7, `foto: leu o apelido de pelo menos 7 dos 10 jogadores (leu ${apelidoBate})`);
+  const um = lidas.find((l) => l.numero === 1);
+  const sete = lidas.find((l) => l.numero === 7);
+  ok(!um || um.estado === 'Já está na equipa', 'foto: o #1 já está na equipa e fica ligado ao jogador que existe');
+  ok(!sete || (sete.estado === 'Já está na equipa' && sete.nome.includes('André Fonseca')), 'foto: o #7 liga-se ao jogador da equipa com esse número (mostra o nome da equipa)');
+  ok(lidas.filter((l) => l.estado === 'Novo na equipa').length >= 5, 'foto: os outros aparecem como novos na equipa');
+  ok((await janela.locator('.resumo-foto').textContent()).includes('Ficam convocados'), 'foto: resumo do que vai acontecer');
+  await captura(p, 'convocatoria-foto');
+
+  // Corrigir à mão: tira o último jogador da lista e confirma
+  const ultima = janela.locator('table.lista-foto tbody tr').last();
+  const numeroUltimo = Number(await ultima.locator('.campo-numero').inputValue());
+  await ultima.locator('input[type=checkbox]').uncheck();
+  const incluidos = lidas.filter((l) => l.numero !== numeroUltimo);
+  const novos = incluidos.filter((l) => l.estado === 'Novo na equipa');
+  await janela.locator('.botao.primario', { hasText: 'Convocar' }).click();
+  await janela.waitFor({ state: 'detached' });
+  await p.waitForFunction(() => document.getElementById('aviso').textContent.includes('Guarda a convocatória'));
+  ok(true, `foto: confirmada (${incluidos.length} convocados, ${novos.length} novos)`);
+
+  const jogadoresBd = await q('SELECT numero, nome FROM jogadores WHERE equipa_id = $1 ORDER BY numero', [eq.id]);
+  ok(jogadoresBd.length === 3 + novos.length, `foto: os novos jogadores foram criados na equipa (${jogadoresBd.length} no total)`);
+  ok(novos.every((n) => jogadoresBd.some((j) => j.numero === n.numero && j.nome === n.nome)), 'foto: com o número e o nome que estavam no ecrã de rever');
+  ok((await texto(coluna.locator('.contador'))) === `${incluidos.length}/16`, `foto: o contador mostra ${incluidos.length}/16`);
+  const zeFora = coluna.locator('.azulejo', { hasText: 'Zé Fora' });
+  ok((await zeFora.getAttribute('aria-pressed')) === 'false', 'foto: quem não vem na imagem fica fora da convocatória');
+
+  await p.click('.barra-acoes button.primario');
+  await p.waitForFunction(() => document.querySelector('.barra-acoes .estado').textContent.includes('guardada'));
+  const convocados = await q('SELECT j.numero FROM convocados c JOIN jogadores j ON j.id = c.jogador_id WHERE c.jogo_id = $1 AND j.equipa_id = $2 ORDER BY j.numero', [jogo.id, eq.id]);
+  ok(convocados.length === incluidos.length, `foto: ${incluidos.length} convocados guardados na base de dados (${convocados.length})`);
+  ok(!convocados.some((c) => c.numero === 20), 'foto: o #20 não ficou convocado');
+  await p.close();
+
+  // Cancelar não mexe em nada
+  const p2 = await pagina(`/convocatoria.html?jogo=${jogo.id}`, { tolerar: toleradas });
+  await p2.waitForSelector('.azulejo');
+  const antes = await texto(p2.locator('.coluna-equipa').nth(0).locator('.contador'));
+  await p2.locator('.coluna-equipa').nth(0).getByRole('button', { name: 'Ler de uma foto' }).click();
+  await p2.locator('.janela-foto').getByRole('button', { name: 'Cancelar' }).click();
+  await p2.locator('.janela-foto').waitFor({ state: 'detached' });
+  ok((await texto(p2.locator('.coluna-equipa').nth(0).locator('.contador'))) === antes, 'foto: cancelar não muda a convocatória');
+  await p2.close();
 });
 
 // ======================= Banco: só convocados, registar remates =======================

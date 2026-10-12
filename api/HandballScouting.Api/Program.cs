@@ -87,6 +87,20 @@ conta.MapPost("/reenviar-confirmacao", async (ReenviarConfirmacaoRequest pedido,
     return r.Ok ? Results.NoContent() : Falha(r);
 });
 
+conta.MapPost("/esqueci-palavra-passe", async (EsqueciPalavraPasseRequest pedido, HttpContext http, ContaService contas, CancellationToken ct) =>
+{
+    http.Response.Headers.CacheControl = "no-store";
+    var r = await contas.PedirRedefinicaoAsync(pedido.Email, ct);
+    return r.Ok ? Results.NoContent() : Falha(r);
+});
+
+conta.MapPost("/redefinir-palavra-passe", async (RedefinirPalavraPasseRequest pedido, HttpContext http, ContaService contas, CancellationToken ct) =>
+{
+    http.Response.Headers.CacheControl = "no-store";
+    var r = await contas.RedefinirPalavraPasseAsync(pedido.Token, pedido.PalavraPasse, ct);
+    return r.Ok ? Results.NoContent() : Falha(r);
+});
+
 conta.MapPost("/entrar", async (EntrarRequest pedido, HttpContext http, ContaService contas, CancellationToken ct) =>
 {
     http.Response.Headers.CacheControl = "no-store";

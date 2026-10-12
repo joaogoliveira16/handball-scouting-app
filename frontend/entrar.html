@@ -50,6 +50,7 @@
               <button type="button" class="ver-senha" aria-pressed="false" aria-controls="entrar-senha">Mostrar</button>
             </span>
           </label>
+          <button class="link-botao" type="button" id="esqueci">Esqueci a palavra-passe</button>
           <p class="erro-formulario" id="erro-entrar" role="alert"></p>
           <button class="botao suave pequeno" type="button" id="reenviar-entrar" hidden>Reenviar email de confirmação</button>
           <button class="botao primario" type="submit" id="botao-entrar">Entrar</button>
@@ -73,6 +74,20 @@
           <button class="botao primario" type="submit" id="botao-registo">Criar conta</button>
         </form>
         </div>
+
+        <!-- Esqueci a palavra-passe: pede-se o email e segue um link para escolher outra -->
+        <section id="painel-esqueci" hidden>
+          <form id="form-esqueci" novalidate>
+            <label>Email da conta
+              <input id="esqueci-email" type="email" name="email" autocomplete="username" inputmode="email" maxlength="160" required>
+            </label>
+            <p class="erro-formulario" id="erro-esqueci" role="alert"></p>
+            <p class="aviso-inline ok" id="ok-esqueci" role="status" hidden></p>
+            <button class="botao primario" type="submit" id="botao-esqueci">Enviar link</button>
+            <button class="botao suave" type="button" id="voltar-entrar">Voltar a entrar</button>
+          </form>
+          <p class="entrar-rodape" id="dica-teste-esqueci" hidden>A testar no teu computador? Os emails de teste ficam na caixa de correio de teste, em <a href="http://localhost:8025" target="_blank" rel="noopener">localhost:8025</a>.</p>
+        </section>
 
         <!-- Depois de criar a conta (ou de tentar entrar sem ter confirmado o email) -->
         <section id="painel-confirmar" hidden>

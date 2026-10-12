@@ -269,6 +269,96 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
 });
 
 // ----------------------------------------------------------------------
+await passo('Recuperação da palavra-passe', async () => {
+  const email = `recuperar-${sufixo}@exemplo.pt`;
+  const NOVA = 'palavra-passe-nova-9';
+  const aparelho1 = new Sessao('aparelho 1');
+  const aparelho2 = new Sessao('aparelho 2');
+
+  // Pedir o link: valida o email e responde igual exista a conta ou não
+  ok((await http('POST', '/api/conta/esqueci-palavra-passe', {}, anonima)).status === 400, 'esqueci a palavra-passe sem email = 400');
+  const semConta = await http('POST', '/api/conta/esqueci-palavra-passe', { email: `ninguem-${sufixo}@exemplo.pt` }, anonima);
+  ok(semConta.status === 204 && semConta.setCookie.length === 0 && /no-store/.test(semConta.cabecalhos.get('cache-control') ?? ''),
+    'esqueci a palavra-passe com um email sem conta = 204 (não revela se existe)', descricao(semConta));
+  await esperar(400);
+  ok((await mensagensPara(`ninguem-${sufixo}@exemplo.pt`)).length === 0, 'e não envia nenhum email');
+
+  // Uma conta confirmada com duas sessões abertas (dois aparelhos)
+  ok((await http('POST', '/api/conta/registar', { nome: `Recuperar ${sufixo}`, email, palavraPasse: SENHA }, anonima)).status === 201, 'conta para recuperar criada');
+  ok((await http('POST', '/api/conta/confirmar-email', { token: await ultimoToken(email) }, anonima)).status === 204, 'e confirmada');
+  ok((await http('POST', '/api/conta/entrar', { email, palavraPasse: SENHA }, aparelho1)).status === 200
+    && (await http('POST', '/api/conta/entrar', { email, palavraPasse: SENHA }, aparelho2)).status === 200, 'com a sessão aberta em dois aparelhos');
+  const cookies = [aparelho1.cookie, aparelho2.cookie];
+
+  // Quem errou a palavra-passe 5 vezes fica bloqueado... até a redefinir
+  const estados = [];
+  for (let i = 0; i < 6; i++) estados.push((await http('POST', '/api/conta/entrar', { email, palavraPasse: `errada-${i}-xxxxx` }, new Sessao('falhas'))).status);
+  ok(estados[5] === 429, `a conta ficou bloqueada por tentativas falhadas (${estados})`);
+
+  // Três pedidos de link: três emails; o quarto é travado (e não se mistura com o limite dos emails de confirmação)
+  const pedido1 = await http('POST', '/api/conta/esqueci-palavra-passe', { email: email.toUpperCase() }, anonima);
+  ok(pedido1.status === 204, 'esqueci a palavra-passe com o email da conta (maiúsculas) = 204', descricao(pedido1));
+  const mensagens1 = await esperarMensagens(email, 2);
+  const mensagem = await lerMensagem(mensagens1[0].ID);
+  const tokenA = tokenDe(mensagem.Text, 'redefinir');
+  ok(/palavra-passe/i.test(mensagem.Subject) && mensagem.From?.Address === 'scouting@exemplo.pt', 'chega o email de recuperação (assunto sobre a palavra-passe)', JSON.stringify(mensagem.Subject));
+  ok(!!tokenA && mensagem.Text.includes(`${URL_PUBLICO}/redefinir.html?t=${tokenA}`) && mensagem.Text.includes(`Olá Recuperar ${sufixo},`) && mensagem.Text.includes('1 hora'),
+    'o email tem o nome e o link para a página de palavra-passe nova no endereço público', mensagem.Text?.slice(0, 200));
+  ok(!!tokenA && mensagem.HTML.includes(`redefinir.html?t=${tokenA}`), 'a versão HTML tem o mesmo link');
+  ok((await http('POST', '/api/conta/esqueci-palavra-passe', { email }, anonima)).status === 204, 'segundo pedido = 204');
+  const tokenB = await ultimoToken(email, 3, 'redefinir');
+  ok((await http('POST', '/api/conta/esqueci-palavra-passe', { email }, anonima)).status === 204, 'terceiro pedido = 204');
+  const tokenC = await ultimoToken(email, 4, 'redefinir');
+  const quarto = await http('POST', '/api/conta/esqueci-palavra-passe', { email }, anonima);
+  ok(quarto.status === 429 && typeof quarto.json?.erro === 'string', 'o quarto pedido em 15 minutos = 429', descricao(quarto));
+  await esperar(300);
+  ok((await mensagensPara(email)).length === 4, 'e o pedido travado não envia email (1 de confirmação + 3 de recuperação)');
+  ok(!!tokenB && !!tokenC && new Set([tokenA, tokenB, tokenC]).size === 3, 'cada email traz um código diferente');
+
+  // Códigos e palavras-passe inválidos
+  for (const [nome, corpo] of [['sem código', { palavraPasse: NOVA }], ['código curto', { token: 'abc', palavraPasse: NOVA }],
+    ['maiúsculas', { token: 'A'.repeat(64), palavraPasse: NOVA }], ['desconhecido', { token: 'f'.repeat(64), palavraPasse: NOVA }], ['com lixo no fim', { token: `${tokenA}\n`, palavraPasse: NOVA }]]) {
+    const r = await http('POST', '/api/conta/redefinir-palavra-passe', corpo, anonima);
+    ok(r.status === 400 && r.json?.codigo === 'link_invalido' && r.setCookie.length === 0, `palavra-passe nova com código inválido (${nome}) = 400 link_invalido`, descricao(r));
+  }
+  for (const [nome, palavraPasse, parte] of [['curta', 'curta', 'pelo menos 8'], ['só espaços', ' '.repeat(10), 'só espaços'], ['gigante', 'x'.repeat(129), '128'], ['em falta', undefined, 'pelo menos 8']]) {
+    const r = await http('POST', '/api/conta/redefinir-palavra-passe', { token: tokenA, palavraPasse }, anonima);
+    ok(r.status === 400 && r.json?.codigo === undefined && r.json?.erro?.includes(parte) && /^[A-ZÁ-Ú]/.test(r.json.erro), `palavra-passe nova ${nome} = 400 com a explicação (e o código não se gasta)`, descricao(r));
+  }
+  ok((await http('POST', '/api/conta/entrar', { email, palavraPasse: SENHA }, new Sessao('ainda'))).status === 429, 'nada se gastou nem mudou: a conta continua bloqueada pelas tentativas falhadas');
+
+  // Escolher a palavra-passe nova: não inicia sessão, termina as sessões abertas, desbloqueia a conta
+  const feito = await http('POST', '/api/conta/redefinir-palavra-passe', { token: tokenB, palavraPasse: NOVA }, anonima);
+  ok(feito.status === 204 && feito.setCookie.length === 0 && /no-store/.test(feito.cabecalhos.get('cache-control') ?? ''), 'escolher a palavra-passe nova = 204 (sem iniciar sessão)', descricao(feito));
+  for (const [i, cookie] of cookies.entries()) {
+    const r = await http('GET', '/api/conta', undefined, Object.assign(new Sessao('antiga'), { cookie }));
+    ok(r.status === 401, `a sessão do aparelho ${i + 1} terminou`, descricao(r));
+  }
+  const antiga = await http('POST', '/api/conta/entrar', { email, palavraPasse: SENHA }, new Sessao('antiga'));
+  ok(antiga.status === 401, 'a palavra-passe antiga já não entra', descricao(antiga));
+  const nova = await http('POST', '/api/conta/entrar', { email, palavraPasse: NOVA }, aparelho1);
+  ok(nova.status === 200 && nova.json?.email === email && aparelho1.cookie !== null && aparelho1.cookie !== cookies[0], 'a palavra-passe nova entra (e o bloqueio por tentativas acabou)', descricao(nova));
+
+  // Cada link só funciona uma vez, e gasta os outros da mesma conta
+  for (const [nome, token] of [['o mesmo', tokenB], ['o primeiro', tokenA], ['o terceiro', tokenC]]) {
+    const r = await http('POST', '/api/conta/redefinir-palavra-passe', { token, palavraPasse: 'outra-palavra-passe-1' }, anonima);
+    ok(r.status === 400 && r.json?.codigo === 'link_invalido', `${nome} link já não serve depois de usado = 400`, descricao(r));
+  }
+  ok((await http('POST', '/api/conta/entrar', { email, palavraPasse: NOVA }, new Sessao('conferir'))).status === 200, 'e a palavra-passe ficou a escolhida');
+
+  // Quem nunca confirmou o email também recupera a palavra-passe, e o link confirma-lhe o email
+  const emailU = `porconfirmar-${sufixo}@exemplo.pt`;
+  ok((await http('POST', '/api/conta/registar', { nome: 'Por Confirmar', email: emailU, palavraPasse: SENHA }, anonima)).status === 201, 'conta por confirmar criada');
+  ok((await http('POST', '/api/conta/entrar', { email: emailU, palavraPasse: SENHA }, anonima)).status === 403, 'ainda não entra (falta confirmar)');
+  ok((await http('POST', '/api/conta/esqueci-palavra-passe', { email: emailU }, anonima)).status === 204, 'pede a recuperação = 204');
+  const tokenU = await ultimoToken(emailU, 2, 'redefinir');
+  ok(!!tokenU, 'chega o email de recuperação (a seguir ao de confirmação)');
+  ok((await http('POST', '/api/conta/redefinir-palavra-passe', { token: tokenU, palavraPasse: NOVA }, anonima)).status === 204, 'escolhe a palavra-passe nova');
+  const entrouU = await http('POST', '/api/conta/entrar', { email: emailU, palavraPasse: NOVA }, new Sessao('por confirmar'));
+  ok(entrouU.status === 200, 'e entra logo: abrir o link do email também confirmou a conta', descricao(entrouU));
+});
+
+// ----------------------------------------------------------------------
 await passo('Saúde e dados de exemplo', async () => {
   const saude = await http('GET', '/api/saude');
   ok(saude.status === 200 && saude.json?.estado === 'ok', 'GET /api/saude', descricao(saude));

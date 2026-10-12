@@ -93,4 +93,29 @@ public class ContaValidadorTests
     {
         Assert.Equal(esperado, ContaValidador.TokenValido(token));
     }
+
+    [Theory]
+    [InlineData("12345678")]
+    [InlineData("uma palavra-passe com espaços")]
+    public void Palavra_passe_boa_nao_tem_erro(string palavraPasse)
+    {
+        Assert.Null(ContaValidador.ErroPalavraPasse(palavraPasse));
+    }
+
+    [Theory]
+    [InlineData(null, "pelo menos 8")]
+    [InlineData("curta", "pelo menos 8")]
+    [InlineData("1234567", "pelo menos 8")]
+    [InlineData("        ", "só espaços")]
+    public void Palavra_passe_ma_diz_o_que_falta(string? palavraPasse, string parte)
+    {
+        Assert.Contains(parte, ContaValidador.ErroPalavraPasse(palavraPasse));
+    }
+
+    [Fact]
+    public void Palavra_passe_com_mais_de_128_caracteres_e_recusada()
+    {
+        Assert.Null(ContaValidador.ErroPalavraPasse(new string('a', 128)));
+        Assert.Contains("128", ContaValidador.ErroPalavraPasse(new string('a', 129)));
+    }
 }

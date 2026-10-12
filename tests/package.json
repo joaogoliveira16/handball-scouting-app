@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Testes de integração da API (HTTP + SignalR + Excel) e testes de ponta a ponta das páginas (Chromium). Ver README.md da pasta.",
   "scripts": {
+    "unidade": "node --no-warnings --test unidade/*.test.mjs",
     "integracao": "node integracao/integracao.mjs",
     "e2e": "node e2e/fluxos.mjs"
   },

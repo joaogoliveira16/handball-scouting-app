@@ -37,27 +37,38 @@ Abre **http://localhost:8080** e cria a tua conta (separador *Criar conta*). O e
 - **No tablet**: liga-o à mesma rede do computador e abre `http://<IP-do-computador>:8080`.
 - **Configuração** (porta, palavra-passe, email): copia `.env.example` para `.env`.
 - **Recomeçar do zero**: `docker compose down -v` apaga a base de dados; ao arrancar de novo os scripts de `db/init` voltam a correr.
-- **Já tinhas a app a correr de uma versão anterior?** Basta `git pull` e `docker compose up -d --build`. O serviço `migrar` atualiza sozinho a base de dados em cada arranque (convocatória, local da defesa na baliza, contas e confirmação do email; são scripts que se podem repetir sem problema) e **não apaga nada**. As contas que já existiam ficam logo confirmadas. Se ainda não havia nenhuma conta, a primeira que criares e confirmares fica com as equipas e os jogos que já existiam.
+- **Já tinhas a app a correr de uma versão anterior?** Basta `git pull` e `docker compose up -d --build`. O serviço `migrar` atualiza sozinho a base de dados em cada arranque (convocatória, local da defesa na baliza, contas, confirmação do email e recuperação da palavra-passe; são scripts que se podem repetir sem problema) e **não apaga nada**. As contas que já existiam ficam logo confirmadas. Se ainda não havia nenhuma conta, a primeira que criares e confirmares fica com as equipas e os jogos que já existiam.
 
 ## Contas e partilha
 
 - **Criar conta**: nome, email e palavra-passe (8 a 128 caracteres). A seguir a app envia um **email com um link de confirmação** (vale 24 horas) e só se entra depois de o abrir. A página explica o que fazer e tem **Reenviar email** (com uma pausa de 30 segundos). **Entrar** e **Sair** estão na página de entrada e no menu do topo. A sessão dura 30 dias.
+- **Esqueci-me da palavra-passe**: na página de entrada, *Esqueci-me da palavra-passe* pede o email da conta e envia um **link para escolher outra** (vale 1 hora e só serve uma vez). A resposta é sempre a mesma exista a conta ou não, e pedir muitas vezes é travado como na confirmação (3 em 15 minutos por endereço). Ao escolher a palavra-passe nova **terminam todas as sessões** da conta (em todos os dispositivos), o bloqueio por tentativas falhadas desaparece e o email fica confirmado (o link chegou à caixa de correio da pessoa). A seguir entra-se com a palavra-passe nova.
 - **Área de convidado** (`convidado.html`, botão *Entrar como convidado* na página de entrada): para quem só quer ver o dashboard. Cola-se o link de partilha e abre o jogo em direto; os jogos já abertos ficam numa lista **neste dispositivo** (guardada no browser, com *Tirar* e *Limpar a lista*). Um convidado não consegue registar nem alterar nada e não vê equipas, jogadores nem outros jogos.
 - **Cada conta só vê o que é seu**: equipas, jogadores, jogos, convocatórias e eventos. O que é de outra conta aparece como "não encontrado". O nome de uma equipa só tem de ser único dentro da própria conta.
 - **Link de partilha**: na lista de jogos, *Copiar link* copia um endereço do tipo `.../dashboard.html?jogo=2&c=CÓDIGO`. Quem o abrir vê o dashboard **em direto** e pode exportar o Excel, **sem conta**. Não consegue registar nem alterar nada. Cada jogo tem o seu código secreto: trata o link como uma palavra-passe do jogo e só o envias a quem deve ver.
-- **Segurança**: a palavra-passe fica guardada só como hash (PBKDF2-SHA256, 600 000 iterações). O link do email leva um código aleatório de 256 bits de que só se guarda o SHA-256. Quem pede o email de confirmação várias vezes (3 em 15 minutos por endereço) é travado, e a resposta a esse pedido nunca revela se o email tem conta. O cookie da sessão é `HttpOnly` e `SameSite=Lax` (e `Secure` quando a app está atrás de HTTPS) e a base de dados só guarda o SHA-256 do seu código. Depois de 5 tentativas falhadas para o mesmo email há um bloqueio de 10 minutos.
+- **Segurança**: a palavra-passe fica guardada só como hash (PBKDF2-SHA256, 600 000 iterações). Os links dos emails (confirmar e redefinir) levam um código aleatório de 256 bits de que só se guarda o SHA-256. Quem pede o email de confirmação várias vezes (3 em 15 minutos por endereço) é travado, e a resposta a esse pedido nunca revela se o email tem conta. O cookie da sessão é `HttpOnly` e `SameSite=Lax` (e `Secure` quando a app está atrás de HTTPS) e a base de dados só guarda o SHA-256 do seu código. Depois de 5 tentativas falhadas para o mesmo email há um bloqueio de 10 minutos.
 
-Ainda não há recuperação de palavra-passe: quem a perder precisa que alguém a mude diretamente na base de dados. O registo é aberto a quem conseguir chegar à app (mas só entra quem confirmar o email).
+O registo é aberto a quem conseguir chegar à app (mas só entra quem confirmar o email).
 
 ### Email
 
-Por omissão o `docker compose` junta uma caixa de correio de teste (**Mailpit**, http://localhost:8025): todos os emails ficam lá e nenhum sai da tua máquina. Para enviar emails a sério, preenche no `.env` as linhas `EMAIL_*` (servidor, porta, utilizador, palavra-passe, remetente) e `URL_PUBLICO` (o endereço da app tal como as pessoas o veem, que vai dentro do link). Exemplo com o Gmail (precisa de uma *palavra-passe de app*): `EMAIL_HOST=smtp.gmail.com`, `EMAIL_PORTA=587`, `EMAIL_SSL=true`, `EMAIL_UTILIZADOR` e `EMAIL_DE` com o teu endereço e `EMAIL_SENHA` com a palavra-passe de app. O envio usa SMTP com STARTTLS (porta 587); a porta 465 (TLS direto) não é suportada. Se o email não conseguir seguir, a conta fica criada e a página oferece **Reenviar email**.
+Por omissão o `docker compose` junta uma caixa de correio de teste (**Mailpit**, http://localhost:8025): todos os emails ficam lá e nenhum sai da tua máquina. Para enviar emails a sério, preenche no `.env` as linhas `EMAIL_*` (servidor, porta, utilizador, palavra-passe, remetente) e `URL_PUBLICO` (o endereço da app tal como as pessoas o veem, que vai dentro do link). Exemplo com o Gmail (precisa de uma *palavra-passe de app*): `EMAIL_HOST=smtp.gmail.com`, `EMAIL_PORTA=587`, `EMAIL_SSL=true`, `EMAIL_UTILIZADOR` e `EMAIL_DE` com o teu endereço e `EMAIL_SENHA` com a palavra-passe de app. O envio usa SMTP com STARTTLS (porta 587); a porta 465 (TLS direto) não é suportada. Se o email não conseguir seguir, a conta fica criada e a página oferece **Reenviar email**. O email de recuperação da palavra-passe sai pelo mesmo caminho.
 
 ## Preparar o jogo
 
 1. **Equipas e jogadores** (`equipas.html`, botão *Equipas* no topo da lista de jogos): cria equipas, e para cada uma adiciona, edita ou apaga jogadores (número 1–99, nome e posição). O número livre mais baixo é sugerido. Um jogador que já tem eventos registados não pode ser apagado (os dados do jogo ficariam incoerentes).
 2. **Novo jogo** (lista de jogos, *Novo jogo*): escolhe a equipa da casa, a de fora e, se quiseres, o local e a data e hora. Depois de criar, abre-se a convocatória.
-3. **Convocatória** (`convocatoria.html?jogo=ID`): toca nos jogadores que vão ao jogo, até **16 por equipa**. *Todos* e *Nenhum* aceleram a escolha e há um aviso se não houver guarda-redes convocado. Fica guardada no servidor; podes voltar a alterá-la a qualquer momento.
+3. **Convocatória** (`convocatoria.html?jogo=ID`): toca nos jogadores que vão ao jogo, até **16 por equipa**. *Todos* e *Nenhum* aceleram a escolha e há um aviso se não houver guarda-redes convocado. Fica guardada no servidor; podes voltar a alterá-la a qualquer momento. Em vez de tocar um a um, *Ler de uma foto* (por baixo do nome de cada equipa) deixa-te escolher uma foto ou um print da convocatória, ver mais abaixo.
+
+### Ler a convocatória de uma foto
+
+Na convocatória, cada equipa tem o botão **Ler de uma foto**. Escolhe uma foto (da câmara, no telemóvel ou tablet) ou um print, **ou arrasta a imagem / cola um print com Ctrl+V**. A app lê o texto e mostra uma lista para **rever**: cada linha tem o número, o nome e a posição, e podes corrigir, tirar a marca a quem não joga ou *Adicionar jogador*. Quem já existe na equipa (mesmo número) fica ligado a esse jogador; os outros são **adicionados à equipa** ao confirmar. Depois é só *Guardar convocatória*. Cancelar não muda nada.
+
+- **A imagem não sai do dispositivo**: a leitura (OCR, Tesseract) corre no próprio browser, sem chave, sem custos e sem enviar nada para a internet. O leitor (cerca de 5 MB, em `frontend/lib/tesseract/`) só se descarrega quando alguém lê a primeira foto e o browser guarda-o.
+- **Formatos que entende**, uma linha por jogador: `7 João Silva`, `7 - João Silva (GR)`, `#7 JOÃO SILVA GR`, `Nº 7 | JOÃO SILVA | 123456`, `João Silva 7`. Ignora cabeçalhos, horas e datas, e os números das licenças. A posição só é lida se vier escrita (`GR`, `PE`, `LD`, «guarda-redes»...); senão fica *Central* para ajustares aqui ou em Equipas.
+- **Funciona bem** com texto impresso ou digital: fichas de jogo, listas de Excel ou Word, prints de mensagens (também em modo escuro). Tira a foto de frente, com boa luz, sem sombras e com a lista a ocupar a imagem.
+- **Letra manuscrita quase nunca se lê bem**: nesse caso a lista de revisão serve para escrever o que faltar. Por isso confere sempre os números e os nomes antes de confirmar: acentos e letras parecidas (o OCR confunde-as de vez em quando) corrigem-se na própria linha.
+- Precisa de um browser recente (os de hoje têm tudo; sem suporte, a janela avisa).
 
 Enquanto um jogo não tiver convocatória guardada numa equipa, o banco mostra todos os jogadores dessa equipa (e sugere fazer a convocatória). Com convocatória, o banco só mostra os convocados.
 
@@ -148,6 +159,8 @@ As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas
 | POST | `/api/conta/registar` | Cria a conta (sem sessão) e envia o email de confirmação: `{ "nome", "email", "palavraPasse" }` → 201 `{ "email", "emailEnviado" }` (400 inválido; 409 email repetido, com `"codigo": "email_por_confirmar"` se a conta ainda não foi confirmada; 429 se já pediu muitos emails) |
 | POST | `/api/conta/confirmar-email` | Confirma o email com o código do link: `{ "token" }` (204; 400 se o link é inválido ou expirou) |
 | POST | `/api/conta/reenviar-confirmacao` | Envia outro email de confirmação: `{ "email" }` (204 sempre que o pedido é válido, exista a conta ou não; 429 se pediu muitos; 503 se o email não seguiu) |
+| POST | `/api/conta/esqueci-palavra-passe` | Envia o link para escolher outra palavra-passe: `{ "email" }` (204 sempre que o pedido é válido, exista a conta ou não; 429 se pediu muitos; 503 se o email não seguiu) |
+| POST | `/api/conta/redefinir-palavra-passe` | Escolhe a palavra-passe nova com o código do link: `{ "token", "palavraPasse" }` (204; 400 se a palavra-passe é inválida ou, com `"codigo": "link_invalido"`, se o link é inválido, expirou ou já foi usado). Termina todas as sessões da conta |
 | POST | `/api/conta/entrar` | Inicia sessão: `{ "email", "palavraPasse" }` (401 se errado, 403 com `"codigo": "email_por_confirmar"` se falta confirmar o email, 429 depois de 5 falhas seguidas) |
 | POST | `/api/conta/sair` | Termina a sessão |
 | GET | `/api/conta` | A conta da sessão (401 sem sessão) |
@@ -207,7 +220,7 @@ Um tipo com `e_remate = TRUE` seria um evento com posição no mapa, jogador e r
 ## Testes e CI
 
 ```bash
-dotnet test api/HandballScouting.sln        # validação, palavras-passe, travão de tentativas, email de confirmação, exportação para Excel e cadastro (xUnit)
+dotnet test api/HandballScouting.sln        # validação, palavras-passe, travão de tentativas, emails de confirmação e de recuperação, exportação para Excel e cadastro (xUnit)
 
 # SQL: com o PostgreSQL a correr e PGHOST, PGUSER, PGPASSWORD e PGDATABASE definidos
 psql -v ON_ERROR_STOP=1 -f db/tests/zonas.sql          # zonas do campo
@@ -215,26 +228,31 @@ psql -v ON_ERROR_STOP=1 -f db/tests/convocados.sql     # convocatória
 psql -v ON_ERROR_STOP=1 -f db/tests/baliza.sql         # zonas e regras da baliza
 psql -v ON_ERROR_STOP=1 -f db/tests/contas.sql         # contas, dono dos dados, sessões e código de partilha
 psql -v ON_ERROR_STOP=1 -f db/tests/confirmacao.sql    # confirmação do email (códigos, validade, quem herda os dados de exemplo)
+psql -v ON_ERROR_STOP=1 -f db/tests/redefinir.sql      # recuperação da palavra-passe (código de uso único, validade, sessões)
 python3 db/tests/validar_consultas.py                  # todas as consultas contra o esquema
+
+# Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR
+(cd tests && npm run unidade)
 ```
 
 Há ainda testes que usam a **API verdadeira** e um browser (pasta `tests/`, ver `tests/README.md`):
 
-- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação lidos na caixa de teste, sessões, isolamento entre contas, link de partilha, estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, atualizações em tempo real e descarga do Excel);
+- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação e de recuperação da palavra-passe lidos na caixa de teste, sessões, isolamento entre contas, link de partilha, estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, atualizações em tempo real e descarga do Excel);
 - `tests/integracao/verificar_excel.py`: abre os `.xlsx` descarregados e confere os números com os dados de exemplo;
-- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pelo link, reenviar o email, a área de convidado, sair e entrar, uma segunda conta que não vê os dados da primeira, o link de partilha aberto sem conta, criar equipas e jogadores, convocatória, registar remates no banco, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
+- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pelo link, reenviar o email, recuperar a palavra-passe pelo link, a área de convidado, sair e entrar, uma segunda conta que não vê os dados da primeira, o link de partilha aberto sem conta, criar equipas e jogadores, convocatória (incluindo ler a lista de uma foto com o leitor verdadeiro), registar remates no banco, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
 
 O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada pull request:
 
 1. **API**: restaura, compila e corre os testes .NET.
 2. **Base de dados**: cria o esquema num PostgreSQL temporário, carrega os dados, corre `db/tests` e valida as consultas.
-3. **Integração**: publica e arranca a API contra um PostgreSQL temporário e uma caixa de correio de teste (Mailpit) e corre os testes de `tests/` (API, Excel e browser). As capturas de ecrã e os `.xlsx` gerados ficam disponíveis como artefacto da execução (`resultados-integracao`).
+3. **Integração**: corre os testes unitários do frontend, publica e arranca a API contra um PostgreSQL temporário e uma caixa de correio de teste (Mailpit) e corre os testes de `tests/` (API, Excel e browser). As capturas de ecrã e os `.xlsx` gerados ficam disponíveis como artefacto da execução (`resultados-integracao`).
 4. **Docker**: valida o `docker-compose.yml` e compila as imagens da API e do frontend. Em `main`, publica-as no GitHub Container Registry (`ghcr.io/<utilizador>/<repositório>/api` e `/frontend`).
 
 ## Limitações atuais
 
 - Se a rede falhar no momento de registar, o evento **não** fica em fila: aparece um aviso e é preciso tocar outra vez.
-- O registo de contas é aberto (com confirmação do email, mas sem recuperação de palavra-passe). Se a app ficar acessível na internet, põe-na atrás de HTTPS (o cookie da sessão passa a `Secure` sozinho quando o proxy envia `X-Forwarded-Proto: https`).
+- O registo de contas é aberto (com confirmação do email). Se a app ficar acessível na internet, põe-na atrás de HTTPS (o cookie da sessão passa a `Secure` sozinho quando o proxy envia `X-Forwarded-Proto: https`).
+- A leitura de fotos é feita por OCR: lê bem texto impresso e prints, mas pode trocar letras, perder acentos ou juntar palavras, e a letra manuscrita raramente se lê. Há sempre uma lista para rever antes de confirmar. Num telemóvel antigo a leitura pode demorar alguns segundos.
 - Quem tem o link de partilha de um jogo vê-o em direto até o jogo ser apagado: não há botão para mudar o código.
 - A lista de jogos da área de convidado fica só no browser de cada dispositivo (não acompanha o convidado para outro).
 - O estado completo é recalculado e enviado a cada evento. Para um jogo de andebol (algumas centenas de eventos) é muito rápido.
@@ -243,9 +261,9 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 
 ```
 api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
-db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas e confirmação do email (correm por ordem)
+db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email e recuperação da palavra-passe (correm por ordem)
 db/tests/              testes SQL
-frontend/              páginas (entrar, confirmar email, convidado, jogos, equipas, convocatória, banco, dashboard), JS, CSS e fontes; lib/ tem o cliente SignalR
+frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard), JS, CSS e fontes; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
 tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)
 docker-compose.yml     os 3 contentores (mais o `migrar`, que atualiza a base de dados em cada arranque)
 .github/workflows/     CI

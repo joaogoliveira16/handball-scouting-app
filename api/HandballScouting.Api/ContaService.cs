@@ -23,11 +23,31 @@ public class ContaService(
     public static readonly TimeSpan DuracaoSessao = TimeSpan.FromDays(30);
     /// <summary>Durante quanto tempo o link do email de confirmação funciona.</summary>
     public static readonly TimeSpan ValidadeConfirmacao = TimeSpan.FromHours(24);
+    /// <summary>Durante quanto tempo o link do email de recuperação da palavra-passe funciona.</summary>
+    public static readonly TimeSpan ValidadeRedefinicao = TimeSpan.FromHours(1);
     /// <summary>Código das falhas em que a pessoa ainda tem de confirmar o email (a página oferece "reenviar").</summary>
     public const string CodigoPorConfirmar = "email_por_confirmar";
+    /// <summary>Código da falha em que o link de recuperação não serve (a página oferece pedir outro).</summary>
+    public const string CodigoLinkInvalido = "link_invalido";
     private const string ViolacaoUnicidade = "23505";
     private const string MensagemEntrada = "Email ou palavra-passe errados.";
     private const string MensagemLinkInvalido = "O link é inválido ou já expirou. Pede um novo email de confirmação.";
+    private const string MensagemRedefinicaoInvalida = "O link é inválido, já foi usado ou já expirou. Pede um novo link para escolher a palavra-passe.";
+    /// <summary>Prefixo do limite de pedidos de recuperação: cada endereço tem um limite à parte do dos emails de confirmação.</summary>
+    private const string ChaveRedefinicao = "redefinir:";
+
+    /// <summary>O que muda de um link por email para outro (confirmar a conta, escolher outra palavra-passe).</summary>
+    private sealed record TipoDeLink(
+        string SqlLimpar, string SqlCriar, TimeSpan Validade, Func<string, string, string> Link,
+        string Assunto, Func<string, string, string> Texto, Func<string, string, string> Html, string Descricao);
+
+    private static readonly TipoDeLink LinkConfirmacao = new(
+        "limpar_verificacoes", "criar_verificacao", ValidadeConfirmacao, EmailConfirmacao.LinkDe,
+        EmailConfirmacao.Assunto, EmailConfirmacao.Texto, EmailConfirmacao.Html, "de confirmação");
+
+    private static readonly TipoDeLink LinkRedefinicao = new(
+        "limpar_redefinicoes", "criar_redefinicao", ValidadeRedefinicao, EmailRedefinicao.LinkDe,
+        EmailRedefinicao.Assunto, EmailRedefinicao.Texto, EmailRedefinicao.Html, "de recuperação da palavra-passe");
 
     private static CommandDefinition Cmd(string texto, object? parametros, CancellationToken ct) =>
         new(texto, parametros, cancellationToken: ct);
@@ -62,32 +82,36 @@ public class ContaService(
         return new ResultadoConta(true, 201, null, new Utilizador { Id = id, Nome = nome, Email = email }, EmailEnviado: enviado);
     }
 
+    private Task<bool> EnviarConfirmacaoAsync(NpgsqlConnection con, int utilizadorId, string nome, string email, CancellationToken ct) =>
+        EnviarLinkAsync(con, LinkConfirmacao, utilizadorId, nome, email, ct);
+
     /// <summary>Cria um link novo e envia-o por email. Devolve false se o email não pôde seguir (a conta fica criada).</summary>
-    private async Task<bool> EnviarConfirmacaoAsync(NpgsqlConnection con, int utilizadorId, string nome, string email, CancellationToken ct)
+    private async Task<bool> EnviarLinkAsync(
+        NpgsqlConnection con, TipoDeLink tipo, int utilizadorId, string nome, string email, CancellationToken ct)
     {
         if (!envios.PodeEnviar())
         {
-            log.LogWarning("Limite geral de emails por hora atingido: a conta {UtilizadorId} não recebeu o email de confirmação.", utilizadorId);
+            log.LogWarning("Limite geral de emails por hora atingido: a conta {UtilizadorId} não recebeu o email {Tipo}.", utilizadorId, tipo.Descricao);
             return false;
         }
 
-        await con.ExecuteAsync(Cmd(sql["limpar_verificacoes"], null, ct));   // aproveita para apagar os links que já expiraram
+        await con.ExecuteAsync(Cmd(sql[tipo.SqlLimpar], null, ct));   // aproveita para apagar os links que já expiraram
         var token = NovoToken();
-        await con.ExecuteAsync(Cmd(sql["criar_verificacao"], new
+        await con.ExecuteAsync(Cmd(sql[tipo.SqlCriar], new
         {
-            tokenHash = PalavraPasse.HashDoToken(token), utilizadorId, expiraEm = DateTime.UtcNow + ValidadeConfirmacao
+            tokenHash = PalavraPasse.HashDoToken(token), utilizadorId, expiraEm = DateTime.UtcNow + tipo.Validade
         }, ct));
 
-        var link = EmailConfirmacao.LinkDe(opcoes.UrlPublico, token);
+        var link = tipo.Link(opcoes.UrlPublico, token);
         try
         {
-            await enviador.EnviarAsync(email, EmailConfirmacao.Assunto, EmailConfirmacao.Texto(nome, link), EmailConfirmacao.Html(nome, link), ct);
+            await enviador.EnviarAsync(email, tipo.Assunto, tipo.Texto(nome, link), tipo.Html(nome, link), ct);
             envios.RegistarEnvio();
             return true;
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
-            log.LogError(e, "Não foi possível enviar o email de confirmação à conta {UtilizadorId}.", utilizadorId);
+            log.LogError(e, "Não foi possível enviar o email {Tipo} à conta {UtilizadorId}.", tipo.Descricao, utilizadorId);
             return false;
         }
     }
@@ -121,6 +145,49 @@ public class ContaService(
         return await EnviarConfirmacaoAsync(con, porConfirmar.Id, porConfirmar.Nome, porConfirmar.Email, ct)
             ? new ResultadoConta(true, 204, null)
             : ResultadoConta.Falha(503, "Não foi possível enviar o email agora. Tenta outra vez daqui a pouco.");
+    }
+
+    /// <summary>
+    /// Envia o link para escolher outra palavra-passe. Responde sempre da mesma maneira, exista a conta ou não
+    /// (só o limite de pedidos por endereço e uma falha do servidor de email se distinguem).
+    /// </summary>
+    public async Task<ResultadoConta> PedirRedefinicaoAsync(string? emailBruto, CancellationToken ct = default)
+    {
+        var email = ContaValidador.NormalizarEmail(emailBruto);
+        if (email.Length == 0 || email.Length > 160) return ResultadoConta.Falha(400, "Escreve o email da conta.");
+        if (!envios.PodePedir(ChaveRedefinicao + email))
+            return ResultadoConta.Falha(429, "Já enviámos vários emails para este endereço. Espera uns minutos antes de pedir outro.");
+        envios.RegistarPedido(ChaveRedefinicao + email);
+
+        await using var con = await dados.OpenConnectionAsync(ct);
+        var conta = await con.QuerySingleOrDefaultAsync<Utilizador>(Cmd(sql["utilizador_para_redefinir"], new { email }, ct));
+        if (conta is null) return new ResultadoConta(true, 204, null);
+
+        return await EnviarLinkAsync(con, LinkRedefinicao, conta.Id, conta.Nome, conta.Email, ct)
+            ? new ResultadoConta(true, 204, null)
+            : ResultadoConta.Falha(503, "Não foi possível enviar o email agora. Tenta outra vez daqui a pouco.");
+    }
+
+    /// <summary>
+    /// Escolhe a palavra-passe nova com o código do link. Termina as sessões da conta e confirma o email (o link
+    /// chegou à caixa de correio da pessoa). Não inicia sessão: a pessoa entra a seguir com a palavra-passe nova.
+    /// </summary>
+    public async Task<ResultadoConta> RedefinirPalavraPasseAsync(string? token, string? palavraPasse, CancellationToken ct = default)
+    {
+        if (!ContaValidador.TokenValido(token)) return ResultadoConta.Falha(400, MensagemRedefinicaoInvalida, CodigoLinkInvalido);
+        if (ContaValidador.ErroPalavraPasse(palavraPasse) is { } erro)
+            return ResultadoConta.Falha(400, char.ToUpperInvariant(erro[0]) + erro[1..]);
+
+        var hash = PalavraPasse.Hash(palavraPasse!);
+        await using var con = await dados.OpenConnectionAsync(ct);
+        var conta = await con.QuerySingleOrDefaultAsync<Utilizador>(Cmd(sql["redefinir_palavra_passe"], new
+        {
+            tokenHash = PalavraPasse.HashDoToken(token!), hash
+        }, ct));
+        if (conta is null) return ResultadoConta.Falha(400, MensagemRedefinicaoInvalida, CodigoLinkInvalido);
+
+        limite.Limpar(conta.Email);   // quem acabou de escolher a palavra-passe não fica bloqueado pelas tentativas de antes
+        return new ResultadoConta(true, 204, null);
     }
 
     public async Task<ResultadoConta> EntrarAsync(EntrarRequest pedido, CancellationToken ct = default)

@@ -27,6 +27,10 @@ public record ConfirmarEmailRequest(string? Token);
 
 public record ReenviarConfirmacaoRequest(string? Email);
 
+public record EsqueciPalavraPasseRequest(string? Email);
+
+public record RedefinirPalavraPasseRequest(string? Token, string? PalavraPasse);
+
 public record NovaEquipaRequest(string? Nome);
 
 public record JogadorRequest(int Numero, string? Nome, string? Posicao);

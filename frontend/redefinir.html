@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <!-- O endereço leva o código secreto do email: não deve aparecer em pesquisas nem em referências -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Palavra-passe nova · Scouting de Andebol</title>
+  <link rel="stylesheet" href="css/estilo.css">
+</head>
+<body>
+  <header class="topo topo-marca">
+    <a class="marca" href="entrar.html"><span class="marca-icone" aria-hidden="true"></span><span>Scouting <b>Andebol</b></span></a>
+  </header>
+
+  <main class="caixa-centro" aria-live="polite">
+    <section id="escolher" hidden>
+      <h1>Escolhe a palavra-passe nova</h1>
+      <p class="sub">Vais usá-la para entrar a partir de agora. Sais de todos os dispositivos onde tinhas a conta aberta.</p>
+      <form id="form-nova" class="cartao" novalidate>
+        <label>Palavra-passe nova <small>Pelo menos 8 caracteres.</small>
+          <span class="campo-palavra-passe">
+            <input id="nova-senha" type="password" name="senha" autocomplete="new-password" minlength="8" maxlength="128" required>
+            <button type="button" class="ver-senha" id="ver-nova" aria-pressed="false" aria-controls="nova-senha">Mostrar</button>
+          </span>
+        </label>
+        <p class="erro-formulario" id="erro-nova" role="alert"></p>
+        <button class="botao primario" type="submit" id="botao-nova">Guardar palavra-passe</button>
+      </form>
+    </section>
+
+    <section id="feito" hidden>
+      <h1>Palavra-passe alterada</h1>
+      <p class="sub">Já podes entrar com a palavra-passe nova. O teu email também ficou confirmado.</p>
+      <a class="botao-link primario" id="ir-entrar" href="entrar.html">Entrar</a>
+    </section>
+
+    <section id="falhou" hidden>
+      <h1>Este link não serve</h1>
+      <p class="sub" id="erro-link"></p>
+      <form id="form-novo-link" class="cartao" novalidate>
+        <label>Email da conta
+          <input id="novo-email" type="email" name="email" autocomplete="username" inputmode="email" maxlength="160" required>
+        </label>
+        <p class="erro-formulario" id="erro-novo-link" role="alert"></p>
+        <p class="nota-ok" id="ok-novo-link" role="status" hidden></p>
+        <button class="botao primario" type="submit" id="botao-novo-link">Enviar um link novo</button>
+      </form>
+      <p class="entrar-rodape">Lembraste-te da palavra-passe? <a href="entrar.html">Entra na tua conta</a>.</p>
+    </section>
+  </main>
+
+  <script type="module" src="js/redefinir.js"></script>
+</body>
+</html>
