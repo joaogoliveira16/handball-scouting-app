@@ -54,13 +54,28 @@ const errosPaginas = [];
 // Abre uma página. Opções: contexto (outro "browser"), tolerar (estados HTTP que o browser regista na consola e
 // são esperados, como o 409 dos nomes repetidos ou o 401 de quem ainda não entrou), rapida (não espera pelo fim
 // da rede: para páginas que redirecionam sozinhas).
+const semAssentar = [];   // páginas cuja rede não ficou parada (diagnóstico: que pedidos ficaram abertos)
 async function pagina(caminho, { contexto = ctx, tolerar = [], rapida = false } = {}) {
   const page = await contexto.newPage();
   const esperados = ['409', ...tolerar];
+  const pendentes = new Set();
+  const historico = [];
+  const nomeDe = (r) => `${r.method()} ${r.url().replace(servidor.url, '')}`;
+  page.on('request', (r) => { pendentes.add(r); historico.push(nomeDe(r)); });
+  page.on('requestfinished', (r) => pendentes.delete(r));
+  page.on('requestfailed', (r) => pendentes.delete(r));
+  page.on('websocket', (w) => historico.push(`WS ${w.url().replace(servidor.url, '')}`));
   page.on('pageerror', (e) => errosPaginas.push(`${caminho}: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !esperados.some((e) => m.text().includes(e))) errosPaginas.push(`${caminho}: ${m.text()}`); });
   page.on('dialog', (d) => d.accept());
-  await page.goto(servidor.url + caminho, { waitUntil: rapida ? 'domcontentloaded' : 'networkidle' });
+  await page.goto(servidor.url + caminho, { waitUntil: 'domcontentloaded' });
+  if (!rapida) {
+    try {
+      await page.waitForLoadState('networkidle', { timeout: 15000 });
+    } catch {
+      semAssentar.push(`${caminho} [abertos: ${[...pendentes].map(nomeDe).join(', ') || 'nenhum'}; pedidos: ${historico.slice(-10).join(', ')}]`);
+    }
+  }
   return page;
 }
 const caminhoDe = (page) => { const u = new URL(page.url()); return u.pathname + u.search; };
@@ -627,7 +642,7 @@ await passo('Segunda conta: começa vazia e não vê os dados da primeira', asyn
   await equipas.close();
 
   // Sair da segunda conta não termina a sessão da primeira
-  const sair = await pagina('/', { contexto: ctxB });
+  const sair = await pagina('/', { contexto: ctxB, tolerar: ['401'] });   // depois de sair, a página de entrada pergunta quem é (401)
   await Promise.all([sair.waitForURL(/entrar\.html/), sair.click('#conta-menu button')]);
   ok(!(await ctxB.cookies()).some((c) => c.name === 'sessao') && (await q('SELECT 1 FROM sessoes WHERE utilizador_id = $1', [donoId])).length >= 1, 'segunda conta: sair só termina a sua sessão');
   await sair.close();
@@ -636,6 +651,7 @@ await passo('Segunda conta: começa vazia e não vê os dados da primeira', asyn
 
 // ======================= Resultado =======================
 ok(errosPaginas.length === 0, `sem erros de JavaScript nem da consola${errosPaginas.length ? `: ${errosPaginas.join(' | ')}` : ''}`);
+ok(semAssentar.length === 0, `todas as páginas assentam na rede${semAssentar.length ? `: ${semAssentar.join(' | ')}` : ''}`);
 fs.writeFileSync(path.join(E2E_DIR, 'e2e.txt'), linhas.join('\n') + '\n');
 await browser.close();
 await servidor.fechar();
