@@ -620,6 +620,7 @@ await passo('Link de partilha: ver o jogo em direto sem conta', async () => {
   ok(await hubRecusa(visitante, jogoNovo.id, '0123456789abcdef0123'), 'hub: código errado não entra');
   const inicial = await visitante.invoke('EntrarNoJogo', jogoNovo.id, codigoNovo);
   ok(inicial?.jogoId === jogoNovo.id && inicial.equipas?.length === 2, 'hub: com o código entra e recebe o estado atual', JSON.stringify(inicial)?.slice(0, 100));
+  const golosAntes = inicial?.equipas?.find((e) => e.equipaId === jogoNovo.casaId)?.golos ?? 0;
 
   const golo = await http('POST', `/api/jogos/${jogoNovo.id}/eventos`, {
     tipoEvento: 'REMATE', equipaId: jogoNovo.casaId, jogadorId: jogoNovo.lateralCasa, guardaRedesId: jogoNovo.grFora,
@@ -628,7 +629,7 @@ await passo('Link de partilha: ver o jogo em direto sem conta', async () => {
   ok(golo.status === 201, 'a conta dona regista um golo', descricao(golo));
   ok(await ate(() => recebidos.length >= 1), 'o visitante recebe a atualização em direto, sem conta');
   const golosVistos = recebidos.at(-1)?.equipas?.find((e) => e.equipaId === jogoNovo.casaId)?.golos;
-  ok(golosVistos === 1, 'e o estado recebido já tem o golo', String(golosVistos));
+  ok(golosVistos === golosAntes + 1, `e o estado recebido já tem o golo novo (${golosAntes} -> ${golosVistos})`);
   await http('DELETE', `/api/jogos/${jogoNovo.id}/eventos/${golo.json?.id}`);
   await visitante.stop();
 
