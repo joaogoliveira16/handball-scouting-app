@@ -4,7 +4,11 @@ import { h } from './dom.js';
 /** A conta da sessão atual, ou null se não houver sessão. Falha só se a API não responder. */
 export async function obterConta() {
   const resposta = await fetch('/api/conta', { cache: 'no-store' });
-  if (resposta.status === 401) return null;
+  if (resposta.status === 401) {
+    // Lê (e deita fora) o corpo da resposta: um corpo por ler deixa o pedido "a decorrer" no browser
+    await resposta.text().catch(() => {});
+    return null;
+  }
   if (!resposta.ok) throw new Error(`Erro ${resposta.status}`);
   return resposta.json();
 }
