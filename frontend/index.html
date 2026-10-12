@@ -3,24 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#050914">
-  <title>Scouting de Andebol</title>
+  <meta name="theme-color" content="#ffffff">
+  <title>Jogos · Scouting de Andebol</title>
   <link rel="stylesheet" href="css/estilo.css">
 </head>
 <body>
   <header class="topo">
-    <a class="marca" href="./"><span class="marca-icone" aria-hidden="true"></span>Scouting <b>Andebol</b></a>
+    <a class="marca" href="./"><span class="marca-icone" aria-hidden="true"></span><span>Scouting <b>Andebol</b></span></a>
     <nav class="menu" aria-label="Principal">
       <a href="./" aria-current="page">Jogos</a>
       <a href="equipas.html">Equipas</a>
     </nav>
+    <div class="conta-menu" id="conta-menu"></div>
   </header>
 
   <main class="pagina">
-    <h1>Centro de scouting</h1>
-    <p class="sub">Cria o jogo e escolhe os convocados. O adjunto usa o <strong>Banco</strong>; treinador e adeptos veem o <strong>Dashboard</strong> em direto; no fim exporta tudo para <strong>Excel</strong>.</p>
+    <div class="cabecalho-pagina">
+      <div>
+        <h1>Jogos</h1>
+        <p class="sub">Cria o jogo, escolhe os convocados e regista no Banco. O treinador e os adeptos veem o Dashboard em direto e no fim exportas tudo para Excel.</p>
+      </div>
+    </div>
 
-    <details class="cartao novo-jogo" id="novo-jogo">
+    <details class="cartao novo-jogo" id="novo-jogo" hidden>
       <summary>Novo jogo</summary>
       <form id="form-jogo" class="formulario" novalidate>
         <label>Equipa da casa <select id="casa" required></select></label>
@@ -35,7 +40,7 @@
       </form>
     </details>
 
-    <h2 class="seccao">Jogos</h2>
+    <h2 class="seccao" id="titulo-jogos">Os teus jogos</h2>
     <div id="jogos"><p class="vazio">A carregar jogos…</p></div>
   </main>
 

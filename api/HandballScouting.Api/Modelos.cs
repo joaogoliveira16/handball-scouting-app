@@ -19,6 +19,10 @@ public record NovoEventoRequest(
     decimal? BalizaX = null, // 0 a 100: onde o guarda-redes defendeu (só em DEFESA), da esquerda para a direita de quem remata
     decimal? BalizaY = null); // 0 a 100: da trave (0) ao chão (100)
 
+public record RegistoRequest(string? Nome, string? Email, string? PalavraPasse);
+
+public record EntrarRequest(string? Email, string? PalavraPasse);
+
 public record NovaEquipaRequest(string? Nome);
 
 public record JogadorRequest(int Numero, string? Nome, string? Posicao);
@@ -37,6 +41,19 @@ public record ResultadoRegisto(bool Ok, int Status, string? Erro, long? Id)
 // ---------------------------------------------------------------------
 // Linhas lidas da base de dados (classes com setters para o Dapper)
 // ---------------------------------------------------------------------
+
+/// <summary>Quem tem sessão iniciada.</summary>
+public class Utilizador
+{
+    public int Id { get; set; }
+    public string Nome { get; set; } = "";
+    public string Email { get; set; } = "";
+}
+
+public class UtilizadorComHash : Utilizador
+{
+    public string PalavraPasseHash { get; set; } = "";
+}
 
 public class TipoEvento
 {
@@ -125,6 +142,7 @@ public class DadosExportacao
 public class JogoLinha
 {
     public int Id { get; set; }
+    public string Codigo { get; set; } = "";   // código do link de partilha do dashboard
     public DateTime DataHora { get; set; }
     public string? Local { get; set; }
     public int CasaId { get; set; }
@@ -138,6 +156,7 @@ public class JogoLinha
 public class JogoDetalhe
 {
     public int Id { get; set; }
+    public string Codigo { get; set; } = "";   // código do link de partilha do dashboard
     public DateTime DataHora { get; set; }
     public string? Local { get; set; }
     public int CasaId { get; set; }

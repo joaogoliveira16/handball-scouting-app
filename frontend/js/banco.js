@@ -6,9 +6,12 @@ import {
 import { criarCampo } from './campo.js';
 import { criarBaliza } from './baliza.js';
 import { ligar, TEXTO_ESTADO } from './tempo-real.js';
+import { exigirConta } from './conta.js';
 
 const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
 if (!jogoId) location.replace('./');
+
+await exigirConta();
 
 const PONTO_SETE_METROS = { x: 50, y: 35 }; // marca de 7 m
 
@@ -405,7 +408,7 @@ try {
   ]);
   document.title = `${estado.jogo.casaNome} vs ${estado.jogo.foraNome} · Banco`;
   desenharTudo();
-  ligar(jogoId, receberEstatisticas, mostrarEstadoLigacao);
+  ligar(jogoId, null, receberEstatisticas, mostrarEstadoLigacao);
 } catch (erro) {
   substituir(document.querySelector('main'),
     h('p', { class: 'vazio' }, `Não foi possível carregar o jogo: ${erro.message}`),

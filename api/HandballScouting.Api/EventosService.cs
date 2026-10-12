@@ -6,12 +6,12 @@ namespace HandballScouting.Api;
 /// <summary>Registo e remoção de eventos de jogo.</summary>
 public class EventosService(NpgsqlDataSource dados, SqlLoader sql)
 {
-    public async Task<ResultadoRegisto> RegistarAsync(int jogoId, NovoEventoRequest req, CancellationToken ct = default)
+    public async Task<ResultadoRegisto> RegistarAsync(int donoId, int jogoId, NovoEventoRequest req, CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);
 
         var jogo = await con.QuerySingleOrDefaultAsync<JogoEquipas>(
-            new CommandDefinition(sql["jogo_equipas"], new { jogoId }, cancellationToken: ct));
+            new CommandDefinition(sql["jogo_equipas"], new { jogoId, donoId }, cancellationToken: ct));
         if (jogo is null)
             return ResultadoRegisto.Falha(404, "Jogo não encontrado.");
 
@@ -64,11 +64,11 @@ public class EventosService(NpgsqlDataSource dados, SqlLoader sql)
         return ResultadoRegisto.Sucesso(id);
     }
 
-    public async Task<bool> ApagarAsync(int jogoId, long eventoId, CancellationToken ct = default)
+    public async Task<bool> ApagarAsync(int donoId, int jogoId, long eventoId, CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);
         var linhas = await con.ExecuteAsync(
-            new CommandDefinition(sql["apagar_evento"], new { jogoId, eventoId }, cancellationToken: ct));
+            new CommandDefinition(sql["apagar_evento"], new { jogoId, eventoId, donoId }, cancellationToken: ct));
         return linhas > 0;
     }
 }

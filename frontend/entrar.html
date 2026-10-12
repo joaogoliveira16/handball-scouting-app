@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0e1b33">
+  <title>Entrar · Scouting de Andebol</title>
+  <link rel="stylesheet" href="css/estilo.css">
+</head>
+<body>
+  <main class="entrar">
+    <section class="entrar-marca">
+      <a class="marca" href="entrar.html"><span class="marca-icone" aria-hidden="true"></span><span>Scouting <b>Andebol</b></span></a>
+
+      <div class="texto">
+        <h1>Cada remate no sítio certo</h1>
+        <p>Regista o jogo no banco, vê as estatísticas em direto e partilha o link com o treinador e os adeptos.</p>
+      </div>
+
+      <!-- O canto do campo: linha de baliza, 6 m cheia, 9 m a tracejado e a marca dos 7 m -->
+      <svg class="entrar-campo" viewBox="0 0 800 440" aria-hidden="true" focusable="false">
+        <line x1="0" y1="40" x2="800" y2="40"/>
+        <path d="M100 40A240 240 0 0 0 340 280L460 280A240 240 0 0 0 700 40"/>
+        <path class="nove" d="M-20 40A360 360 0 0 0 340 400L460 400A360 360 0 0 0 820 40"/>
+        <line class="sete" x1="380" y1="320" x2="420" y2="320"/>
+        <line class="trave" x1="340" y1="40" x2="460" y2="40"/>
+      </svg>
+    </section>
+
+    <section class="entrar-painel">
+      <div class="entrar-caixa">
+        <h2 id="titulo-caixa">Bem-vindo de volta</h2>
+        <p class="sub" id="sub-caixa">Entra para ver os teus jogos e registar o próximo.</p>
+
+        <div class="segmentos" role="tablist" aria-label="Entrar ou criar conta">
+          <button type="button" role="tab" id="aba-entrar" class="ativo" aria-selected="true" aria-controls="form-entrar">Entrar</button>
+          <button type="button" role="tab" id="aba-registo" aria-selected="false" aria-controls="form-registo">Criar conta</button>
+        </div>
+
+        <form id="form-entrar" novalidate aria-labelledby="aba-entrar">
+          <label>Email
+            <input id="entrar-email" type="email" name="email" autocomplete="username" inputmode="email" maxlength="160" required>
+          </label>
+          <label>Palavra-passe
+            <span class="campo-palavra-passe">
+              <input id="entrar-senha" type="password" name="senha" autocomplete="current-password" maxlength="128" required>
+              <button type="button" class="ver-senha" aria-pressed="false" aria-controls="entrar-senha">Mostrar</button>
+            </span>
+          </label>
+          <p class="erro-formulario" id="erro-entrar" role="alert"></p>
+          <button class="botao primario" type="submit" id="botao-entrar">Entrar</button>
+        </form>
+
+        <form id="form-registo" novalidate hidden aria-labelledby="aba-registo">
+          <label>Nome
+            <input id="registo-nome" type="text" name="nome" autocomplete="name" maxlength="80" required>
+          </label>
+          <label>Email
+            <input id="registo-email" type="email" name="email" autocomplete="username" inputmode="email" maxlength="160" required>
+          </label>
+          <label>Palavra-passe <small>Pelo menos 8 caracteres.</small>
+            <span class="campo-palavra-passe">
+              <input id="registo-senha" type="password" name="senha" autocomplete="new-password" minlength="8" maxlength="128" required>
+              <button type="button" class="ver-senha" aria-pressed="false" aria-controls="registo-senha">Mostrar</button>
+            </span>
+          </label>
+          <p class="erro-formulario" id="erro-registo" role="alert"></p>
+          <button class="botao primario" type="submit" id="botao-registo">Criar conta</button>
+        </form>
+
+        <p class="entrar-rodape">Só queres ver um jogo em direto? Não precisas de conta: abre o link que o treinador te enviou.</p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="js/entrar.js"></script>
+</body>
+</html>

@@ -1,7 +1,14 @@
 // Pedidos HTTP à API e pequenos utilitários partilhados pelas páginas.
+import { irParaEntrar } from './conta.js';
+
+/** Sessão terminada (401) fora das rotas da conta: volta à página de entrada. */
+async function resposta401(resposta, url) {
+  if (resposta.status === 401 && !url.startsWith('/api/conta')) await irParaEntrar();
+}
 
 export async function obter(url) {
   const resposta = await fetch(url);
+  await resposta401(resposta, url);
   if (!resposta.ok) throw new Error(await mensagemDeErro(resposta));
   return resposta.json();
 }
@@ -12,6 +19,7 @@ export async function enviar(metodo, url, corpo) {
     headers: corpo === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: corpo === undefined ? undefined : JSON.stringify(corpo),
   });
+  await resposta401(resposta, url);
   if (!resposta.ok) throw new Error(await mensagemDeErro(resposta));
   return resposta.status === 204 ? null : resposta.json();
 }
@@ -88,7 +96,25 @@ export const POSICOES = [
 ];
 export const ROTULO_POSICAO = Object.fromEntries(POSICOES.map((p) => [p.codigo, p.rotulo]));
 
-/** Ligação de descarga do Excel de um jogo (ou só de uma equipa, se equipaId for dado). */
-export function urlExcel(jogoId, equipaId = null) {
-  return `/api/jogos/${jogoId}/exportar.xlsx${equipaId == null ? '' : `?equipaId=${equipaId}`}`;
+/**
+ * Ligação de descarga do Excel de um jogo (ou só de uma equipa, se equipaId for dado).
+ * Quem abriu o jogo por um link de partilha passa o código; o dono usa a sessão.
+ */
+export function urlExcel(jogoId, equipaId = null, codigo = null) {
+  const parametros = new URLSearchParams();
+  if (equipaId != null) parametros.set('equipaId', equipaId);
+  if (codigo) parametros.set('c', codigo);
+  const texto = parametros.toString();
+  return `/api/jogos/${jogoId}/exportar.xlsx${texto ? `?${texto}` : ''}`;
+}
+
+/** Ligação de partilha do dashboard em direto (qualquer pessoa com ela vê o jogo, sem conta). */
+export function urlPartilha(jogoId, codigo) {
+  return `${location.origin}/dashboard.html?jogo=${jogoId}&c=${encodeURIComponent(codigo)}`;
+}
+
+/** Acrescenta ?c=código a um endereço da API (quando se veio por link de partilha). */
+export function comCodigo(url, codigo) {
+  if (!codigo) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}c=${encodeURIComponent(codigo)}`;
 }

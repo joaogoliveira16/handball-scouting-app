@@ -104,7 +104,7 @@ export function criarBaliza(elemento, { aoClicar = null } = {}) {
       for (const zona of ORDEM_ZONA_BALIZA) {
         const n = porZona[zona] ?? 0;
         textos[zona].textContent = n > 0 ? String(n) : '';
-        celulas[zona].style.fill = n > 0 ? `rgba(56, 189, 248, ${(0.08 + 0.4 * (n / maximo)).toFixed(2)})` : '';
+        celulas[zona].style.fill = n > 0 ? `rgba(124, 58, 237, ${(0.08 + 0.4 * (n / maximo)).toFixed(2)})` : '';
       }
     },
   };

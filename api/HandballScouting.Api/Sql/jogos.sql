@@ -1,5 +1,6 @@
--- Lista de jogos com o resultado (golos de cada equipa)
+-- Jogos de uma conta com o resultado (golos de cada equipa). "codigo" é o código do link de partilha.
 SELECT g.id,
+       g.codigo,
        g.data_hora,
        g.local,
        c.id   AS casa_id,
@@ -12,5 +13,6 @@ FROM jogos g
 JOIN equipas c ON c.id = g.equipa_casa_id
 JOIN equipas f ON f.id = g.equipa_fora_id
 LEFT JOIN v_remates r ON r.jogo_id = g.id
+WHERE g.dono_id = @donoId
 GROUP BY g.id, c.id, f.id
 ORDER BY g.data_hora DESC, g.id DESC;

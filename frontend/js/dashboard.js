@@ -1,14 +1,17 @@
 // Dashboard em tempo real: o servidor envia o estado completo a cada evento registado.
-import { h, substituir } from './dom.js';
+import { h, substituir, avisar, copiarTexto } from './dom.js';
 import {
   formatarTempo, percentagem, RESULTADOS, ROTULO_RESULTADO, ROTULO_SITUACAO,
-  ROTULO_CORREDOR, ORDEM_CORREDOR, ROTULO_DISTANCIA, ORDEM_DISTANCIA, ROTULO_ZONA_BALIZA, urlExcel,
+  ROTULO_CORREDOR, ORDEM_CORREDOR, ROTULO_DISTANCIA, ORDEM_DISTANCIA, ROTULO_ZONA_BALIZA, urlExcel, urlPartilha, obter,
 } from './api.js';
 import { criarCampo, novoSvgCampo, simboloLegenda } from './campo.js';
 import { criarBaliza, novoSvgBaliza } from './baliza.js';
 import { ligar, TEXTO_ESTADO } from './tempo-real.js';
+import { obterConta, mostrarMenu } from './conta.js';
 
-const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
+const parametros = new URLSearchParams(location.search);
+const jogoId = Number(parametros.get('jogo'));
+let codigo = parametros.get('c');   // código do link de partilha (quem não tem conta entra só com ele)
 if (!jogoId) location.replace('./');
 
 // Diferença de golos no parcial a partir da qual se sugere um time-out
@@ -255,8 +258,8 @@ function desenhar() {
       onclick: () => { estado.equipaId = e.equipaId; desenhar(); },
     }, `Ver: ${e.nome}`)),
     h('div', { class: 'exportar' },
-      h('a', { class: 'botao-link pequeno', href: urlExcel(jogoId, selecionada.equipaId), download: '' }, `⬇ Excel · ${selecionada.nome}`),
-      h('a', { class: 'botao-link suave pequeno', href: urlExcel(jogoId), download: '' }, '⬇ Excel · jogo completo')));
+      h('a', { class: 'botao-link pequeno', href: urlExcel(jogoId, selecionada.equipaId, codigo), download: '' }, `⬇ Excel · ${selecionada.nome}`),
+      h('a', { class: 'botao-link suave pequeno', href: urlExcel(jogoId, null, codigo), download: '' }, '⬇ Excel · jogo completo')));
 
   const dados = estado.dados;
   substituir(painel,
@@ -280,12 +283,57 @@ function receber(dados) {
   desenhar();
 }
 
-function mostrarEstadoLigacao(codigo) {
-  const el = document.getElementById('ligacao');
-  el.className = `ligacao ${codigo === 'ligado' ? 'ok' : codigo}`;
-  el.textContent = TEXTO_ESTADO[codigo];
+/** Link inválido, jogo que não existe ou que já não é visível para esta pessoa. */
+function mostrarSemAcesso(conta) {
+  document.title = 'Jogo indisponível · Scouting de Andebol';
+  document.querySelector('.placar').hidden = true;
+  document.getElementById('partilhar').hidden = true;
+  document.getElementById('excel-jogo').hidden = true;
+  substituir(document.querySelector('main'),
+    h('section', { class: 'sem-acesso' },
+      h('h1', {}, 'Este jogo não está disponível'),
+      h('p', {}, conta
+        ? 'O jogo não existe ou não é teu. Se recebeste um link, pede um novo a quem o partilhou.'
+        : 'O link está incompleto ou o jogo já não existe. Pede um link novo a quem o partilhou. Se o jogo é teu, entra na tua conta.'),
+      conta
+        ? h('a', { class: 'botao-link primario', href: './' }, 'Ver os meus jogos')
+        : h('a', { class: 'botao-link primario', href: `entrar.html?voltar=${encodeURIComponent(`dashboard.html${location.search}`)}` }, 'Entrar na minha conta')));
 }
 
-document.getElementById('excel-jogo').href = urlExcel(jogoId);
+let conta = null;
 
-ligar(jogoId, receber, mostrarEstadoLigacao);
+function mostrarEstadoLigacao(estadoLigacao) {
+  const el = document.getElementById('ligacao');
+  el.className = `ligacao ${estadoLigacao === 'ligado' ? 'ok' : estadoLigacao}`;
+  el.textContent = TEXTO_ESTADO[estadoLigacao];
+  if (estadoLigacao === 'negado') mostrarSemAcesso(conta);
+}
+
+async function copiarLink() {
+  const link = urlPartilha(jogoId, codigo);
+  if (await copiarTexto(link)) avisar('Link copiado. Quem o abrir vê este jogo em direto, sem conta.');
+  else window.prompt('Copia este link para partilhar o jogo em direto:', link);
+}
+
+// Quem tem conta vê a seta de voltar e o botão de partilha; quem veio só pelo link vê o jogo e pode exportar
+try {
+  conta = await obterConta();
+} catch { /* sem resposta da API: segue como visitante */ }
+
+if (conta) {
+  mostrarMenu(conta);
+  document.getElementById('voltar').hidden = false;
+  if (!codigo) {
+    // Aberto sem código (ex.: um marcador antigo): o dono vai buscá-lo ao jogo
+    try { codigo = (await obter(`/api/jogos/${jogoId}`)).codigo; } catch { /* não é o dono: sem botão */ }
+  }
+}
+if (codigo) {
+  const botaoPartilhar = document.getElementById('partilhar');
+  botaoPartilhar.hidden = false;
+  botaoPartilhar.addEventListener('click', copiarLink);
+}
+
+document.getElementById('excel-jogo').href = urlExcel(jogoId, null, codigo);
+
+ligar(jogoId, codigo, receber, mostrarEstadoLigacao);

@@ -3,13 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#050914">
+  <meta name="theme-color" content="#0e1b33">
+  <!-- O link de partilha leva o código secreto do jogo: não deve aparecer em pesquisas nem em referências -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
   <title>Dashboard · Scouting de Andebol</title>
   <link rel="stylesheet" href="css/estilo.css">
 </head>
 <body>
-  <header class="topo">
-    <a class="voltar" href="./" aria-label="Voltar à lista de jogos">←</a>
+  <header class="topo topo-jogo">
+    <a class="voltar" id="voltar" href="./" aria-label="Voltar à lista de jogos" hidden>←</a>
     <div class="placar">
       <span class="eq eq-casa" id="nome-casa">Casa</span>
       <strong id="golos-casa">0</strong>
@@ -17,6 +20,7 @@
       <strong id="golos-fora">0</strong>
       <span class="eq eq-fora" id="nome-fora">Fora</span>
     </div>
+    <button type="button" class="botao-topo" id="partilhar" title="Copiar o link para quem quiser ver o jogo em direto" hidden>Copiar link</button>
     <a class="botao-topo" id="excel-jogo" href="#" download title="Exportar as estatísticas do jogo para Excel">⬇ Excel</a>
     <span class="ligacao" id="ligacao">a ligar…</span>
   </header>

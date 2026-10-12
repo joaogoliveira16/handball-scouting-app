@@ -12,23 +12,17 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
     private Task<IEnumerable<T>> Consulta<T>(NpgsqlConnection con, string nome, object? parametros, CancellationToken ct) =>
         con.QueryAsync<T>(new CommandDefinition(sql[nome], parametros, cancellationToken: ct));
 
-    public async Task<bool> JogoExisteAsync(int jogoId, CancellationToken ct = default)
-    {
-        await using var con = await dados.OpenConnectionAsync(ct);
-        return await con.ExecuteScalarAsync<bool>(
-            new CommandDefinition("SELECT EXISTS (SELECT 1 FROM jogos WHERE id = @jogoId)", new { jogoId }, cancellationToken: ct));
-    }
-
     public async Task<List<TipoEvento>> TiposEventoAsync(CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);
         return (await Consulta<TipoEvento>(con, "tipos_evento", null, ct)).ToList();
     }
 
-    public async Task<List<JogoLinha>> JogosAsync(CancellationToken ct = default)
+    /// <summary>Jogos de uma conta, do mais recente para o mais antigo.</summary>
+    public async Task<List<JogoLinha>> JogosAsync(int donoId, CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);
-        return (await Consulta<JogoLinha>(con, "jogos", null, ct)).ToList();
+        return (await Consulta<JogoLinha>(con, "jogos", new { donoId }, ct)).ToList();
     }
 
     public async Task<JogoDetalhe?> JogoAsync(int jogoId, CancellationToken ct = default)

@@ -1,6 +1,9 @@
 // Equipas e jogadores: criar equipas, adicionar, editar e apagar jogadores.
 import { h, substituir, avisar } from './dom.js';
 import { obter, enviar, POSICOES, ROTULO_POSICAO } from './api.js';
+import { exigirConta } from './conta.js';
+
+await exigirConta();
 
 const estado = {
   equipas: [],
@@ -69,7 +72,7 @@ function desenharEquipas() {
       type: 'button', class: 'item-equipa', 'aria-current': e.id === estado.equipaId ? 'true' : 'false',
       onclick: () => selecionar(e.id),
     }, h('span', {}, e.nome), h('small', {}, `${e.jogadores} jog.`))))
-    : h('li', { class: 'vazio' }, 'Ainda não há equipas.'));
+    : h('li', { class: 'vazio' }, 'Ainda não tens equipas. Cria a primeira abaixo.'));
 }
 
 function desenharPlantel() {
@@ -100,9 +103,9 @@ function desenharPlantel() {
         onclick: () => apagarJogador(j),
       }, '✕')))));
 
-  substituir(zonaTabela, h('table', { class: 'tabela' },
+  substituir(zonaTabela, h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela' },
     h('thead', {}, h('tr', {}, h('th', { class: 'num' }, 'Nº'), h('th', {}, 'Nome'), h('th', {}, 'Posição'), h('th', { class: 'num' }, 'Eventos'), h('th', {}, ''))),
-    h('tbody', {}, linhas)));
+    h('tbody', {}, linhas))));
 }
 
 // ---------------------------------------------------------------------

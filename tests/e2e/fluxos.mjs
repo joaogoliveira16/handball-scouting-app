@@ -5,11 +5,13 @@
 //     node e2e/fluxos.mjs
 //
 // O script arranca um pequeno servidor (e2e/servidor.mjs) que serve o frontend e reencaminha /api e /hub
-// para a API, como o nginx da imagem Docker. Assume uma base "virgem" (só os dados de db/init).
+// para a API, como o nginx da imagem Docker. Assume uma base "virgem" (só os dados de db/init): a primeira conta
+// que o teste cria pela página de entrada herda as equipas e os jogos de exemplo.
 //
 // Variáveis: API_URL (http://localhost:5080), E2E_DIR (./resultados, onde ficam capturas e Excel),
 //            APP_URL (usar um servidor já a correr em vez de arrancar o próprio),
 //            SIGNALR_FALSO (só para desenvolver estes testes sem a API: ficheiro JS que substitui a biblioteca SignalR).
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
@@ -30,8 +32,15 @@ const servidor = process.env.APP_URL
   : await iniciarServidor({ apiUrl: API_URL });
 
 const browser = await chromium.launch();
-const ctx = await browser.newContext({ viewport: { width: 1180, height: 820 }, locale: 'pt-PT', timezoneId: 'UTC', acceptDownloads: true });
-if (SIGNALR_FALSO) await ctx.route('**/lib/signalr.min.js', (r) => r.fulfill({ contentType: 'text/javascript', body: SIGNALR_FALSO }));
+// Cada contexto é um "browser" à parte, com os seus próprios cookies (sessões)
+async function novoContexto() {
+  const contexto = await browser.newContext({ viewport: { width: 1180, height: 820 }, locale: 'pt-PT', timezoneId: 'UTC', acceptDownloads: true });
+  await contexto.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: servidor.url });
+  if (SIGNALR_FALSO) await contexto.route('**/lib/signalr.min.js', (r) => r.fulfill({ contentType: 'text/javascript', body: SIGNALR_FALSO }));
+  return contexto;
+}
+const ctx = await novoContexto();            // a conta principal (fica com a sessão iniciada)
+const ctxVisitante = await novoContexto();   // quem só tem o link de partilha: nunca inicia sessão
 
 const falhas = [];
 const linhas = [];
@@ -42,15 +51,19 @@ function ok(condicao, mensagem) {
   if (!condicao) falhas.push(mensagem);
 }
 const errosPaginas = [];
-async function pagina(caminho) {
-  const page = await ctx.newPage();
+// Abre uma página. Opções: contexto (outro "browser"), tolerar (estados HTTP que o browser regista na consola e
+// são esperados, como o 409 dos nomes repetidos ou o 401 de quem ainda não entrou), rapida (não espera pelo fim
+// da rede: para páginas que redirecionam sozinhas).
+async function pagina(caminho, { contexto = ctx, tolerar = [], rapida = false } = {}) {
+  const page = await contexto.newPage();
+  const esperados = ['409', ...tolerar];
   page.on('pageerror', (e) => errosPaginas.push(`${caminho}: ${e.message}`));
-  // os 409 são esperados nos testes de nomes e números repetidos
-  page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('409')) errosPaginas.push(`${caminho}: ${m.text()}`); });
+  page.on('console', (m) => { if (m.type() === 'error' && !esperados.some((e) => m.text().includes(e))) errosPaginas.push(`${caminho}: ${m.text()}`); });
   page.on('dialog', (d) => d.accept());
-  await page.goto(servidor.url + caminho, { waitUntil: 'networkidle' });
+  await page.goto(servidor.url + caminho, { waitUntil: rapida ? 'domcontentloaded' : 'networkidle' });
   return page;
 }
+const caminhoDe = (page) => { const u = new URL(page.url()); return u.pathname + u.search; };
 const captura = (page, nome) => page.screenshot({ path: path.join(E2E_DIR, `e2e-${nome}.png`), fullPage: true });
 const texto = async (locator) => ((await locator.textContent()) ?? '').replace(/\s+/g, '');
 const esperarPor = async (funcao, ms = 10000) => {
@@ -62,11 +75,11 @@ const esperarPor = async (funcao, ms = 10000) => {
   return funcao();
 };
 // Com a biblioteca SignalR substituída (só no desenvolvimento destes testes) é preciso empurrar o estado à mão
-async function empurrar(page, jogoId) {
+async function empurrar(page, jogoId, codigo = null) {
   if (!SIGNALR_FALSO) return;
-  await page.evaluate(async (id) => {
-    window.__hub.EstatisticasAtualizadas(await (await fetch(`/api/jogos/${id}/estatisticas`)).json());
-  }, jogoId);
+  await page.evaluate(async ({ id, c }) => {
+    window.__hub.EstatisticasAtualizadas(await (await fetch(`/api/jogos/${id}/estatisticas${c ? `?c=${c}` : ''}`)).json());
+  }, { id: jogoId, c: codigo });
 }
 
 async function passo(nome, funcao) {
@@ -82,6 +95,97 @@ const sufixo = Date.now().toString(36).slice(-5);
 const nomeDragoes = `Dragões ${sufixo}`;
 const [aguias] = await q("SELECT id FROM equipas WHERE nome = 'Águias do Norte'");
 const [leoes] = await q("SELECT id FROM equipas WHERE nome = 'Leões do Sul'");
+
+// ======================= Contas =======================
+const emailPrincipal = `principal-${sufixo}@exemplo.pt`;
+const nomePrincipal = `Principal ${sufixo}`;
+const SENHA = 'palavra-passe-123';
+let donoId; // id da conta principal (dona dos dados de exemplo)
+
+async function registarPelaPagina(p, { nome, email, senha }) {
+  await p.click('#aba-registo');
+  await p.fill('#registo-nome', nome);
+  await p.fill('#registo-email', email);
+  await p.fill('#registo-senha', senha);
+  await p.click('#botao-registo');
+}
+
+await passo('Contas: criar conta, sair e entrar', async () => {
+  // Sem sessão, as páginas levam à entrada e guardam para onde voltar
+  let p = await pagina('/equipas.html', { tolerar: ['401'], rapida: true });
+  await p.waitForURL(/entrar\.html/);
+  ok(new URL(p.url()).searchParams.get('voltar') === 'equipas.html', `sem sessão: /equipas.html leva à entrada e guarda para onde voltar (${caminhoDe(p)})`);
+  ok((await p.locator('#form-entrar').isVisible()) && (await p.locator('#form-registo').isHidden()), 'entrar: começa no formulário de entrada');
+  await captura(p, 'entrar');
+
+  await p.click('#aba-registo');
+  ok((await p.locator('#form-registo').isVisible()) && (await p.getAttribute('#aba-registo', 'aria-selected')) === 'true', 'entrar: o separador "Criar conta" mostra o registo');
+  await captura(p, 'registo');
+
+  // Validações antes de enviar
+  await p.fill('#registo-nome', nomePrincipal); await p.fill('#registo-email', 'sem-arroba'); await p.fill('#registo-senha', SENHA);
+  await p.click('#botao-registo');
+  ok((await p.locator('#erro-registo').textContent()).includes('email válido'), 'registo: email inválido recusado com mensagem');
+  await p.fill('#registo-email', emailPrincipal); await p.fill('#registo-senha', 'curta');
+  await p.click('#botao-registo');
+  ok((await p.locator('#erro-registo').textContent()).includes('pelo menos 8'), 'registo: palavra-passe curta recusada com mensagem');
+  await p.fill('#registo-senha', SENHA);
+  await p.click('.campo-palavra-passe:has(#registo-senha) .ver-senha');
+  ok((await p.getAttribute('#registo-senha', 'type')) === 'text', 'registo: "Mostrar" revela a palavra-passe');
+  await p.click('.campo-palavra-passe:has(#registo-senha) .ver-senha');
+  ok((await p.getAttribute('#registo-senha', 'type')) === 'password', 'registo: "Esconder" volta a escondê-la');
+
+  // Criar a conta leva à página pedida (equipas.html), já com a sessão iniciada
+  await p.click('#botao-registo');
+  await p.waitForURL((u) => u.pathname === '/equipas.html');
+  await p.waitForSelector('.item-equipa');
+  ok(true, 'registo: criar a conta leva de volta à página pedida');
+  ok((await p.locator('#conta-menu .quem').textContent()).includes(nomePrincipal), 'menu: mostra o nome da conta');
+  ok((await p.locator('#conta-menu .avatar').textContent()) === 'P', 'menu: avatar com a inicial do nome');
+
+  // O que ficou na base de dados: hash PBKDF2, só o hash da sessão, dados de exemplo herdados
+  const [u] = await q('SELECT id, email, nome, palavra_passe_hash FROM utilizadores WHERE email = $1', [emailPrincipal]);
+  donoId = u?.id;
+  ok(u && u.nome === nomePrincipal && /^pbkdf2-sha256\$600000\$/.test(u.palavra_passe_hash) && !u.palavra_passe_hash.includes(SENHA), 'base de dados: palavra-passe guardada só como hash PBKDF2');
+  const galleta = (await ctx.cookies()).find((c) => c.name === 'sessao');
+  ok(galleta?.httpOnly === true && galleta.sameSite === 'Lax' && /^[0-9a-f]{64}$/.test(galleta.value), 'cookie de sessão: HttpOnly, SameSite=Lax, 64 hexadecimais');
+  const hashDaSessao = galleta ? crypto.createHash('sha256').update(galleta.value).digest('hex') : '';
+  const sessoes = await q('SELECT token_hash FROM sessoes WHERE utilizador_id = $1', [donoId]);
+  ok(sessoes.length === 1 && sessoes[0].token_hash === hashDaSessao, 'base de dados: da sessão só fica o SHA-256 do código do cookie');
+  ok((await q('SELECT 1 FROM equipas WHERE dono_id = $1 AND id IN ($2, $3)', [donoId, aguias.id, leoes.id])).length === 2, 'a primeira conta herdou as equipas de exemplo');
+  ok((await q('SELECT 1 FROM jogos WHERE dono_id = $1 AND id = 2', [donoId])).length === 1, 'a primeira conta herdou os jogos de exemplo');
+
+  // Sair
+  await Promise.all([p.waitForURL(/entrar\.html/), p.click('#conta-menu button')]);
+  ok(!(await ctx.cookies()).some((c) => c.name === 'sessao'), 'sair: o cookie é apagado');
+  ok((await q('SELECT 1 FROM sessoes WHERE utilizador_id = $1', [donoId])).length === 0, 'sair: a sessão é apagada na base de dados');
+  await p.close();
+
+  p = await pagina('/', { tolerar: ['401'], rapida: true });
+  await p.waitForURL(/entrar\.html/);
+  ok(new URL(p.url()).searchParams.get('voltar') === null, 'sem sessão: a lista de jogos também leva à entrada');
+
+  // Entrar: palavra-passe errada e depois certa
+  await p.fill('#entrar-email', emailPrincipal); await p.fill('#entrar-senha', 'errada-errada');
+  await p.click('#botao-entrar');
+  await p.waitForFunction(() => document.getElementById('erro-entrar').textContent.length > 0);
+  ok((await p.locator('#erro-entrar').textContent()) === 'Email ou palavra-passe errados.', 'entrar: palavra-passe errada mostra o erro da API');
+  ok(await p.locator('#botao-entrar').isEnabled(), 'entrar: o botão volta a ficar ativo depois do erro');
+  await p.fill('#entrar-senha', SENHA);
+  await Promise.all([p.waitForURL((u) => u.pathname === '/'), p.click('#botao-entrar')]);
+  await p.waitForSelector('.lista-jogos');
+  ok(true, 'entrar: com os dados certos abre a lista de jogos');
+  ok((await q('SELECT 1 FROM sessoes WHERE utilizador_id = $1', [donoId])).length === 1, 'entrar: cria uma sessão nova');
+  await p.close();
+
+  // Quem já tem sessão não fica na página de entrada, e o "voltar" nunca leva para fora do site
+  for (const hostil of ['https://evil.example/', '//evil.example', 'javascript:alert(1)', '/\\evil.example', 'entrar.html']) {
+    const h = await pagina(`/entrar.html?voltar=${encodeURIComponent(hostil)}`, { rapida: true });
+    await h.waitForURL((u) => u.origin === new URL(servidor.url).origin && u.pathname === '/');
+    ok(true, `entrar: o parâmetro voltar="${hostil}" não leva para fora do site`);
+    await h.close();
+  }
+});
 
 // ======================= Equipas e jogadores =======================
 await passo('Equipas e jogadores', async () => {
@@ -147,7 +251,8 @@ await passo('Equipas e jogadores', async () => {
 let novoJogoId;
 await passo('Novo jogo', async () => {
   const p = await pagina('/');
-  ok((await p.locator('.jogo-cartao').count()) >= 2, 'jogos: lista os jogos');
+  ok((await p.locator('.jogo-linha').count()) >= 2, 'jogos: lista os jogos');
+  ok((await p.locator('.jogo-linha', { hasText: 'Demonstração' }).locator('.resultado').textContent()).replace(/\s+/g, '') === '6–9', 'jogos: mostra o resultado de cada jogo (6–9)');
   ok((await p.locator('a[href^="/api/jogos/2/exportar.xlsx"]').count()) === 1, 'jogos: link de Excel em cada jogo');
   await captura(p, 'jogos');
   await p.click('summary');
@@ -195,11 +300,11 @@ await passo('Convocatória', async () => {
 
 // ======================= Máximo de 16 =======================
 await passo('Máximo de 16 convocados por equipa', async () => {
-  const [eq] = await q('INSERT INTO equipas (nome) VALUES ($1) RETURNING id', [`Gigantes ${sufixo}`]);
+  const [eq] = await q('INSERT INTO equipas (nome, dono_id) VALUES ($1, $2) RETURNING id', [`Gigantes ${sufixo}`, donoId]);
   for (let n = 1; n <= 17; n++) {
     await q('INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1,$2,$3,$4)', [eq.id, n, `Jogador ${n}`, n === 1 ? 'GR' : 'LE']);
   }
-  const [jogo] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id) VALUES ($1,$2) RETURNING id', [eq.id, aguias.id]);
+  const [jogo] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [eq.id, aguias.id, donoId]);
 
   const p = await pagina(`/convocatoria.html?jogo=${jogo.id}`);
   await p.waitForSelector('.azulejo');
@@ -230,7 +335,7 @@ await passo('Banco: só os convocados', async () => {
   ok((await p.locator('.botao-jogador small:has-text("Tomás")').count()) === 0, 'banco: o guarda-redes não convocado não aparece');
   await p.close();
 
-  const [{ id: semLista }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id) VALUES ($1,$2) RETURNING id', [aguias.id, leoes.id]);
+  const [{ id: semLista }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
   const p2 = await pagina(`/banco.html?jogo=${semLista}`);
   await p2.waitForSelector('.botao-jogador');
   ok((await p2.locator('.botao-jogador').count()) === 6, 'banco: sem convocatória mostra todos os jogadores de campo (6)');
@@ -241,11 +346,15 @@ await passo('Banco: só os convocados', async () => {
 
 // ======================= Tempo real: banco -> API -> dashboard =======================
 await passo('Banco regista, dashboard recebe em tempo real', async () => {
-  const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id) VALUES ($1,$2) RETURNING id', [aguias.id, leoes.id]);
+  const [{ id: jogoId, codigo: codigoJogo }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id, codigo', [aguias.id, leoes.id, donoId]);
   const dash = await pagina(`/dashboard.html?jogo=${jogoId}`);
   ok(await esperarPor(async () => (await dash.locator('#ligacao').getAttribute('class'))?.includes('ok')), 'dashboard: ligado ao hub (em direto)');
   ok((await dash.locator('#ligacao').textContent()) === 'em direto', 'dashboard: estado "em direto"');
   ok((await texto(dash.locator('#golos-casa'))) === '0' && (await texto(dash.locator('#golos-fora'))) === '0', 'dashboard: começa em 0–0');
+
+  // quem só tem o link (outro browser, sem sessão) também vê em direto
+  const visitante = await pagina(`/dashboard.html?jogo=${jogoId}&c=${codigoJogo}`, { contexto: ctxVisitante, tolerar: ['401'] });
+  ok(await esperarPor(async () => (await visitante.locator('#ligacao').getAttribute('class'))?.includes('ok')), 'visitante: ligado ao hub só com o código do link (sem conta)');
 
   const banco = await pagina(`/banco.html?jogo=${jogoId}`);
   await banco.waitForSelector('.botao-jogador');
@@ -268,6 +377,8 @@ await passo('Banco regista, dashboard recebe em tempo real', async () => {
   await empurrar(dash, jogoId);
   ok(await esperarPor(async () => (await texto(dash.locator('#golos-casa'))) === '1'), 'dashboard: o golo aparece no placar sem recarregar (WebSocket)');
   ok(await esperarPor(async () => (await texto(banco.locator('#golos-casa'))) === '1'), 'banco: o placar também atualiza');
+  await empurrar(visitante, jogoId, codigoJogo);
+  ok(await esperarPor(async () => (await texto(visitante.locator('#golos-casa'))) === '1'), 'visitante: o golo também aparece no dashboard, sem conta');
   ok(await esperarPor(async () => (await dash.locator('svg.campo .camada-marcadores .marcador').count()) === 1), 'dashboard: o remate aparece no mapa');
   await captura(dash, 'dashboard-tempo-real');
 
@@ -341,18 +452,22 @@ await passo('Banco regista, dashboard recebe em tempo real', async () => {
   await banco.click('#btn-desfazer');
   ok(await esperarPor(async () => (await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 0), 'banco: o golo foi apagado');
   await empurrar(dash, jogoId);
+  await empurrar(visitante, jogoId, codigoJogo);
   ok(await esperarPor(async () => (await texto(dash.locator('#golos-casa'))) === '0'), 'dashboard: o placar volta a 0');
+  ok(await esperarPor(async () => (await texto(visitante.locator('#golos-casa'))) === '0'), 'visitante: o placar também volta a 0');
   await banco.close();
   await dash.close();
+  await visitante.close();
 });
 
 // ======================= Dashboard: Excel =======================
 await passo('Dashboard: exportar para Excel', async () => {
-  const p = await pagina('/dashboard.html?jogo=2');
+  const [{ codigo }] = await q('SELECT codigo FROM jogos WHERE id = 2');
+  const p = await pagina(`/dashboard.html?jogo=2&c=${codigo}`);
   await p.waitForSelector('.exportar a');
-  ok((await p.locator('#excel-jogo').getAttribute('href')) === '/api/jogos/2/exportar.xlsx', 'dashboard: botão Excel do topo');
+  ok((await p.locator('#excel-jogo').getAttribute('href')) === `/api/jogos/2/exportar.xlsx?c=${codigo}`, 'dashboard: botão Excel do topo (com o código do jogo)');
   const hrefs = await p.locator('.exportar a').evaluateAll((as) => as.map((a) => a.getAttribute('href')));
-  ok(hrefs[0].startsWith('/api/jogos/2/exportar.xlsx?equipaId=') && hrefs[1] === '/api/jogos/2/exportar.xlsx', `dashboard: botões Excel da equipa e do jogo (${hrefs})`);
+  ok(hrefs[0].startsWith('/api/jogos/2/exportar.xlsx?equipaId=') && hrefs[0].endsWith(`&c=${codigo}`) && hrefs[1] === `/api/jogos/2/exportar.xlsx?c=${codigo}`, `dashboard: botões Excel da equipa e do jogo (${hrefs})`);
   await p.click('.separador-abas button:has-text("Ver: Leões")');
   const hrefs2 = await p.locator('.exportar a').evaluateAll((as) => as.map((a) => a.getAttribute('href')));
   ok(hrefs2[0] !== hrefs[0], 'dashboard: o link do Excel acompanha a equipa selecionada');
@@ -374,6 +489,149 @@ await passo('Dashboard: exportar para Excel', async () => {
   ok(caixa && caixa.width > 200 && caixa.height > 200, 'dashboard: o mapa tem tamanho visível');
   await captura(p, 'dashboard');
   await p.close();
+});
+
+// ======================= Link de partilha =======================
+await passo('Link de partilha: copiar e ver sem conta', async () => {
+  const [{ codigo }] = await q('SELECT codigo FROM jogos WHERE id = 2');
+  const [{ codigo: codigoNovo }] = await q('SELECT codigo FROM jogos WHERE id = $1', [novoJogoId]);
+
+  // O dono copia o link do dashboard na lista de jogos
+  const lista = await pagina('/');
+  const linha = lista.locator('.jogo-linha', { hasText: 'Pavilhão Central' });
+  ok((await linha.locator('a:has-text("Dashboard")').getAttribute('href')) === `dashboard.html?jogo=${novoJogoId}&c=${codigoNovo}`, 'jogos: o botão Dashboard já leva o código do jogo');
+  await linha.getByRole('button', { name: 'Copiar link' }).click();
+  await lista.waitForFunction(() => document.getElementById('aviso').textContent.includes('Link copiado'));
+  const copiado = await lista.evaluate(() => navigator.clipboard.readText());
+  ok(copiado === `${servidor.url}/dashboard.html?jogo=${novoJogoId}&c=${codigoNovo}`, `jogos: "Copiar link" copia o endereço de partilha (${copiado})`);
+  await lista.close();
+
+  // Quem recebe o link abre o dashboard num browser sem sessão
+  const v = await pagina(`/dashboard.html?jogo=2&c=${codigo}`, { contexto: ctxVisitante, tolerar: ['401'] });
+  ok(await esperarPor(async () => (await v.locator('#ligacao').getAttribute('class'))?.includes('ok')), 'visitante: o dashboard liga-se em direto sem conta');
+  ok(await esperarPor(async () => (await texto(v.locator('#golos-casa'))) === '6' && (await texto(v.locator('#golos-fora'))) === '9'), 'visitante: vê o jogo 6–9');
+  if (SIGNALR_FALSO) await empurrar(v, 2, codigo);
+  ok(await v.locator('#voltar').isHidden(), 'visitante: sem seta para a lista de jogos (não tem conta)');
+  ok((await v.locator('svg.campo .camada-marcadores .marcador').count()) > 0, 'visitante: o mapa de remates aparece');
+  await captura(v, 'dashboard-visitante');
+  await v.click('#partilhar');
+  ok((await v.evaluate(() => navigator.clipboard.readText())) === `${servidor.url}/dashboard.html?jogo=2&c=${codigo}`, 'visitante: "Copiar link" copia o mesmo endereço');
+  const [descarga] = await Promise.all([v.waitForEvent('download'), v.click('#excel-jogo')]);
+  const ficheiroVisitante = path.join(E2E_DIR, `e2e-visitante-${descarga.suggestedFilename()}`);
+  await descarga.saveAs(ficheiroVisitante);
+  const bytes = fs.readFileSync(ficheiroVisitante);
+  ok(/\.xlsx$/.test(descarga.suggestedFilename()) && bytes[0] === 0x50 && bytes[1] === 0x4b, 'visitante: consegue exportar o Excel com o código do link');
+
+  // O link só serve para ver: as outras páginas levam à entrada
+  for (const destino of ['/', '/banco.html?jogo=2', '/convocatoria.html?jogo=2', '/equipas.html']) {
+    const o = await pagina(destino, { contexto: ctxVisitante, tolerar: ['401'], rapida: true });
+    await o.waitForURL(/entrar\.html/);
+    ok(true, `visitante: ${destino} leva à página de entrada`);
+    await o.close();
+  }
+  await v.close();
+
+  // Sem código, com código errado ou com o código de outro jogo: o jogo "não existe"
+  const semAcesso = [
+    ['sem código', '/dashboard.html?jogo=2'], ['com código errado', '/dashboard.html?jogo=2&c=0123456789abcdef0123'],
+    ['com o código de outro jogo', `/dashboard.html?jogo=2&c=${codigoNovo}`], ['jogo inexistente', '/dashboard.html?jogo=999999&c=0123456789abcdef0123'],
+  ];
+  for (const [nome, url] of semAcesso) {
+    const n = await pagina(url, { contexto: ctxVisitante, tolerar: ['401', '404'] });
+    ok(await esperarPor(async () => (await n.locator('.sem-acesso').count()) === 1), `visitante ${nome}: mostra "Este jogo não está disponível"`);
+    ok((await n.locator('#ligacao').textContent()) === 'sem acesso' && (await n.locator('.placar').isHidden()), `visitante ${nome}: sem acesso, sem placar`);
+    ok((await n.locator('.sem-acesso a').getAttribute('href')).startsWith('entrar.html?voltar='), `visitante ${nome}: ligação para entrar na conta`);
+    if (nome === 'sem código') await captura(n, 'dashboard-sem-acesso');
+    await n.close();
+  }
+});
+
+// ======================= Segunda conta =======================
+await passo('Segunda conta: começa vazia e não vê os dados da primeira', async () => {
+  const ctxB = await novoContexto();
+  const emailB = `bruno-${sufixo}@exemplo.pt`;
+  const nomeEquipaB = `Segunda do Bruno ${sufixo}`;
+
+  let p = await pagina('/', { contexto: ctxB, tolerar: ['401'], rapida: true });
+  await p.waitForURL(/entrar\.html/);
+  await registarPelaPagina(p, { nome: 'Bruno', email: emailB, senha: 'outra-palavra-1' });
+  await p.waitForURL((u) => u.pathname === '/');
+  await p.waitForSelector('.estado-vazio');
+  const [b] = await q('SELECT id FROM utilizadores WHERE email = $1', [emailB]);
+  ok(b?.id && b.id !== donoId, 'segunda conta: criada (conta diferente da primeira)');
+  ok((await q('SELECT 1 FROM equipas WHERE dono_id = $1', [b.id])).length === 0 && (await q('SELECT 1 FROM jogos WHERE dono_id = $1', [b.id])).length === 0, 'segunda conta: não herda os dados de exemplo (só a primeira conta herda)');
+  ok(await p.locator('#novo-jogo').isHidden(), 'segunda conta: sem equipas não há "Novo jogo"');
+  ok((await p.locator('.estado-vazio .passos li').count()) === 3 && (await p.locator('.estado-vazio a[href="equipas.html"]').count()) === 1, 'segunda conta: lista vazia mostra os 3 primeiros passos e leva às equipas');
+  ok((await p.locator('.jogo-linha').count()) === 0, 'segunda conta: não vê os jogos da primeira');
+  await captura(p, 'conta-nova-vazia');
+
+  // Equipas: a mesma designação que a primeira conta tem pode existir aqui
+  await Promise.all([p.waitForURL(/equipas\.html/), p.click('.estado-vazio a[href="equipas.html"]')]);
+  await p.waitForSelector('#form-equipa');
+  ok((await p.locator('.item-equipa').count()) === 0, 'segunda conta: não vê as equipas da primeira');
+  for (const nome of ['Águias do Norte', nomeEquipaB]) {
+    await p.fill('#nome-equipa', nome);
+    await p.click('#form-equipa button[type=submit]');
+    await p.waitForSelector(`.item-equipa[aria-current="true"]:has-text("${nome}")`);
+  }
+  ok((await p.locator('.item-equipa').count()) === 2, 'segunda conta: duas equipas criadas (uma com o mesmo nome de uma equipa da primeira conta)');
+  ok((await q('SELECT 1 FROM equipas WHERE dono_id = $1', [b.id])).length === 2 && (await q("SELECT 1 FROM equipas WHERE nome = 'Águias do Norte'")).length === 2, 'base de dados: duas equipas "Águias do Norte", cada uma do seu dono');
+  await p.fill('#nome-equipa', nomeEquipaB);
+  await p.click('#form-equipa button[type=submit]');
+  await p.waitForFunction(() => document.getElementById('erro-equipa').textContent.includes('Já existe'));
+  ok(true, 'segunda conta: o nome repetido na mesma conta continua recusado');
+
+  // Criar o seu primeiro jogo
+  await p.close();
+  p = await pagina('/', { contexto: ctxB });
+  ok(await p.locator('#novo-jogo').isVisible(), 'segunda conta: com duas equipas aparece "Novo jogo"');
+  await p.click('.estado-vazio button');
+  ok(await p.locator('#novo-jogo').evaluate((d) => d.open), 'segunda conta: "Criar o primeiro jogo" abre o formulário');
+  await p.selectOption('#casa', { label: nomeEquipaB });
+  await p.selectOption('#fora', { label: 'Águias do Norte' });
+  await Promise.all([p.waitForURL(/convocatoria\.html\?jogo=\d+/), p.click('#criar-jogo')]);
+  const jogoB = Number(new URL(p.url()).searchParams.get('jogo'));
+  ok((await q('SELECT dono_id FROM jogos WHERE id = $1', [jogoB]))[0]?.dono_id === b.id, 'segunda conta: o jogo novo fica na segunda conta');
+  await p.close();
+
+  p = await pagina('/', { contexto: ctxB });
+  ok((await p.locator('.jogo-linha').count()) === 1 && (await p.locator('.estado-vazio').count()) === 0, 'segunda conta: a lista passa a ter só o seu jogo');
+  await p.close();
+
+  // Os jogos da primeira conta "não existem" aqui
+  for (const [nome, url, seletor] of [
+    ['convocatória', '/convocatoria.html?jogo=2', '#conteudo .vazio'], ['banco', '/banco.html?jogo=2', 'main .vazio'],
+  ]) {
+    const a = await pagina(url, { contexto: ctxB, tolerar: ['404'] });
+    ok(await esperarPor(async () => ((await a.locator(seletor).first().textContent().catch(() => '')) ?? '').includes('Jogo não encontrado')), `segunda conta: ${nome} do jogo 2 (da primeira conta) = "Jogo não encontrado"`);
+    await a.close();
+  }
+  const d = await pagina('/dashboard.html?jogo=2', { contexto: ctxB, tolerar: ['404'] });
+  ok(await esperarPor(async () => (await d.locator('.sem-acesso').count()) === 1), 'segunda conta: dashboard do jogo 2 sem o link = indisponível');
+  ok((await d.locator('.sem-acesso a').getAttribute('href')) === './', 'segunda conta: o botão leva de volta aos seus jogos (já tem conta)');
+  await d.close();
+
+  // Com o link de partilha, a segunda conta também vê o jogo 2 (mas continua sem poder mexer nele)
+  const [{ codigo }] = await q('SELECT codigo FROM jogos WHERE id = 2');
+  const comLink = await pagina(`/dashboard.html?jogo=2&c=${codigo}`, { contexto: ctxB });
+  ok(await esperarPor(async () => (await texto(comLink.locator('#golos-casa'))) === '6'), 'segunda conta: com o link de partilha vê o jogo 2 em direto');
+  ok(await comLink.locator('#voltar').isVisible(), 'segunda conta: com sessão o dashboard mostra a seta para os seus jogos');
+  await comLink.close();
+
+  // E a primeira conta não vê nada da segunda
+  const alheio = await pagina(`/convocatoria.html?jogo=${jogoB}`, { tolerar: ['404'] });
+  ok(await esperarPor(async () => ((await alheio.locator('#conteudo .vazio').first().textContent().catch(() => '')) ?? '').includes('Jogo não encontrado')), 'primeira conta: o jogo da segunda conta "não existe"');
+  await alheio.close();
+  const equipas = await pagina('/equipas.html');
+  ok((await equipas.locator('.item-equipa', { hasText: nomeEquipaB }).count()) === 0, 'primeira conta: não vê as equipas da segunda');
+  await equipas.close();
+
+  // Sair da segunda conta não termina a sessão da primeira
+  const sair = await pagina('/', { contexto: ctxB });
+  await Promise.all([sair.waitForURL(/entrar\.html/), sair.click('#conta-menu button')]);
+  ok(!(await ctxB.cookies()).some((c) => c.name === 'sessao') && (await q('SELECT 1 FROM sessoes WHERE utilizador_id = $1', [donoId])).length >= 1, 'segunda conta: sair só termina a sua sessão');
+  await sair.close();
+  await ctxB.close();
 });
 
 // ======================= Resultado =======================

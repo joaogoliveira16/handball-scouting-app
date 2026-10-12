@@ -1,1 +1,1 @@
-INSERT INTO equipas (nome) VALUES (@nome) RETURNING id;
+INSERT INTO equipas (nome, dono_id) VALUES (@nome, @donoId) RETURNING id;

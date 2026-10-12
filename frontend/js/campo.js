@@ -5,12 +5,12 @@
 const NS = 'http://www.w3.org/2000/svg';
 const ESCALA = 4;
 
-// Mesmas cores neon do tema (css/estilo.css: --r-golo, --r-defesa...)
+// Mesmas cores do tema (css/estilo.css: --r-golo, --r-defesa...)
 export const CORES = {
-  GOLO: '#2cffa0', DEFESA: '#38bdf8', FORA: '#94a3b8', POSTE: '#ffb020', BLOQUEADO: '#c084fc',
+  GOLO: '#16a34a', DEFESA: '#7c3aed', FORA: '#64748b', POSTE: '#d97706', BLOQUEADO: '#db2777',
 };
 
-const CONTORNO_MARCADOR = '#050914';
+const CONTORNO_MARCADOR = '#ffffff';
 let contadorCampos = 0; // para os ids do SVG serem únicos se houver mais do que um campo na página
 
 function svg(nome, atributos = {}, pai = null) {
@@ -36,9 +36,9 @@ export function desenharMarcador(pai, x, y, resultado, opcoes = {}) {
  * para se distinguir bem). Usado no campo e na baliza.
  */
 export function desenharSimbolo(pai, cx, cy, resultado, { raio = 7, titulo = null, halo = true } = {}) {
-  const cor = CORES[resultado] ?? '#e8f1ff';
+  const cor = CORES[resultado] ?? '#0e1b33';
   const g = svg('g', { class: 'marcador' }, pai);
-  // halo suave por baixo do símbolo (dá o brilho neon sem usar filtros pesados)
+  // halo suave por baixo do símbolo (destaca-o sobre as linhas do campo)
   if (halo) svg('circle', { cx, cy, r: raio + 5, fill: cor, class: 'marcador-halo' }, g);
   const base = { fill: cor, stroke: CONTORNO_MARCADOR, 'stroke-width': 1.5 };
   switch (resultado) {

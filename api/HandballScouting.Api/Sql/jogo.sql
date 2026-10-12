@@ -1,5 +1,6 @@
 -- Dados de um jogo
 SELECT g.id,
+       g.codigo,
        g.data_hora,
        g.local,
        c.id   AS casa_id,

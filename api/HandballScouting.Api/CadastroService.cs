@@ -14,13 +14,13 @@ public class CadastroService(NpgsqlDataSource dados, SqlLoader sql)
 
     // ------------------------- Equipas -------------------------
 
-    public async Task<List<EquipaLinha>> EquipasAsync(CancellationToken ct = default)
+    public async Task<List<EquipaLinha>> EquipasAsync(int donoId, CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);
-        return (await con.QueryAsync<EquipaLinha>(Cmd(sql["equipas"], null, ct))).ToList();
+        return (await con.QueryAsync<EquipaLinha>(Cmd(sql["equipas"], new { donoId }, ct))).ToList();
     }
 
-    public async Task<ResultadoRegisto> CriarEquipaAsync(NovaEquipaRequest pedido, CancellationToken ct = default)
+    public async Task<ResultadoRegisto> CriarEquipaAsync(int donoId, NovaEquipaRequest pedido, CancellationToken ct = default)
     {
         var erros = CadastroValidador.ValidarEquipa(pedido);
         if (erros.Count > 0) return ResultadoRegisto.Falha(400, string.Join(" ", erros));
@@ -28,7 +28,7 @@ public class CadastroService(NpgsqlDataSource dados, SqlLoader sql)
         await using var con = await dados.OpenConnectionAsync(ct);
         try
         {
-            var id = await con.ExecuteScalarAsync<int>(Cmd(sql["inserir_equipa"], new { nome = pedido.Nome!.Trim() }, ct));
+            var id = await con.ExecuteScalarAsync<int>(Cmd(sql["inserir_equipa"], new { nome = pedido.Nome!.Trim(), donoId }, ct));
             return ResultadoRegisto.Sucesso(id);
         }
         catch (PostgresException e) when (e.SqlState == ViolacaoUnicidade)
@@ -39,21 +39,21 @@ public class CadastroService(NpgsqlDataSource dados, SqlLoader sql)
 
     // ------------------------- Jogadores -------------------------
 
-    /// <summary>Plantel da equipa (null se a equipa não existir).</summary>
-    public async Task<List<JogadorEquipa>?> JogadoresDaEquipaAsync(int equipaId, CancellationToken ct = default)
+    /// <summary>Plantel da equipa (null se a equipa não existir ou for de outra conta).</summary>
+    public async Task<List<JogadorEquipa>?> JogadoresDaEquipaAsync(int donoId, int equipaId, CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);
-        if (!await con.ExecuteScalarAsync<bool>(Cmd(sql["equipa_existe"], new { equipaId }, ct))) return null;
+        if (!await con.ExecuteScalarAsync<bool>(Cmd(sql["equipa_existe"], new { equipaId, donoId }, ct))) return null;
         return (await con.QueryAsync<JogadorEquipa>(Cmd(sql["jogadores_da_equipa"], new { equipaId }, ct))).ToList();
     }
 
-    public async Task<ResultadoRegisto> CriarJogadorAsync(int equipaId, JogadorRequest pedido, CancellationToken ct = default)
+    public async Task<ResultadoRegisto> CriarJogadorAsync(int donoId, int equipaId, JogadorRequest pedido, CancellationToken ct = default)
     {
         var erros = CadastroValidador.ValidarJogador(pedido);
         if (erros.Count > 0) return ResultadoRegisto.Falha(400, string.Join(" ", erros));
 
         await using var con = await dados.OpenConnectionAsync(ct);
-        if (!await con.ExecuteScalarAsync<bool>(Cmd(sql["equipa_existe"], new { equipaId }, ct)))
+        if (!await con.ExecuteScalarAsync<bool>(Cmd(sql["equipa_existe"], new { equipaId, donoId }, ct)))
             return ResultadoRegisto.Falha(404, "Equipa não encontrada.");
         try
         {
@@ -69,7 +69,7 @@ public class CadastroService(NpgsqlDataSource dados, SqlLoader sql)
         }
     }
 
-    public async Task<ResultadoRegisto> AtualizarJogadorAsync(int jogadorId, JogadorRequest pedido, CancellationToken ct = default)
+    public async Task<ResultadoRegisto> AtualizarJogadorAsync(int donoId, int jogadorId, JogadorRequest pedido, CancellationToken ct = default)
     {
         var erros = CadastroValidador.ValidarJogador(pedido);
         if (erros.Count > 0) return ResultadoRegisto.Falha(400, string.Join(" ", erros));
@@ -79,7 +79,7 @@ public class CadastroService(NpgsqlDataSource dados, SqlLoader sql)
         {
             var linhas = await con.ExecuteAsync(Cmd(sql["atualizar_jogador"], new
             {
-                jogadorId, numero = pedido.Numero, nome = pedido.Nome!.Trim(), posicao = pedido.Posicao
+                jogadorId, donoId, numero = pedido.Numero, nome = pedido.Nome!.Trim(), posicao = pedido.Posicao
             }, ct));
             return linhas > 0 ? ResultadoRegisto.Atualizado() : ResultadoRegisto.Falha(404, "Jogador não encontrado.");
         }
@@ -89,12 +89,12 @@ public class CadastroService(NpgsqlDataSource dados, SqlLoader sql)
         }
     }
 
-    public async Task<ResultadoRegisto> ApagarJogadorAsync(int jogadorId, CancellationToken ct = default)
+    public async Task<ResultadoRegisto> ApagarJogadorAsync(int donoId, int jogadorId, CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);
         try
         {
-            var linhas = await con.ExecuteAsync(Cmd(sql["apagar_jogador"], new { jogadorId }, ct));
+            var linhas = await con.ExecuteAsync(Cmd(sql["apagar_jogador"], new { jogadorId, donoId }, ct));
             return linhas > 0 ? ResultadoRegisto.Atualizado() : ResultadoRegisto.Falha(404, "Jogador não encontrado.");
         }
         catch (PostgresException e) when (e.SqlState == ViolacaoChaveEstrangeira)
@@ -105,7 +105,7 @@ public class CadastroService(NpgsqlDataSource dados, SqlLoader sql)
 
     // ------------------------- Jogos e convocatória -------------------------
 
-    public async Task<ResultadoRegisto> CriarJogoAsync(NovoJogoRequest pedido, CancellationToken ct = default)
+    public async Task<ResultadoRegisto> CriarJogoAsync(int donoId, NovoJogoRequest pedido, CancellationToken ct = default)
     {
         var erros = CadastroValidador.ValidarJogo(pedido);
         if (erros.Count > 0) return ResultadoRegisto.Falha(400, string.Join(" ", erros));
@@ -113,7 +113,7 @@ public class CadastroService(NpgsqlDataSource dados, SqlLoader sql)
         await using var con = await dados.OpenConnectionAsync(ct);
         foreach (var equipaId in new[] { pedido.CasaId, pedido.ForaId })
         {
-            if (!await con.ExecuteScalarAsync<bool>(Cmd(sql["equipa_existe"], new { equipaId }, ct)))
+            if (!await con.ExecuteScalarAsync<bool>(Cmd(sql["equipa_existe"], new { equipaId, donoId }, ct)))
                 return ResultadoRegisto.Falha(400, $"a equipa {equipaId} não existe.");
         }
 
@@ -122,27 +122,27 @@ public class CadastroService(NpgsqlDataSource dados, SqlLoader sql)
         var dataHora = pedido.DataHora?.ToUniversalTime();
         var id = await con.ExecuteScalarAsync<int>(Cmd(sql["inserir_jogo"], new
         {
-            casaId = pedido.CasaId, foraId = pedido.ForaId, dataHora, local
+            casaId = pedido.CasaId, foraId = pedido.ForaId, dataHora, local, donoId
         }, ct));
         return ResultadoRegisto.Sucesso(id);
     }
 
-    public async Task<List<int>?> ConvocadosAsync(int jogoId, CancellationToken ct = default)
+    public async Task<List<int>?> ConvocadosAsync(int donoId, int jogoId, CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);
-        if (!await con.ExecuteScalarAsync<bool>(Cmd("SELECT EXISTS (SELECT 1 FROM jogos WHERE id = @jogoId)", new { jogoId }, ct)))
+        if (!await con.ExecuteScalarAsync<bool>(Cmd(sql["jogo_do_dono"], new { jogoId, donoId }, ct)))
             return null;
         return (await con.QueryAsync<int>(Cmd(sql["convocados_ids"], new { jogoId }, ct))).ToList();
     }
 
     /// <summary>Substitui a convocatória do jogo (lista vazia = sem convocatória).</summary>
-    public async Task<ResultadoRegisto> DefinirConvocadosAsync(int jogoId, ConvocatoriaRequest pedido, CancellationToken ct = default)
+    public async Task<ResultadoRegisto> DefinirConvocadosAsync(int donoId, int jogoId, ConvocatoriaRequest pedido, CancellationToken ct = default)
     {
         if (pedido.JogadorIds is null) return ResultadoRegisto.Falha(400, "jogadorIds é obrigatório.");
         var ids = pedido.JogadorIds.Distinct().ToArray();
 
         await using var con = await dados.OpenConnectionAsync(ct);
-        var jogo = await con.QuerySingleOrDefaultAsync<JogoEquipas>(Cmd(sql["jogo_equipas"], new { jogoId }, ct));
+        var jogo = await con.QuerySingleOrDefaultAsync<JogoEquipas>(Cmd(sql["jogo_equipas"], new { jogoId, donoId }, ct));
         if (jogo is null) return ResultadoRegisto.Falha(404, "Jogo não encontrado.");
 
         var existentes = ids.Length == 0

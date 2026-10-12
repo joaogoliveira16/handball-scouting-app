@@ -20,6 +20,33 @@ services:
       timeout: 5s
       retries: 10
 
+  # 1b) Atualiza a base de dados de quem já tinha a app instalada: corre, em cada arranque, os scripts
+  #     db/init/05 em diante (são todos repetíveis) e termina. Os 01 a 04 só correm na primeira vez, no contentor "db".
+  migrar:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      PGHOST: db
+      PGDATABASE: ${POSTGRES_DB:-scouting}
+      PGUSER: ${POSTGRES_USER:-scouting}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-scouting}
+    volumes:
+      - ./db/init:/migracoes:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        # espera pela ligação TCP (na primeira vez a base de dados ainda está a ser criada)
+        for i in $$(seq 1 60); do pg_isready -q && break; sleep 1; done
+        for f in /migracoes/*.sql; do
+          case "$$f" in /migracoes/0[1-4]_*) continue;; esac
+          echo "A atualizar a base de dados: $$f"
+          psql -v ON_ERROR_STOP=1 -q -f "$$f"
+        done
+
   # 2) API ASP.NET Core + hub SignalR (WebSockets)
   api:
     build: ./api
@@ -29,8 +56,8 @@ services:
       # Fuso horário das datas nos ficheiros Excel
       Exportacao__FusoHorario: ${FUSO_HORARIO:-Europe/Lisbon}
     depends_on:
-      db:
-        condition: service_healthy
+      migrar:
+        condition: service_completed_successfully
 
   # 3) Frontend (nginx): páginas estáticas e proxy para /api e /hub
   frontend:

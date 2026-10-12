@@ -15,9 +15,12 @@ var ligacao = builder.Configuration.GetConnectionString("Default")
 
 builder.Services.AddSingleton(NpgsqlDataSource.Create(ligacao));
 builder.Services.AddSingleton<SqlLoader>();
+builder.Services.AddSingleton(new LimiteTentativas(TimeProvider.System));
 builder.Services.AddScoped<EstatisticasService>();
 builder.Services.AddScoped<EventosService>();
 builder.Services.AddScoped<CadastroService>();
+builder.Services.AddScoped<ContaService>();
+builder.Services.AddScoped<AcessoService>();
 builder.Services.AddSignalR();
 
 var app = builder.Build();
@@ -27,6 +30,7 @@ var fusoExportacao = ExportadorExcel.ObterFuso(app.Configuration["Exportacao:Fus
 
 var api = app.MapGroup("/api");
 
+// Rotas abertas a todos
 api.MapGet("/saude", async (NpgsqlDataSource dados) =>
 {
     await using var con = await dados.OpenConnectionAsync();
@@ -37,45 +41,80 @@ api.MapGet("/saude", async (NpgsqlDataSource dados) =>
 api.MapGet("/tipos-evento", async (EstatisticasService est, CancellationToken ct) =>
     Results.Ok(await est.TiposEventoAsync(ct)));
 
-api.MapGet("/jogos", async (EstatisticasService est, CancellationToken ct) =>
-    Results.Ok(await est.JogosAsync(ct)));
+// ------------------------- Conta -------------------------
+// Registo e entrada põem um cookie de sessão (HttpOnly). Nada disto é guardado em cache.
 
-api.MapGet("/jogos/{id:int}", async (int id, EstatisticasService est, CancellationToken ct) =>
+var conta = api.MapGroup("/conta");
+
+conta.MapGet("", async (HttpContext http, CancellationToken ct) =>
+{
+    http.Response.Headers.CacheControl = "no-store";
+    return await Autenticacao.ObterContaAsync(http, ct) is { } c
+        ? Results.Ok(new { c.Id, c.Nome, c.Email })
+        : Results.Json(new { erro = "Sem sessão iniciada." }, statusCode: 401);
+});
+
+conta.MapPost("/registar", async (RegistoRequest pedido, HttpContext http, ContaService contas, CancellationToken ct) =>
+{
+    http.Response.Headers.CacheControl = "no-store";
+    var r = await contas.RegistarAsync(pedido, ct);
+    if (!r.Ok) return Results.Json(new { erro = r.Erro }, statusCode: r.Status);
+    Autenticacao.DefinirCookie(http, r.Token!);
+    return Results.Json(new { r.Utilizador!.Id, r.Utilizador.Nome, r.Utilizador.Email }, statusCode: 201);
+});
+
+conta.MapPost("/entrar", async (EntrarRequest pedido, HttpContext http, ContaService contas, CancellationToken ct) =>
+{
+    http.Response.Headers.CacheControl = "no-store";
+    var r = await contas.EntrarAsync(pedido, ct);
+    if (!r.Ok) return Results.Json(new { erro = r.Erro }, statusCode: r.Status);
+    Autenticacao.DefinirCookie(http, r.Token!);
+    return Results.Ok(new { r.Utilizador!.Id, r.Utilizador.Nome, r.Utilizador.Email });
+});
+
+conta.MapPost("/sair", async (HttpContext http, ContaService contas, CancellationToken ct) =>
+{
+    http.Response.Headers.CacheControl = "no-store";
+    await contas.TerminarSessaoAsync(Autenticacao.LerToken(http.Request), ct);
+    Autenticacao.ApagarCookie(http);
+    return Results.NoContent();
+});
+
+// ------------------------- Ver um jogo (dono ou link de partilha) -------------------------
+// O dono vê com a sessão; quem recebeu o link traz o código na query (?c=...). Para os outros o jogo não existe.
+
+var leitura = api.MapGroup("/jogos/{id:int}").ExigirAcessoAoJogo();
+
+leitura.MapGet("", async (int id, EstatisticasService est, CancellationToken ct) =>
     await est.JogoAsync(id, ct) is { } jogo ? Results.Ok(jogo) : Results.NotFound(new { erro = "Jogo não encontrado." }));
 
-api.MapGet("/jogos/{id:int}/estatisticas", async (int id, EstatisticasService est, CancellationToken ct) =>
+leitura.MapGet("/estatisticas", async (int id, EstatisticasService est, CancellationToken ct) =>
     await est.ObterAsync(id, ct) is { } estado ? Results.Ok(estado) : Results.NotFound(new { erro = "Jogo não encontrado." }));
 
 // Eficácia de remate com filtros. Exemplos:
 //   /api/jogos/2/estatisticas/eficacia?posicao=LE&distancia=LINHA_9M&parte=2
 //   /api/jogos/2/estatisticas/eficacia?equipaId=1&corredor=PONTA
-api.MapGet("/jogos/{id:int}/estatisticas/eficacia", async (
+leitura.MapGet("/estatisticas/eficacia", async (
     int id, int? equipaId, int? jogadorId, string? posicao, string? corredor,
     string? distancia, short? parte, string? situacao,
     EstatisticasService est, CancellationToken ct) =>
 {
-    if (!await est.JogoExisteAsync(id, ct))
-        return Results.NotFound(new { erro = "Jogo não encontrado." });
-
     var filtro = new FiltroRemates(equipaId, jogadorId, posicao, corredor, distancia, parte, situacao);
     return Results.Ok(new { filtro, resultado = await est.EficaciaAsync(id, filtro, ct) });
 });
 
 // Defesas dos guarda-redes com filtros. Exemplo: remates das pontas
 //   /api/jogos/2/estatisticas/guarda-redes?corredor=PONTA
-api.MapGet("/jogos/{id:int}/estatisticas/guarda-redes", async (
+leitura.MapGet("/estatisticas/guarda-redes", async (
     int id, int? jogadorId, string? corredor, string? distancia, short? parte, string? situacao,
     EstatisticasService est, CancellationToken ct) =>
 {
-    if (!await est.JogoExisteAsync(id, ct))
-        return Results.NotFound(new { erro = "Jogo não encontrado." });
-
     var filtro = new FiltroRemates(null, jogadorId, null, corredor, distancia, parte, situacao);
     return Results.Ok(new { filtro, guardaRedes = await est.GuardaRedesAsync(id, filtro, ct) });
 });
 
 // Folha de Excel (.xlsx) com as estatísticas do jogo. Com ?equipaId=1 só entram as linhas dessa equipa.
-api.MapGet("/jogos/{id:int}/exportar.xlsx", async (
+leitura.MapGet("/exportar.xlsx", async (
     int id, int? equipaId, HttpContext http, EstatisticasService est, CancellationToken ct) =>
 {
     var dados = await est.ObterExportacaoAsync(id, ct);
@@ -89,11 +128,18 @@ api.MapGet("/jogos/{id:int}/exportar.xlsx", async (
     return Results.File(ficheiro, ExportadorExcel.TipoMime, ExportadorExcel.NomeFicheiro(dados.Jogo, equipaId));
 });
 
-api.MapPost("/jogos/{id:int}/eventos", async (
-    int id, NovoEventoRequest pedido,
+// ------------------------- Só para quem tem conta: tudo o que se vê aqui é da própria conta -------------------------
+
+var protegido = api.MapGroup("").ExigirConta();
+
+protegido.MapGet("/jogos", async (HttpContext http, EstatisticasService est, CancellationToken ct) =>
+    Results.Ok(await est.JogosAsync(http.ContaAtual().Id, ct)));
+
+protegido.MapPost("/jogos/{id:int}/eventos", async (
+    int id, NovoEventoRequest pedido, HttpContext http,
     EventosService eventos, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
 {
-    var resultado = await eventos.RegistarAsync(id, pedido, ct);
+    var resultado = await eventos.RegistarAsync(http.ContaAtual().Id, id, pedido, ct);
     if (!resultado.Ok)
         return Results.Json(new { erro = resultado.Erro }, statusCode: resultado.Status);
 
@@ -101,11 +147,11 @@ api.MapPost("/jogos/{id:int}/eventos", async (
     return Results.Created($"/api/jogos/{id}/eventos/{resultado.Id}", new { id = resultado.Id });
 });
 
-api.MapDelete("/jogos/{id:int}/eventos/{eventoId:long}", async (
-    int id, long eventoId,
+protegido.MapDelete("/jogos/{id:int}/eventos/{eventoId:long}", async (
+    int id, long eventoId, HttpContext http,
     EventosService eventos, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
 {
-    if (!await eventos.ApagarAsync(id, eventoId, ct))
+    if (!await eventos.ApagarAsync(http.ContaAtual().Id, id, eventoId, ct))
         return Results.NotFound(new { erro = "Evento não encontrado." });
 
     await EmitirEstadoAsync(id, est, hub);
@@ -114,61 +160,61 @@ api.MapDelete("/jogos/{id:int}/eventos/{eventoId:long}", async (
 
 // ------------------------- Equipas e jogadores -------------------------
 
-api.MapGet("/equipas", async (CadastroService cadastro, CancellationToken ct) =>
-    Results.Ok(await cadastro.EquipasAsync(ct)));
+protegido.MapGet("/equipas", async (HttpContext http, CadastroService cadastro, CancellationToken ct) =>
+    Results.Ok(await cadastro.EquipasAsync(http.ContaAtual().Id, ct)));
 
-api.MapPost("/equipas", async (NovaEquipaRequest pedido, CadastroService cadastro, CancellationToken ct) =>
+protegido.MapPost("/equipas", async (NovaEquipaRequest pedido, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
 {
-    var r = await cadastro.CriarEquipaAsync(pedido, ct);
+    var r = await cadastro.CriarEquipaAsync(http.ContaAtual().Id, pedido, ct);
     return r.Ok
         ? Results.Created($"/api/equipas/{r.Id}/jogadores", new { id = r.Id })
         : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
 });
 
-api.MapGet("/equipas/{id:int}/jogadores", async (int id, CadastroService cadastro, CancellationToken ct) =>
-    await cadastro.JogadoresDaEquipaAsync(id, ct) is { } jogadores
+protegido.MapGet("/equipas/{id:int}/jogadores", async (int id, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
+    await cadastro.JogadoresDaEquipaAsync(http.ContaAtual().Id, id, ct) is { } jogadores
         ? Results.Ok(jogadores)
         : Results.NotFound(new { erro = "Equipa não encontrada." }));
 
-api.MapPost("/equipas/{id:int}/jogadores", async (int id, JogadorRequest pedido, CadastroService cadastro, CancellationToken ct) =>
+protegido.MapPost("/equipas/{id:int}/jogadores", async (int id, JogadorRequest pedido, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
 {
-    var r = await cadastro.CriarJogadorAsync(id, pedido, ct);
+    var r = await cadastro.CriarJogadorAsync(http.ContaAtual().Id, id, pedido, ct);
     return r.Ok
         ? Results.Created($"/api/equipas/{id}/jogadores", new { id = r.Id })
         : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
 });
 
-api.MapPut("/jogadores/{id:int}", async (int id, JogadorRequest pedido, CadastroService cadastro, CancellationToken ct) =>
+protegido.MapPut("/jogadores/{id:int}", async (int id, JogadorRequest pedido, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
 {
-    var r = await cadastro.AtualizarJogadorAsync(id, pedido, ct);
+    var r = await cadastro.AtualizarJogadorAsync(http.ContaAtual().Id, id, pedido, ct);
     return r.Ok ? Results.NoContent() : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
 });
 
-api.MapDelete("/jogadores/{id:int}", async (int id, CadastroService cadastro, CancellationToken ct) =>
+protegido.MapDelete("/jogadores/{id:int}", async (int id, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
 {
-    var r = await cadastro.ApagarJogadorAsync(id, ct);
+    var r = await cadastro.ApagarJogadorAsync(http.ContaAtual().Id, id, ct);
     return r.Ok ? Results.NoContent() : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
 });
 
 // ------------------------- Novo jogo e convocatória -------------------------
 
-api.MapPost("/jogos", async (NovoJogoRequest pedido, CadastroService cadastro, CancellationToken ct) =>
+protegido.MapPost("/jogos", async (NovoJogoRequest pedido, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
 {
-    var r = await cadastro.CriarJogoAsync(pedido, ct);
+    var r = await cadastro.CriarJogoAsync(http.ContaAtual().Id, pedido, ct);
     return r.Ok
         ? Results.Created($"/api/jogos/{r.Id}", new { id = r.Id })
         : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
 });
 
 // Convocatória: ids dos jogadores convocados (lista vazia = ainda sem convocatória)
-api.MapGet("/jogos/{id:int}/convocados", async (int id, CadastroService cadastro, CancellationToken ct) =>
-    await cadastro.ConvocadosAsync(id, ct) is { } ids
+protegido.MapGet("/jogos/{id:int}/convocados", async (int id, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
+    await cadastro.ConvocadosAsync(http.ContaAtual().Id, id, ct) is { } ids
         ? Results.Ok(new { jogadorIds = ids, maximoPorEquipa = CadastroValidador.MaxConvocados })
         : Results.NotFound(new { erro = "Jogo não encontrado." }));
 
-api.MapPut("/jogos/{id:int}/convocados", async (int id, ConvocatoriaRequest pedido, CadastroService cadastro, CancellationToken ct) =>
+protegido.MapPut("/jogos/{id:int}/convocados", async (int id, ConvocatoriaRequest pedido, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
 {
-    var r = await cadastro.DefinirConvocadosAsync(id, pedido, ct);
+    var r = await cadastro.DefinirConvocadosAsync(http.ContaAtual().Id, id, pedido, ct);
     return r.Ok ? Results.NoContent() : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
 });
 

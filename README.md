@@ -4,7 +4,9 @@ Plataforma de scouting e play-by-play para andebol, em tempo real.
 
 O adjunto, no banco e com um tablet, toca num mapa do campo para marcar **onde** foi o remate, escolhe **quem** rematou e carrega no resultado (**golo, defesa, fora, poste ou bloqueado**). O treinador e os adeptos veem um dashboard que se atualiza sozinho, sem recarregar a página, para decidir o momento certo de pedir um time-out.
 
-Antes do jogo gerem-se as **equipas e os jogadores**, cria-se o **jogo** e escolhe-se a **convocatória** (até 16 jogadores por equipa). No fim (ou durante o jogo) exportam-se as **estatísticas para Excel**. A interface tem um visual escuro e futurista, pensado para tablet.
+Antes do jogo gerem-se as **equipas e os jogadores**, cria-se o **jogo** e escolhe-se a **convocatória** (até 16 jogadores por equipa). No fim (ou durante o jogo) exportam-se as **estatísticas para Excel**. A interface é clara e limpa, pensada para tablet e telemóvel.
+
+Cada pessoa cria a **sua conta** e só vê e edita as suas equipas, jogadores e jogos. Quem quiser ver um jogo em direto não precisa de conta: basta o **link de partilha** do dashboard.
 
 ## Como funciona
 
@@ -14,7 +16,7 @@ Antes do jogo gerem-se as **equipas e os jogadores**, cria-se o **jogo** e escol
  Dashboard (dashboard.html) ◀──── WebSocket (SignalR) ────┘  estado novo a cada evento
 ```
 
-Três contentores Docker:
+Três contentores Docker (mais o `migrar`, de curta duração, que atualiza a base de dados antes de a API arrancar):
 
 | Contentor  | O que é                                   | Pasta       |
 |------------|-------------------------------------------|-------------|
@@ -30,25 +32,21 @@ Precisas do Docker com Docker Compose.
 docker compose up --build
 ```
 
-Abre **http://localhost:8080**. Há dois jogos de exemplo: o jogo 1 está vazio e o jogo 2 já tem eventos fictícios (e um parcial que dispara o aviso de time-out).
+Abre **http://localhost:8080** e cria a tua conta (separador *Criar conta*). A **primeira conta** que criares fica com os dados de exemplo: dois jogos, o jogo 1 vazio e o jogo 2 com eventos fictícios (e um parcial que dispara o aviso de time-out). As contas seguintes começam vazias.
 
 - **No tablet**: liga-o à mesma rede do computador e abre `http://<IP-do-computador>:8080`.
 - **Configuração** (porta, palavra-passe): copia `.env.example` para `.env`.
 - **Recomeçar do zero**: `docker compose down -v` apaga a base de dados; ao arrancar de novo os scripts de `db/init` voltam a correr.
-- **Já tinhas a app a correr de uma versão anterior?** As versões novas acrescentam à base de dados a convocatória (`05_convocados.sql`) e o local da defesa na baliza (`06_baliza.sql`). Sem apagar nada, atualiza o código (`git pull`) e corre os dois ficheiros, que podem repetir-se sem problema:
-  ```powershell
-  # PowerShell (Windows)
-  Get-Content db/init/05_convocados.sql -Raw | docker compose exec -T db psql -U scouting -d scouting
-  Get-Content db/init/06_baliza.sql -Raw | docker compose exec -T db psql -U scouting -d scouting
-  docker compose up -d --build
-  ```
-  ```bash
-  # Linux, macOS
-  docker compose exec -T db psql -U scouting -d scouting < db/init/05_convocados.sql
-  docker compose exec -T db psql -U scouting -d scouting < db/init/06_baliza.sql
-  docker compose up -d --build
-  ```
-  (ou então `docker compose down -v` e arrancar de novo, o que apaga os dados.) O `06_baliza.sql` também marca o local das defesas do jogo de exemplo 2, se ainda não houver nenhum local guardado.
+- **Já tinhas a app a correr de uma versão anterior?** Basta `git pull` e `docker compose up -d --build`. O serviço `migrar` atualiza sozinho a base de dados em cada arranque (convocatória, local da defesa na baliza e contas; são scripts que se podem repetir sem problema) e **não apaga nada**. A primeira conta que criares depois da atualização fica com as equipas e os jogos que já existiam.
+
+## Contas e partilha
+
+- **Criar conta**: nome, email e palavra-passe (8 a 128 caracteres). **Entrar** e **Sair** estão na página de entrada e no menu do topo. A sessão dura 30 dias.
+- **Cada conta só vê o que é seu**: equipas, jogadores, jogos, convocatórias e eventos. O que é de outra conta aparece como "não encontrado". O nome de uma equipa só tem de ser único dentro da própria conta.
+- **Link de partilha**: na lista de jogos, *Copiar link* copia um endereço do tipo `.../dashboard.html?jogo=2&c=CÓDIGO`. Quem o abrir vê o dashboard **em direto** e pode exportar o Excel, **sem conta**. Não consegue registar nem alterar nada. Cada jogo tem o seu código secreto: trata o link como uma palavra-passe do jogo e só o envias a quem deve ver.
+- **Segurança**: a palavra-passe fica guardada só como hash (PBKDF2-SHA256, 600 000 iterações). O cookie da sessão é `HttpOnly` e `SameSite=Lax` (e `Secure` quando a app está atrás de HTTPS) e a base de dados só guarda o SHA-256 do seu código. Depois de 5 tentativas falhadas para o mesmo email há um bloqueio de 10 minutos.
+
+Não há confirmação do email nem recuperação de palavra-passe: quem a perder precisa que alguém a mude diretamente na base de dados. O registo é aberto a quem conseguir chegar à app.
 
 ## Preparar o jogo
 
@@ -76,16 +74,16 @@ Ainda no banco:
 - **Relógio**: o tempo de jogo é guardado com cada evento (necessário para o parcial dos últimos minutos). Fica guardado no tablet, por isso recarregar a página não o perde. Usa `1.ª parte` para passar à 2.ª parte (aos 30:00) e `✎` para acertar o minuto.
 - **Desfazer**: `↶ Desfazer último` ou o `✕` ao lado de cada evento.
 
-**Dashboard** (`dashboard.html?jogo=ID`): placar, eficácia por equipa, parcial dos últimos 5 minutos (com aviso quando há uma diferença de 3 ou mais golos), mapa de remates com filtros, **defesas na baliza** (onde o guarda-redes adversário defendeu os remates da equipa escolhida, com a contagem por zona e a zona mais atacada), jogadores, zonas, guarda-redes, outros eventos e últimos eventos.
+**Dashboard** (`dashboard.html?jogo=ID`, com `&c=CÓDIGO` para quem só tem o link): placar, eficácia por equipa, parcial dos últimos 5 minutos (com aviso quando há uma diferença de 3 ou mais golos), mapa de remates com filtros, **defesas na baliza** (onde o guarda-redes adversário defendeu os remates da equipa escolhida, com a contagem por zona e a zona mais atacada), jogadores, zonas, guarda-redes, outros eventos e últimos eventos.
 
 ## Exportar para Excel
 
-No dashboard, na lista de jogos e na convocatória há botões **⬇ Excel**:
+No dashboard, na lista de jogos e na convocatória há botões **⬇ Excel** (quem abriu o link de partilha também os tem no dashboard):
 
 - **Jogo completo**: as duas equipas.
 - **Só uma equipa**: no dashboard, escolhe a aba da equipa (*Ver: ...*) e usa o botão Excel dessa aba.
 
-Também se pode pedir diretamente: `GET /api/jogos/2/exportar.xlsx` (jogo completo) ou `GET /api/jogos/2/exportar.xlsx?equipaId=2` (uma equipa).
+Também se pode pedir diretamente (com a sessão da conta dona ou com `?c=CÓDIGO`): `GET /api/jogos/2/exportar.xlsx` (jogo completo) ou `GET /api/jogos/2/exportar.xlsx?equipaId=2` (uma equipa).
 
 O ficheiro `.xlsx` tem uma folha por assunto: **Resumo** (resultado, remates, golos e eficácia por equipa, parcial dos últimos 5 minutos), **Jogadores** (remates, golos e eficácia, com a indicação de quem foi convocado), **Por posição**, **Por corredor**, **Por distância**, **Por parte**, **Guarda-redes** (defesas, golos sofridos e % de defesa), **Defesas na baliza** (por guarda-redes, quantas defesas em cada uma das 9 zonas da baliza e quantas sem local), **Outros eventos** e **Eventos** (todos os eventos com tempo, jogador, resultado, coordenadas no mapa e, nas defesas, o guarda-redes e o local na baliza). Os cabeçalhos ficam fixos e as tabelas têm filtros, por isso dá para ordenar e filtrar logo no Excel. Os valores são números (não texto), por isso servem para fórmulas e gráficos.
 
@@ -120,10 +118,11 @@ As consultas estão em `api/HandballScouting.Api/Sql/*.sql` e usam `COUNT(...) F
 
 ```bash
 # Eficácia de remate do lateral esquerdo, na linha de 9 m, na 2.ª parte
-curl "http://localhost:8080/api/jogos/2/estatisticas/eficacia?posicao=LE&distancia=LINHA_9M&parte=2"
+# (o código do jogo está no link de partilha, ?c=...; a conta dona pode usar a sessão em vez dele)
+curl "http://localhost:8080/api/jogos/2/estatisticas/eficacia?posicao=LE&distancia=LINHA_9M&parte=2&c=CÓDIGO"
 
 # Defesas dos guarda-redes nos remates das pontas ("PONTA" apanha PONTA_ESQ e PONTA_DIR)
-curl "http://localhost:8080/api/jogos/2/estatisticas/guarda-redes?corredor=PONTA"
+curl "http://localhost:8080/api/jogos/2/estatisticas/guarda-redes?corredor=PONTA&c=CÓDIGO"
 ```
 
 Filtros de `eficacia`: `equipaId`, `jogadorId`, `posicao` (`GR`, `PE`, `LE`, `CE`, `LD`, `PD`, `PV`), `corredor`, `distancia`, `parte`, `situacao` (`POSICIONAL`, `CONTRA_ATAQUE`, `SETE_METROS`).
@@ -137,34 +136,44 @@ docker compose exec db psql -U scouting -d scouting
 
 ## API
 
+As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas as outras precisam de sessão (sem ela, 401). As de leitura aceitam a sessão da conta dona **ou** o código do link de partilha (`?c=CÓDIGO`); para qualquer outra pessoa o jogo "não existe" (404).
+
 | Método | Rota | Para quê |
 |--------|------|----------|
-| GET | `/api/jogos` | Lista de jogos com resultado |
+| POST | `/api/conta/registar` | Cria a conta e inicia sessão: `{ "nome", "email", "palavraPasse" }` (400 inválido, 409 email repetido) |
+| POST | `/api/conta/entrar` | Inicia sessão: `{ "email", "palavraPasse" }` (401 se errado, 429 depois de 5 falhas seguidas) |
+| POST | `/api/conta/sair` | Termina a sessão |
+| GET | `/api/conta` | A conta da sessão (401 sem sessão) |
+| GET | `/api/jogos/{id}` | Jogo e jogadores das duas equipas (com `convocado`) e o `codigo` do link de partilha *(dono ou `?c=`)* |
+| GET | `/api/jogos/{id}/estatisticas` | Estado completo (o mesmo que o dashboard recebe) *(dono ou `?c=`)* |
+| GET | `/api/jogos/{id}/estatisticas/eficacia` | Eficácia com filtros *(dono ou `?c=`)* |
+| GET | `/api/jogos/{id}/estatisticas/guarda-redes` | Defesas com filtros *(dono ou `?c=`)* |
+| GET | `/api/jogos/{id}/exportar.xlsx` | Estatísticas em Excel (`?equipaId=` para uma só equipa) *(dono ou `?c=`)* |
+| WS | `/hub/jogo` | Hub SignalR: `EntrarNoJogo(jogoId, codigo)` (o código pode ser `null` para o dono) e mensagem `EstatisticasAtualizadas` |
+| GET | `/api/jogos` | Os jogos da conta, com resultado e `codigo` |
 | POST | `/api/jogos` | Cria um jogo: `{ "casaId", "foraId", "local", "dataHora" }` (local e data opcionais) |
-| GET | `/api/jogos/{id}` | Jogo e jogadores das duas equipas (com `convocado`) |
 | GET | `/api/jogos/{id}/convocados` | Ids dos jogadores convocados e máximo por equipa |
 | PUT | `/api/jogos/{id}/convocados` | Substitui a convocatória: `{ "jogadorIds": [1, 2, ...] }` (máx. 16 por equipa) |
-| GET | `/api/jogos/{id}/exportar.xlsx` | Estatísticas em Excel (`?equipaId=` para uma só equipa) |
-| GET | `/api/equipas` | Equipas com o número de jogadores |
+| GET | `/api/equipas` | As equipas da conta, com o número de jogadores |
 | POST | `/api/equipas` | Cria uma equipa: `{ "nome" }` |
 | GET | `/api/equipas/{id}/jogadores` | Plantel (com o número de eventos de cada jogador) |
 | POST | `/api/equipas/{id}/jogadores` | Adiciona um jogador: `{ "numero", "nome", "posicao" }` |
 | PUT | `/api/jogadores/{id}` | Edita um jogador |
 | DELETE | `/api/jogadores/{id}` | Apaga um jogador (409 se tiver eventos) |
-| GET | `/api/tipos-evento` | Tipos de evento disponíveis |
-| GET | `/api/jogos/{id}/estatisticas` | Estado completo (o mesmo que o dashboard recebe) |
-| GET | `/api/jogos/{id}/estatisticas/eficacia` | Eficácia com filtros |
-| GET | `/api/jogos/{id}/estatisticas/guarda-redes` | Defesas com filtros |
 | POST | `/api/jogos/{id}/eventos` | Regista um evento |
 | DELETE | `/api/jogos/{id}/eventos/{eventoId}` | Apaga um evento |
-| WS | `/hub/jogo` | Hub SignalR: `EntrarNoJogo(jogoId)` e mensagem `EstatisticasAtualizadas` |
+| GET | `/api/tipos-evento` | Tipos de evento disponíveis (aberta) |
+| GET | `/api/saude` | Estado da API (aberta) |
 
 Numa defesa podes juntar `"balizaX"` e `"balizaY"` (0 a 100, os dois juntos) com o sítio onde o guarda-redes defendeu; em qualquer outro resultado a API responde 400. O estado das estatísticas devolve `balizaX`, `balizaY` e `balizaZona` em cada remate do mapa e `balizaZona` nos últimos eventos.
 
-Exemplo de remate:
+Exemplo de remate (precisa do cookie da sessão; aqui guardado com `-c`/`-b`):
 
 ```bash
-curl -X POST http://localhost:8080/api/jogos/1/eventos -H "Content-Type: application/json" -d '{
+curl -c sessao.txt -X POST http://localhost:8080/api/conta/entrar -H "Content-Type: application/json" \
+  -d '{ "email": "tu@exemplo.pt", "palavraPasse": "a-tua-palavra-passe" }'
+
+curl -b sessao.txt -X POST http://localhost:8080/api/jogos/1/eventos -H "Content-Type: application/json" -d '{
   "tipoEvento": "REMATE", "equipaId": 1, "jogadorId": 4, "guardaRedesId": 10,
   "resultado": "GOLO", "situacao": "POSICIONAL", "x": 30, "y": 52, "parte": 1, "segundoJogo": 600
 }'
@@ -172,19 +181,18 @@ curl -X POST http://localhost:8080/api/jogos/1/eventos -H "Content-Type: applica
 
 ## Dados reais
 
-As equipas, jogadores e jogos de `db/init/03_equipas_jogadores.sql` e `04_demo_eventos.sql` são fictícios, só para experimentares. Cria os teus pelos ecrãs da app (**Equipas** e **Novo jogo**). Se quiseres começar sem os exemplos, apaga esses dois ficheiros antes de criar a base de dados.
+As equipas, jogadores e jogos de `db/init/03_equipas_jogadores.sql` e `04_demo_eventos.sql` são fictícios, só para experimentares. Ficam na primeira conta que for criada. Cria os teus pelos ecrãs da app (**Equipas** e **Novo jogo**). Se quiseres começar sem os exemplos, apaga esses dois ficheiros antes de criar a base de dados.
 
 ## Adicionar um novo tipo de evento
 
 Por exemplo, contabilizar "passes errados". Os tipos vivem na tabela `tipos_evento`, por isso não é preciso mexer no código: o botão aparece sozinho no banco e a contagem aparece em "Outros eventos" no dashboard.
 
-1. Cria `db/init/05_passe_errado.sql`:
+1. Cria `db/init/08_passe_errado.sql`:
    ```sql
-   INSERT INTO tipos_evento (codigo, nome, e_remate, ordem) VALUES ('PASSE_ERRADO', 'Passe errado', FALSE, 6);
+   INSERT INTO tipos_evento (codigo, nome, e_remate, ordem) VALUES ('PASSE_ERRADO', 'Passe errado', FALSE, 6)
+   ON CONFLICT (codigo) DO NOTHING;
    ```
-2. Numa base de dados que já existe, corre a mesma instrução:
-   `docker compose exec db psql -U scouting -d scouting -c "INSERT INTO tipos_evento ..."`.
-   (Os ficheiros de `db/init` só correm quando a base de dados é criada de raiz.)
+2. Numa base de dados que já existe, o serviço `migrar` corre o ficheiro no próximo `docker compose up`, mas só se o repetires sem erro: acrescenta `ON CONFLICT (codigo) DO NOTHING` à instrução. (Os ficheiros `01` a `04` só correm quando a base de dados é criada de raiz.)
 3. Faz commit e push: o GitHub Actions volta a validar tudo.
 
 Um tipo com `e_remate = TRUE` seria um evento com posição no mapa, jogador e resultado, e exigiria mudanças nas consultas.
@@ -192,20 +200,21 @@ Um tipo com `e_remate = TRUE` seria um evento com posição no mapa, jogador e r
 ## Testes e CI
 
 ```bash
-dotnet test api/HandballScouting.sln        # validação, exportação para Excel e cadastro (xUnit)
+dotnet test api/HandballScouting.sln        # validação, palavras-passe, travão de tentativas, exportação para Excel e cadastro (xUnit)
 
 # SQL: com o PostgreSQL a correr e PGHOST, PGUSER, PGPASSWORD e PGDATABASE definidos
 psql -v ON_ERROR_STOP=1 -f db/tests/zonas.sql          # zonas do campo
 psql -v ON_ERROR_STOP=1 -f db/tests/convocados.sql     # convocatória
 psql -v ON_ERROR_STOP=1 -f db/tests/baliza.sql         # zonas e regras da baliza
+psql -v ON_ERROR_STOP=1 -f db/tests/contas.sql         # contas, dono dos dados, sessões e código de partilha
 python3 db/tests/validar_consultas.py                  # todas as consultas contra o esquema
 ```
 
 Há ainda testes que usam a **API verdadeira** e um browser (pasta `tests/`, ver `tests/README.md`):
 
-- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, atualizações em tempo real e descarga do Excel);
+- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas e sessões, isolamento entre contas, link de partilha, estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, atualizações em tempo real e descarga do Excel);
 - `tests/integracao/verificar_excel.py`: abre os `.xlsx` descarregados e confere os números com os dados de exemplo;
-- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar equipas e jogadores, convocatória, registar remates no banco, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
+- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, sair e entrar, uma segunda conta que não vê os dados da primeira, o link de partilha aberto sem conta, criar equipas e jogadores, convocatória, registar remates no banco, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
 
 O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada pull request:
 
@@ -217,17 +226,18 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 ## Limitações atuais
 
 - Se a rede falhar no momento de registar, o evento **não** fica em fila: aparece um aviso e é preciso tocar outra vez.
-- Não há autenticação: quem abrir o endereço pode registar eventos. Usa a app numa rede de confiança.
+- O registo de contas é aberto, sem confirmação do email e sem recuperação de palavra-passe. Se a app ficar acessível na internet, põe-na atrás de HTTPS (o cookie da sessão passa a `Secure` sozinho quando o proxy envia `X-Forwarded-Proto: https`).
+- Quem tem o link de partilha de um jogo vê-o em direto até o jogo ser apagado: não há botão para mudar o código.
 - O estado completo é recalculado e enviado a cada evento. Para um jogo de andebol (algumas centenas de eventos) é muito rápido.
 
 ## Estrutura
 
 ```
 api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
-db/init/               esquema, dados base, equipas/jogadores, demo e convocatória (correm por ordem)
+db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza e contas (correm por ordem)
 db/tests/              testes SQL
-frontend/              páginas (jogos, equipas, convocatória, banco, dashboard), JS, CSS e fontes; lib/ tem o cliente SignalR
+frontend/              páginas (entrar, jogos, equipas, convocatória, banco, dashboard), JS, CSS e fontes; lib/ tem o cliente SignalR
 tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)
-docker-compose.yml     os 3 contentores
+docker-compose.yml     os 3 contentores (mais o `migrar`, que atualiza a base de dados em cada arranque)
 .github/workflows/     CI
 ```

@@ -29,3 +29,20 @@ export function avisar(texto, { erro = false } = {}) {
   clearTimeout(temporizadorAviso);
   temporizadorAviso = setTimeout(() => el.classList.remove('visivel'), erro ? 4500 : 2200);
 }
+
+/** Copia texto para a área de transferência. Devolve false se o browser não deixar (ex.: página sem HTTPS). */
+export async function copiarTexto(texto) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(texto);
+      return true;
+    }
+  } catch { /* cai para o método antigo */ }
+  const campo = h('textarea', { readonly: true, 'aria-hidden': 'true', style: 'position:fixed;top:-100px;opacity:0' }, texto);
+  document.body.append(campo);
+  campo.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  campo.remove();
+  return ok;
+}

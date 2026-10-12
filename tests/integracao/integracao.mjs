@@ -1,8 +1,9 @@
-// Teste de integração da API verdadeira (HTTP + SignalR + Excel) contra uma base PostgreSQL com os dados de exemplo.
+// Teste de integração da API verdadeira (contas, HTTP, SignalR e Excel) contra uma base PostgreSQL com os dados de exemplo.
 //
 //   API_URL=http://localhost:5080 EXCEL_DIR=./resultados node integracao/integracao.mjs
 //
-// Precisa da API a correr e da base de dados criada com db/init/*.sql. Sai com código 1 se alguma verificação falhar.
+// Precisa da API a correr e de uma base de dados ACABADA DE CRIAR com db/init/*.sql: a primeira conta que o teste
+// regista herda os dados de exemplo (equipas e jogos sem dono). Sai com código 1 se alguma verificação falhar.
 import fs from 'node:fs';
 import path from 'node:path';
 import * as signalR from '@microsoft/signalr';
@@ -30,16 +31,60 @@ async function ate(condicao, ms = 8000) {
   return condicao();
 }
 
-async function http(metodo, caminho, corpo) {
+// Cada "sessão" é um cliente com o seu cookie (como um browser). A anónima nunca tem cookie.
+class Sessao {
+  constructor(nome) { this.nome = nome; this.cookie = null; }
+}
+const principal = new Sessao('principal');   // a 1.ª conta: fica com os dados de exemplo
+const segunda = new Sessao('segunda');       // a 2.ª conta: começa vazia
+const anonima = new Sessao('anónima');       // quem só tem o link
+
+function guardarCookie(sessao, resposta) {
+  for (const linha of resposta.headers.getSetCookie?.() ?? []) {
+    const par = linha.split(';')[0];
+    const nome = par.slice(0, par.indexOf('='));
+    const valor = par.slice(par.indexOf('=') + 1);
+    if (nome === 'sessao') sessao.cookie = valor === '' ? null : `sessao=${valor}`;
+  }
+}
+
+async function http(metodo, caminho, corpo, sessao = principal) {
+  const cabecalhos = {};
+  if (corpo !== undefined) cabecalhos['Content-Type'] = 'application/json';
+  if (sessao.cookie) cabecalhos.Cookie = sessao.cookie;
   const resposta = await fetch(API + caminho, {
     method: metodo,
-    headers: corpo === undefined ? undefined : { 'Content-Type': 'application/json' },
+    headers: cabecalhos,
     body: corpo === undefined ? undefined : JSON.stringify(corpo),
   });
+  guardarCookie(sessao, resposta);
   const texto = await resposta.text();
   let json = null;
   try { json = texto ? JSON.parse(texto) : null; } catch { /* resposta sem JSON */ }
-  return { status: resposta.status, json, texto, cabecalhos: resposta.headers };
+  return { status: resposta.status, json, texto, cabecalhos: resposta.headers, setCookie: resposta.headers.getSetCookie?.() ?? [] };
+}
+
+/** Pedido sem interpretar a resposta (ficheiros). */
+function bruto(caminho, sessao = principal) {
+  return fetch(API + caminho, { headers: sessao.cookie ? { Cookie: sessao.cookie } : {} });
+}
+
+/** Ligação ao hub com o cookie da sessão (o browser envia-o sozinho; aqui põe-se à mão). */
+function ligarHub(sessao, nivel = signalR.LogLevel.Error) {
+  return new signalR.HubConnectionBuilder()
+    .withUrl(`${API}/hub/jogo`, { headers: sessao.cookie ? { Cookie: sessao.cookie } : {} })
+    .configureLogging(nivel)
+    .build();
+}
+
+/** O hub recusa o jogo? (jogo que não existe, de outra conta ou sem o código certo) */
+async function hubRecusa(ligacao, jogoId, codigo) {
+  try {
+    await ligacao.invoke('EntrarNoJogo', jogoId, codigo ?? null);
+    return false;
+  } catch (erro) {
+    return /Jogo não encontrado/.test(String(erro?.message ?? erro));
+  }
 }
 const descricao = (r) => `HTTP ${r.status} ${r.texto.slice(0, 200)}`;
 
@@ -54,6 +99,105 @@ async function passo(nome, funcao) {
 
 const sufixo = Date.now().toString(36);
 let jogoNovo = null;   // { id, casaId, foraId, jogadores... } criado nos passos de cadastro
+
+const emailPrincipal = `principal-${sufixo}@exemplo.pt`;
+const emailSegunda = `segunda-${sufixo}@exemplo.pt`;
+const SENHA = 'palavra-passe-123';
+
+// ----------------------------------------------------------------------
+await passo('Contas: sem sessão, registo, entrada, saída', async () => {
+  // Sem sessão: tudo o que é da conta pede entrada (401); um jogo alheio "não existe" (404)
+  const protegidas = [
+    ['GET', '/api/conta'], ['GET', '/api/jogos'], ['GET', '/api/equipas'], ['POST', '/api/equipas'],
+    ['GET', '/api/equipas/1/jogadores'], ['POST', '/api/equipas/1/jogadores'], ['PUT', '/api/jogadores/4'], ['DELETE', '/api/jogadores/4'],
+    ['POST', '/api/jogos'], ['GET', '/api/jogos/2/convocados'], ['PUT', '/api/jogos/2/convocados'],
+    ['POST', '/api/jogos/2/eventos'], ['DELETE', '/api/jogos/2/eventos/1'],
+  ];
+  for (const [metodo, caminho] of protegidas) {
+    const r = await http(metodo, caminho, ['POST', 'PUT'].includes(metodo) ? {} : undefined, anonima);
+    ok(r.status === 401, `sem sessão: ${metodo} ${caminho} = 401`, descricao(r));
+  }
+  ok((await http('GET', '/api/saude', undefined, anonima)).status === 200, 'sem sessão: /api/saude continua aberto');
+  for (const caminho of ['/api/jogos/2', '/api/jogos/2/estatisticas', '/api/jogos/2/estatisticas/eficacia', '/api/jogos/2/exportar.xlsx']) {
+    const r = await http('GET', caminho, undefined, anonima);
+    ok(r.status === 404, `sem sessão nem código: GET ${caminho} = 404 (o jogo "não existe")`, descricao(r));
+  }
+
+  // Registo com dados inválidos
+  const invalidos = [
+    ['sem campos', {}],
+    ['nome vazio', { nome: '  ', email: emailPrincipal, palavraPasse: SENHA }],
+    ['nome gigante', { nome: 'x'.repeat(81), email: emailPrincipal, palavraPasse: SENHA }],
+    ['email sem @', { nome: 'Ana', email: 'sem-arroba', palavraPasse: SENHA }],
+    ['email sem domínio', { nome: 'Ana', email: 'ana@', palavraPasse: SENHA }],
+    ['palavra-passe curta', { nome: 'Ana', email: emailPrincipal, palavraPasse: 'curta' }],
+    ['palavra-passe só com espaços', { nome: 'Ana', email: emailPrincipal, palavraPasse: ' '.repeat(10) }],
+    ['palavra-passe gigante', { nome: 'Ana', email: emailPrincipal, palavraPasse: 'x'.repeat(129) }],
+  ];
+  for (const [nome, corpo] of invalidos) {
+    const r = await http('POST', '/api/conta/registar', corpo, new Sessao('inválida'));
+    ok(r.status === 400 && typeof r.json?.erro === 'string' && r.setCookie.length === 0, `registo recusado (400, sem cookie): ${nome}`, descricao(r));
+  }
+
+  // Registo da conta principal (email com maiúsculas: fica guardado em minúsculas)
+  const registo = await http('POST', '/api/conta/registar', { nome: `  Principal ${sufixo} `, email: emailPrincipal.toUpperCase(), palavraPasse: SENHA }, principal);
+  ok(registo.status === 201 && registo.json?.id > 0 && registo.json.email === emailPrincipal && registo.json.nome === `Principal ${sufixo}`,
+    'registo da conta principal = 201 (nome sem espaços, email em minúsculas)', descricao(registo));
+  ok(JSON.stringify(Object.keys(registo.json ?? {}).sort()) === '["email","id","nome"]', 'a resposta do registo não traz a palavra-passe nem o código da sessão', registo.texto);
+  const galleta = registo.setCookie.find((c) => c.startsWith('sessao='));
+  ok(!!galleta && /httponly/i.test(galleta) && /samesite=lax/i.test(galleta) && /path=\//i.test(galleta) && /max-age=\d{6,}/i.test(galleta) && !/secure/i.test(galleta),
+    'cookie de sessão: HttpOnly, SameSite=Lax, com validade (sem Secure em HTTP simples)', galleta ?? 'sem cookie');
+  ok(/^sessao=[0-9a-f]{64}$/.test(principal.cookie ?? ''), 'o código da sessão tem 32 bytes aleatórios (64 hexadecimais)', principal.cookie ?? '');
+  ok(/no-store/.test(registo.cabecalhos.get('cache-control') ?? ''), 'a resposta do registo não vai para a cache');
+
+  const repetido = await http('POST', '/api/conta/registar', { nome: 'Outra', email: emailPrincipal, palavraPasse: SENHA }, new Sessao('repetida'));
+  ok(repetido.status === 409 && repetido.setCookie.length === 0, 'registo com o mesmo email = 409 (sem cookie)', descricao(repetido));
+
+  // Sessão
+  const eu = await http('GET', '/api/conta', undefined, principal);
+  ok(eu.status === 200 && eu.json?.email === emailPrincipal && eu.json.nome === `Principal ${sufixo}`, 'GET /api/conta com sessão devolve a conta', descricao(eu));
+  ok(/no-store/.test(eu.cabecalhos.get('cache-control') ?? ''), 'GET /api/conta sem cache');
+  ok((await http('GET', '/api/conta', undefined, Object.assign(new Sessao('falsa'), { cookie: `sessao=${'0'.repeat(64)}` }))).status === 401, 'um código de sessão inventado = 401');
+
+  // A primeira conta de todas herda os dados de exemplo
+  const jogos = await http('GET', '/api/jogos');
+  ok(jogos.status === 200 && jogos.json?.some((j) => j.id === 2),
+    'a primeira conta ficou com os jogos de exemplo (se falhar: usa uma base de dados acabada de criar)', descricao(jogos));
+
+  // Entrar: mesma mensagem para email desconhecido e para palavra-passe errada
+  const tmp = new Sessao('temporária');
+  const errada = await http('POST', '/api/conta/entrar', { email: emailPrincipal, palavraPasse: 'errada-errada' }, tmp);
+  const desconhecido = await http('POST', '/api/conta/entrar', { email: `ninguem-${sufixo}@exemplo.pt`, palavraPasse: SENHA }, tmp);
+  ok(errada.status === 401 && desconhecido.status === 401 && errada.json?.erro === desconhecido.json?.erro && errada.setCookie.length === 0,
+    'entrar com palavra-passe errada ou email desconhecido: 401 com a mesma mensagem e sem cookie', `${errada.texto} / ${desconhecido.texto}`);
+  ok((await http('POST', '/api/conta/entrar', {}, tmp)).status === 401, 'entrar sem email nem palavra-passe = 401');
+
+  const entrada = await http('POST', '/api/conta/entrar', { email: ` ${emailPrincipal.toUpperCase()} `, palavraPasse: SENHA }, tmp);
+  ok(entrada.status === 200 && entrada.json?.email === emailPrincipal && /^sessao=[0-9a-f]{64}$/.test(tmp.cookie ?? ''), 'entrar (email com maiúsculas e espaços) = 200 com cookie novo', descricao(entrada));
+  ok(tmp.cookie !== principal.cookie, 'cada entrada cria uma sessão nova');
+
+  // Sair: apaga a sessão no servidor (o cookie antigo deixa de servir) e só essa
+  const antigo = Object.assign(new Sessao('antiga'), { cookie: tmp.cookie });
+  const saida = await http('POST', '/api/conta/sair', undefined, tmp);
+  ok(saida.status === 204 && saida.setCookie.some((c) => c.startsWith('sessao=;')) && tmp.cookie === null, 'sair = 204 e o cookie é apagado', `${descricao(saida)} ${saida.setCookie}`);
+  ok((await http('GET', '/api/conta', undefined, antigo)).status === 401, 'depois de sair o cookie antigo já não serve (sessão apagada no servidor)');
+  ok((await http('GET', '/api/conta', undefined, principal)).status === 200, 'sair numa sessão não termina as outras');
+  ok((await http('POST', '/api/conta/sair', undefined, anonima)).status === 204, 'sair sem sessão também é 204');
+
+  // Travão contra tentativas: 5 falhas seguidas para o mesmo email e a 6.ª já é 429
+  const alvo = `limite-${sufixo}@exemplo.pt`;
+  const estados = [];
+  for (let i = 0; i < 6; i++) estados.push((await http('POST', '/api/conta/entrar', { email: alvo, palavraPasse: `errada-${i}-xxxxx` }, tmp)).status);
+  ok(estados.slice(0, 5).every((e) => e === 401) && estados[5] === 429, `5 falhas seguidas bloqueiam o email: 401×5 e depois 429 (${estados})`);
+  ok((await http('POST', '/api/conta/entrar', { email: emailPrincipal, palavraPasse: SENHA }, tmp)).status === 200, 'o bloqueio é só desse email: a conta principal continua a entrar');
+
+  // Segunda conta: começa vazia
+  const registo2 = await http('POST', '/api/conta/registar', { nome: `Segunda ${sufixo}`, email: emailSegunda, palavraPasse: SENHA }, segunda);
+  ok(registo2.status === 201 && registo2.json?.id !== registo.json?.id, 'registo da segunda conta = 201', descricao(registo2));
+  const equipasSegunda = await http('GET', '/api/equipas', undefined, segunda);
+  const jogosSegunda = await http('GET', '/api/jogos', undefined, segunda);
+  ok(JSON.stringify(equipasSegunda.json) === '[]' && JSON.stringify(jogosSegunda.json) === '[]', 'a segunda conta começa sem equipas nem jogos (não herda os dados de exemplo)', `${equipasSegunda.texto} / ${jogosSegunda.texto}`);
+});
 
 // ----------------------------------------------------------------------
 await passo('Saúde e dados de exemplo', async () => {
@@ -259,20 +403,15 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
   const { id, casaId, foraId, lateralCasa, grFora } = jogoNovo;
 
   const recebidos = [];
-  const ligacao = new signalR.HubConnectionBuilder()
-    .withUrl(`${API}/hub/jogo`)
-    .configureLogging(signalR.LogLevel.Warning)
-    .build();
+  const ligacao = ligarHub(principal, signalR.LogLevel.Warning);
   ligacao.on('EstatisticasAtualizadas', (estado) => recebidos.push(estado));
 
   await ligacao.start();
   ok(ligacao.state === signalR.HubConnectionState.Connected, 'ligação ao hub /hub/jogo');
-  const inicial = await ligacao.invoke('EntrarNoJogo', id);
+  const inicial = await ligacao.invoke('EntrarNoJogo', id, null);
   ok(inicial?.jogoId === id && inicial.equipas?.length === 2, 'EntrarNoJogo devolve o estado atual', JSON.stringify(inicial)?.slice(0, 120));
 
-  let erroHub = null;
-  try { await ligacao.invoke('EntrarNoJogo', 99999); } catch (e) { erroHub = e; }
-  ok(erroHub !== null, 'EntrarNoJogo de jogo inexistente dá erro');
+  ok(await hubRecusa(ligacao, 99999, null), 'EntrarNoJogo de jogo inexistente dá erro "Jogo não encontrado."');
 
   const remate = { tipoEvento: 'REMATE', equipaId: casaId, jogadorId: lateralCasa, guardaRedesId: grFora, resultado: 'GOLO', situacao: 'POSICIONAL', x: 50, y: 25, parte: 1, segundoJogo: 120 };
 
@@ -342,11 +481,11 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
   ok((await http('DELETE', `/api/jogos/99999/eventos/${defesa.json.id}`)).status === 404, 'apagar evento com jogo errado = 404');
 
   // um segundo cliente noutro jogo não recebe nada deste
-  const outro = new signalR.HubConnectionBuilder().withUrl(`${API}/hub/jogo`).configureLogging(signalR.LogLevel.Error).build();
+  const outro = ligarHub(principal);
   const doOutroJogo = [];
   outro.on('EstatisticasAtualizadas', (e) => doOutroJogo.push(e));
   await outro.start();
-  await outro.invoke('EntrarNoJogo', 2);
+  await outro.invoke('EntrarNoJogo', 2, null);
   await http('POST', `/api/jogos/${id}/eventos`, { ...remate, segundoJogo: 300 });
   await esperar(500);
   ok(doOutroJogo.length === 0, 'quem está noutro jogo não recebe as atualizações deste');
@@ -359,9 +498,159 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
 function lateralFora(j) { return j.lateralFora; }
 
 // ----------------------------------------------------------------------
+await passo('Cada conta só vê e altera o que é seu', async () => {
+  if (!jogoNovo?.id) return ok(false, 'sem jogo do passo anterior');
+  const dadosJogo2 = (await http('GET', '/api/jogos/2/estatisticas')).json;
+  const eventoAlheio = dadosJogo2?.ultimosEventos?.[0]?.id;
+  ok(eventoAlheio > 0, 'o jogo 2 tem eventos da conta principal', JSON.stringify(dadosJogo2?.ultimosEventos?.[0]));
+  const remate = { tipoEvento: 'REMATE', equipaId: 1, jogadorId: 4, guardaRedesId: null, resultado: 'GOLO', situacao: 'POSICIONAL', x: 50, y: 25, parte: 1, segundoJogo: 10 };
+  const nome4 = (await http('GET', '/api/equipas/1/jogadores')).json?.find((j) => j.id === 4)?.nome;
+
+  // Tudo o que é da conta principal "não existe" para a segunda (404, nunca 403: nem se revela que existe)
+  const alheios = [
+    ['GET', '/api/jogos/2'], ['GET', '/api/jogos/2/estatisticas'], ['GET', '/api/jogos/2/estatisticas/eficacia'],
+    ['GET', '/api/jogos/2/estatisticas/guarda-redes'], ['GET', '/api/jogos/2/exportar.xlsx'], ['GET', '/api/jogos/2/convocados'],
+    ['PUT', '/api/jogos/2/convocados', { jogadorIds: [] }],
+    ['POST', '/api/jogos/2/eventos', remate], ['DELETE', `/api/jogos/2/eventos/${eventoAlheio}`],
+    ['GET', '/api/equipas/1/jogadores'], ['POST', '/api/equipas/1/jogadores', { numero: 77, nome: 'Intruso', posicao: 'PV' }],
+    ['PUT', '/api/jogadores/4', { numero: 4, nome: 'Alterado', posicao: 'PV' }], ['DELETE', '/api/jogadores/4'],
+    ['GET', `/api/jogos/${jogoNovo.id}`],
+  ];
+  for (const [metodo, caminho, corpo] of alheios) {
+    const r = await http(metodo, caminho, corpo, segunda);
+    ok(r.status === 404, `conta alheia: ${metodo} ${caminho} = 404`, descricao(r));
+  }
+  const listas = [(await http('GET', '/api/equipas', undefined, segunda)).json, (await http('GET', '/api/jogos', undefined, segunda)).json];
+  ok(listas.every((l) => Array.isArray(l) && l.length === 0), 'conta alheia: as listas de equipas e jogos continuam vazias');
+  const jogoComEquipaAlheia = await http('POST', '/api/jogos', { casaId: 1, foraId: 2 }, segunda);
+  ok(jogoComEquipaAlheia.status === 400, 'criar um jogo com equipas de outra conta = 400', descricao(jogoComEquipaAlheia));
+
+  // Nada mudou na conta principal
+  const depois = (await http('GET', '/api/jogos/2/estatisticas')).json;
+  ok(depois?.remates?.length === 33 && depois.ultimosEventos.some((e) => e.id === eventoAlheio), 'os pedidos da conta alheia não apagaram nem criaram eventos no jogo 2');
+  ok((await http('GET', '/api/jogos/2/convocados')).json?.jogadorIds?.length === 16, 'nem alteraram a convocatória do jogo 2');
+  ok((await http('GET', '/api/equipas/1/jogadores')).json?.find((j) => j.id === 4)?.nome === nome4, 'nem o plantel da equipa 1');
+
+  // O mesmo nome de equipa pode existir em contas diferentes; dentro da mesma conta não
+  const a = await http('POST', '/api/equipas', { nome: 'Águias do Norte' }, segunda);
+  ok(a.status === 201, 'a segunda conta pode ter uma equipa com o mesmo nome da primeira', descricao(a));
+  ok((await http('POST', '/api/equipas', { nome: 'Águias do Norte' }, segunda)).status === 409, 'mas não duas com o mesmo nome na mesma conta');
+  const b = await http('POST', '/api/equipas', { nome: `Equipa B ${sufixo}` }, segunda);
+  const meuJogo = await http('POST', '/api/jogos', { casaId: a.json?.id, foraId: b.json?.id }, segunda);
+  ok(meuJogo.status === 201, 'a segunda conta cria o seu jogo', descricao(meuJogo));
+  ok((await http('POST', '/api/jogos', { casaId: a.json?.id, foraId: 1 }, principal)).status === 400, 'a conta principal não consegue juntar uma equipa da segunda a um jogo seu');
+  ok((await http('GET', `/api/jogos/${meuJogo.json?.id}`, undefined, principal)).status === 404, 'o jogo da segunda conta "não existe" para a principal');
+  ok((await http('GET', '/api/jogos', undefined, principal)).json?.every((j) => j.id !== meuJogo.json?.id), 'e não aparece na lista da principal');
+  ok((await http('GET', '/api/jogos', undefined, segunda)).json?.length === 1, 'a lista da segunda conta tem só o seu jogo');
+
+  // Tempo real: o hub aplica as mesmas regras
+  const hubSegunda = ligarHub(segunda);
+  await hubSegunda.start();
+  ok(await hubRecusa(hubSegunda, 2, null), 'hub: a conta alheia não entra no jogo 2');
+  const proprio = await hubSegunda.invoke('EntrarNoJogo', meuJogo.json?.id, null);
+  ok(proprio?.jogoId === meuJogo.json?.id, 'hub: a segunda conta entra no seu próprio jogo');
+  await hubSegunda.stop();
+  const hubAnonimo = ligarHub(anonima);
+  await hubAnonimo.start();
+  ok(await hubRecusa(hubAnonimo, 2, null), 'hub: sem sessão nem código não entra');
+  ok(await hubRecusa(hubAnonimo, meuJogo.json?.id, null), 'hub: sem sessão nem código não entra (jogo da segunda conta)');
+  await hubAnonimo.stop();
+});
+
+// ----------------------------------------------------------------------
+await passo('Link de partilha: ver o jogo em direto sem conta', async () => {
+  if (!jogoNovo?.id) return ok(false, 'sem jogo do passo anterior');
+  const lista = (await http('GET', '/api/jogos')).json ?? [];
+  const codigo2 = lista.find((j) => j.id === 2)?.codigo;
+  const codigoNovo = lista.find((j) => j.id === jogoNovo.id)?.codigo;
+  const formato = /^[0-9a-f]{20}$/;
+  ok(formato.test(codigo2 ?? '') && formato.test(codigoNovo ?? '') && codigo2 !== codigoNovo, `cada jogo tem o seu código de partilha de 20 caracteres (${codigo2}, ${codigoNovo})`);
+  const doDetalhe = (await http('GET', '/api/jogos/2')).json?.codigo;
+  ok(doDetalhe === codigo2, 'o dono vê o mesmo código no detalhe do jogo');
+
+  // Quem tem o link lê (sem sessão)
+  const c = encodeURIComponent(codigo2);
+  const detalhe = await http('GET', `/api/jogos/2?c=${c}`, undefined, anonima);
+  ok(detalhe.status === 200 && detalhe.json?.jogadores?.length === 16, 'com o código: GET /api/jogos/2 = 200', descricao(detalhe));
+  const est = await http('GET', `/api/jogos/2/estatisticas?c=${c}`, undefined, anonima);
+  ok(est.status === 200 && est.json?.equipas?.[0]?.golos === 6 && est.json.equipas[1].golos === 9, 'com o código: estatísticas em direto = 200 (6–9)', descricao(est));
+  ok((await http('GET', `/api/jogos/2/estatisticas/eficacia?c=${c}&equipaId=2&corredor=PONTA`, undefined, anonima)).status === 200, 'com o código: eficácia com filtros = 200');
+  ok((await http('GET', `/api/jogos/2/estatisticas/guarda-redes?c=${c}`, undefined, anonima)).status === 200, 'com o código: guarda-redes = 200');
+  const excel = await bruto(`/api/jogos/2/exportar.xlsx?c=${c}`, anonima);
+  const bytesExcel = Buffer.from(await excel.arrayBuffer());
+  ok(excel.status === 200 && bytesExcel[0] === 0x50 && bytesExcel[1] === 0x4b, 'com o código: exportar para Excel = 200 (ZIP)', `HTTP ${excel.status}`);
+  const excelEquipa = await bruto(`/api/jogos/2/exportar.xlsx?equipaId=2&c=${c}`, anonima);
+  ok(excelEquipa.status === 200, 'com o código: Excel só de uma equipa = 200', `HTTP ${excelEquipa.status}`);
+
+  // Códigos que não servem
+  const falsos = [
+    ['código errado', '0123456789abcdef0123'], ['código vazio', ''], ['código de outro jogo', codigoNovo],
+    ['código com um carácter a menos', codigo2.slice(0, 19)], ['injeção SQL', "' OR '1'='1"],
+  ];
+  for (const [nome, valor] of falsos) {
+    const r = await http('GET', `/api/jogos/2/estatisticas?c=${encodeURIComponent(valor)}`, undefined, anonima);
+    ok(r.status === 404, `${nome}: 404`, descricao(r));
+  }
+
+  // O link só deixa ler: registar, apagar e listar continuam a exigir conta
+  const escrita = [
+    ['POST', `/api/jogos/2/eventos?c=${c}`, { tipoEvento: 'REMATE' }], ['DELETE', `/api/jogos/2/eventos/1?c=${c}`],
+    ['PUT', `/api/jogos/2/convocados?c=${c}`, { jogadorIds: [] }], ['GET', `/api/jogos/2/convocados?c=${c}`],
+    ['GET', `/api/jogos?c=${c}`], ['GET', `/api/equipas?c=${c}`], ['GET', `/api/equipas/1/jogadores?c=${c}`],
+  ];
+  for (const [metodo, caminho, corpo] of escrita) {
+    const r = await http(metodo, caminho, corpo, anonima);
+    ok(r.status === 401, `com o código mas sem conta: ${metodo} ${caminho.split('?')[0]} = 401`, descricao(r));
+  }
+  ok((await http('GET', '/api/jogos/2/estatisticas', undefined, anonima)).status === 404, 'o código não fica "guardado": sem ele volta a ser 404');
+
+  // Uma conta que não é a dona também pode ver com o link, mas não regista
+  ok((await http('GET', `/api/jogos/2?c=${c}`, undefined, segunda)).status === 200, 'uma conta que não é a dona vê o jogo com o código');
+  ok((await http('POST', `/api/jogos/2/eventos?c=${c}`, { tipoEvento: 'REMATE', equipaId: 1, jogadorId: 4, resultado: 'GOLO', situacao: 'POSICIONAL', x: 50, y: 25, parte: 1, segundoJogo: 5 }, segunda)).status === 404,
+    'mas essa conta não consegue registar eventos nele (404)');
+  ok((await http('GET', '/api/jogos/2/estatisticas')).json?.remates?.length === 33, 'o jogo 2 continua com 33 remates');
+
+  // Tempo real para quem só tem o link
+  const visitante = ligarHub(anonima);
+  const recebidos = [];
+  visitante.on('EstatisticasAtualizadas', (e) => recebidos.push(e));
+  await visitante.start();
+  ok(await hubRecusa(visitante, jogoNovo.id, null), 'hub: sem código não entra');
+  ok(await hubRecusa(visitante, jogoNovo.id, codigo2), 'hub: o código de outro jogo não serve');
+  ok(await hubRecusa(visitante, jogoNovo.id, '0123456789abcdef0123'), 'hub: código errado não entra');
+  const inicial = await visitante.invoke('EntrarNoJogo', jogoNovo.id, codigoNovo);
+  ok(inicial?.jogoId === jogoNovo.id && inicial.equipas?.length === 2, 'hub: com o código entra e recebe o estado atual', JSON.stringify(inicial)?.slice(0, 100));
+
+  const golo = await http('POST', `/api/jogos/${jogoNovo.id}/eventos`, {
+    tipoEvento: 'REMATE', equipaId: jogoNovo.casaId, jogadorId: jogoNovo.lateralCasa, guardaRedesId: jogoNovo.grFora,
+    resultado: 'GOLO', situacao: 'POSICIONAL', x: 40, y: 30, parte: 1, segundoJogo: 600,
+  });
+  ok(golo.status === 201, 'a conta dona regista um golo', descricao(golo));
+  ok(await ate(() => recebidos.length >= 1), 'o visitante recebe a atualização em direto, sem conta');
+  const golosVistos = recebidos.at(-1)?.equipas?.find((e) => e.equipaId === jogoNovo.casaId)?.golos;
+  ok(golosVistos === 1, 'e o estado recebido já tem o golo', String(golosVistos));
+  await http('DELETE', `/api/jogos/${jogoNovo.id}/eventos/${golo.json?.id}`);
+  await visitante.stop();
+
+  // Sair da conta tira o acesso de dono (também ao hub), mesmo para quem ainda tem o cookie antigo
+  const cookieAntigo = principal.cookie;
+  const aSair = Object.assign(new Sessao('a sair'), { cookie: cookieAntigo });
+  await http('POST', '/api/conta/sair', undefined, aSair);
+  const velha = Object.assign(new Sessao('velha'), { cookie: cookieAntigo });
+  ok((await http('GET', '/api/jogos/2/estatisticas', undefined, velha)).status === 404, 'depois de sair, o cookie antigo já não dá acesso ao jogo sem o código');
+  const hubDepois = ligarHub(velha);
+  await hubDepois.start();
+  ok(await hubRecusa(hubDepois, 2, null), 'hub: depois de sair, o cookie antigo já não entra no jogo sem o código');
+  await hubDepois.stop();
+  // volta a entrar para os passos seguintes
+  const reentrada = await http('POST', '/api/conta/entrar', { email: emailPrincipal, palavraPasse: SENHA }, principal);
+  ok(reentrada.status === 200, 'a conta principal volta a entrar', descricao(reentrada));
+});
+
+// ----------------------------------------------------------------------
 await passo('Exportação para Excel', async () => {
   async function descarregar(caminho, ficheiro) {
-    const r = await fetch(API + caminho);
+    const r = await bruto(caminho);
     const bytes = Buffer.from(await r.arrayBuffer());
     if (ficheiro && r.status === 200) fs.writeFileSync(path.join(EXCEL_DIR, ficheiro), bytes);
     return { r, bytes };
@@ -378,8 +667,8 @@ await passo('Exportação para Excel', async () => {
   const equipa = await descarregar('/api/jogos/2/exportar.xlsx?equipaId=2', 'jogo-2-equipa-2.xlsx');
   ok(equipa.r.status === 200 && (equipa.r.headers.get('content-disposition') ?? '').includes('estatisticas-leoes-do-sul-aguias-do-norte-vs-leoes-do-sul.xlsx'), 'exportar só a equipa 2: nome do ficheiro', equipa.r.headers.get('content-disposition') ?? `HTTP ${equipa.r.status}`);
 
-  ok((await fetch(`${API}/api/jogos/2/exportar.xlsx?equipaId=999`)).status === 400, 'equipa que não joga neste jogo = 400');
-  ok((await fetch(`${API}/api/jogos/99999/exportar.xlsx`)).status === 404, 'jogo inexistente = 404');
+  ok((await bruto('/api/jogos/2/exportar.xlsx?equipaId=999')).status === 400, 'equipa que não joga neste jogo = 400');
+  ok((await bruto('/api/jogos/99999/exportar.xlsx')).status === 404, 'jogo inexistente = 404');
 
   if (jogoNovo?.id) {
     const novo = await descarregar(`/api/jogos/${jogoNovo.id}/exportar.xlsx`, 'jogo-novo.xlsx');

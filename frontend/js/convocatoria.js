@@ -1,9 +1,12 @@
 // Convocatória: escolher, antes do jogo, os jogadores convocados de cada equipa.
 import { h, substituir, avisar } from './dom.js';
 import { obter, enviar, ROTULO_POSICAO, urlExcel } from './api.js';
+import { exigirConta } from './conta.js';
 
 const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
 if (!jogoId) location.replace('./');
+
+await exigirConta();
 
 const conteudo = document.getElementById('conteudo');
 
