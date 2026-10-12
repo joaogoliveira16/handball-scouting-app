@@ -32,6 +32,9 @@
         <h2 id="titulo-caixa">Bem-vindo de volta</h2>
         <p class="sub" id="sub-caixa">Entra para ver os teus jogos e registar o próximo.</p>
 
+        <p class="nota-ok" id="nota-confirmado" role="status" hidden>Email confirmado. Já podes entrar.</p>
+
+        <div id="entrada">
         <div class="segmentos" role="tablist" aria-label="Entrar ou criar conta">
           <button type="button" role="tab" id="aba-entrar" class="ativo" aria-selected="true" aria-controls="form-entrar">Entrar</button>
           <button type="button" role="tab" id="aba-registo" aria-selected="false" aria-controls="form-registo">Criar conta</button>
@@ -48,6 +51,7 @@
             </span>
           </label>
           <p class="erro-formulario" id="erro-entrar" role="alert"></p>
+          <button class="botao suave pequeno" type="button" id="reenviar-entrar" hidden>Reenviar email de confirmação</button>
           <button class="botao primario" type="submit" id="botao-entrar">Entrar</button>
         </form>
 
@@ -65,10 +69,27 @@
             </span>
           </label>
           <p class="erro-formulario" id="erro-registo" role="alert"></p>
+          <button class="botao suave pequeno" type="button" id="reenviar-registo" hidden>Reenviar email de confirmação</button>
           <button class="botao primario" type="submit" id="botao-registo">Criar conta</button>
         </form>
+        </div>
 
-        <p class="entrar-rodape">Só queres ver um jogo em direto? Não precisas de conta: abre o link que o treinador te enviou.</p>
+        <!-- Depois de criar a conta (ou de tentar entrar sem ter confirmado o email) -->
+        <section id="painel-confirmar" hidden>
+          <p class="confirmar-texto" id="texto-confirmar"></p>
+          <p class="aviso-inline" id="estado-confirmar" role="status" hidden></p>
+          <div class="confirmar-acoes">
+            <button class="botao primario" type="button" id="ja-confirmei">Já confirmei, entrar</button>
+            <button class="botao suave" type="button" id="reenviar">Reenviar email</button>
+            <button class="botao suave" type="button" id="outro-email">Usar outro email</button>
+          </div>
+          <p class="entrar-rodape" id="dica-teste" hidden>A testar no teu computador? Os emails de teste ficam na caixa de correio de teste, em <a href="http://localhost:8025" target="_blank" rel="noopener">localhost:8025</a>.</p>
+        </section>
+
+        <div class="entrar-convidado">
+          <p>Só queres ver um jogo em direto? Não precisas de conta.</p>
+          <a class="botao-link" id="entrar-convidado" href="convidado.html">Entrar como convidado</a>
+        </div>
       </div>
     </section>
   </main>

@@ -80,4 +80,17 @@ public class ContaValidadorTests
         var erros = ContaValidador.ValidarRegisto(new RegistoRequest("", "x", "1"));
         Assert.True(erros.Count == 3, $"esperava 3 erros e houve {erros.Count}");
     }
+
+    [Theory]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", true)]
+    [InlineData("0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef", false)]   // só minúsculas
+    [InlineData("0123456789abcdef", false)]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg", false)]
+    [InlineData("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void O_codigo_do_link_tem_64_hexadecimais(string? token, bool esperado)
+    {
+        Assert.Equal(esperado, ContaValidador.TokenValido(token));
+    }
 }

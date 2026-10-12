@@ -61,6 +61,9 @@ jobs:
       - name: Validar as consultas da API contra o esquema
         run: python3 db/tests/validar_consultas.py
 
+      - name: Atualizar uma base de dados antiga (contas que já existiam ficam confirmadas)
+        run: bash db/tests/atualizacao.sh
+
   integracao:
     name: Integração - API real, Excel e browser
     runs-on: ubuntu-latest
@@ -79,12 +82,19 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # Caixa de correio de teste: apanha os emails de confirmação (SMTP na 1025, API http na 8025)
+      mailpit:
+        image: axllent/mailpit:v1.21
+        ports:
+          - 1025:1025
+          - 8025:8025
     env:
       PGHOST: localhost
       PGUSER: scouting
       PGPASSWORD: scouting
       PGDATABASE: scouting
       API_URL: http://localhost:5080
+      EMAIL_API: http://localhost:8025
       EXCEL_DIR: ${{ github.workspace }}/tests/resultados
       E2E_DIR: ${{ github.workspace }}/tests/resultados
     steps:

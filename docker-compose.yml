@@ -55,9 +55,30 @@ services:
       ConnectionStrings__Default: Host=db;Port=5432;Database=${POSTGRES_DB:-scouting};Username=${POSTGRES_USER:-scouting};Password=${POSTGRES_PASSWORD:-scouting}
       # Fuso horário das datas nos ficheiros Excel
       Exportacao__FusoHorario: ${FUSO_HORARIO:-Europe/Lisbon}
+      # Email de confirmação das contas novas. Por omissão vai para a caixa de correio de teste (serviço "mailpit",
+      # http://localhost:8025). Para enviar emails a sério define EMAIL_HOST, EMAIL_PORTA, EMAIL_UTILIZADOR, EMAIL_SENHA,
+      # EMAIL_SSL e EMAIL_DE num ficheiro .env (ver o README).
+      Email__Host: ${EMAIL_HOST:-mailpit}
+      Email__Porta: ${EMAIL_PORTA:-1025}
+      Email__Utilizador: ${EMAIL_UTILIZADOR:-}
+      Email__Senha: ${EMAIL_SENHA:-}
+      Email__UsarSsl: ${EMAIL_SSL:-false}
+      Email__De: ${EMAIL_DE:-scouting@localhost}
+      # Endereço da app visto por quem recebe o email (vai dentro do link de confirmação)
+      App__UrlPublico: ${URL_PUBLICO:-http://localhost:8080}
     depends_on:
       migrar:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+
+  # 2b) Caixa de correio de teste: apanha os emails que a API envia (nenhum sai para a internet).
+  #     Abre http://localhost:8025 para ver o email de confirmação de uma conta nova.
+  mailpit:
+    image: axllent/mailpit:v1.21
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"   # só acessível a partir deste computador
 
   # 3) Frontend (nginx): páginas estáticas e proxy para /api e /hub
   frontend:

@@ -16,6 +16,10 @@ var ligacao = builder.Configuration.GetConnectionString("Default")
 builder.Services.AddSingleton(NpgsqlDataSource.Create(ligacao));
 builder.Services.AddSingleton<SqlLoader>();
 builder.Services.AddSingleton(new LimiteTentativas(TimeProvider.System));
+builder.Services.AddSingleton(new LimiteEnvios(TimeProvider.System));
+// Envio dos emails de confirmação (SMTP). Sem Email__Host o registo funciona, mas o email não segue.
+builder.Services.AddSingleton(OpcoesEmail.Ler(builder.Configuration));
+builder.Services.AddSingleton<IEnviadorEmail, EnviadorSmtp>();
 builder.Services.AddScoped<EstatisticasService>();
 builder.Services.AddScoped<EventosService>();
 builder.Services.AddScoped<CadastroService>();
@@ -24,6 +28,9 @@ builder.Services.AddScoped<AcessoService>();
 builder.Services.AddSignalR();
 
 var app = builder.Build();
+
+if (!app.Services.GetRequiredService<OpcoesEmail>().Configurado)
+    app.Logger.LogWarning("Envio de emails não configurado (falta Email__Host): as contas novas não recebem o email de confirmação.");
 
 // Fuso horário das datas no Excel (Exportacao__FusoHorario); UTC se o sistema não o conhecer
 var fusoExportacao = ExportadorExcel.ObterFuso(app.Configuration["Exportacao:FusoHorario"]);
@@ -42,9 +49,13 @@ api.MapGet("/tipos-evento", async (EstatisticasService est, CancellationToken ct
     Results.Ok(await est.TiposEventoAsync(ct)));
 
 // ------------------------- Conta -------------------------
-// Registo e entrada põem um cookie de sessão (HttpOnly). Nada disto é guardado em cache.
+// Entrar põe um cookie de sessão (HttpOnly). Quem se regista recebe um email com um link e só entra depois de o abrir.
+// Nada disto é guardado em cache.
 
 var conta = api.MapGroup("/conta");
+
+static IResult Falha(ResultadoConta r) =>
+    Results.Json(r.Codigo is null ? (object)new { erro = r.Erro } : new { erro = r.Erro, codigo = r.Codigo }, statusCode: r.Status);
 
 conta.MapGet("", async (HttpContext http, CancellationToken ct) =>
 {
@@ -58,16 +69,29 @@ conta.MapPost("/registar", async (RegistoRequest pedido, HttpContext http, Conta
 {
     http.Response.Headers.CacheControl = "no-store";
     var r = await contas.RegistarAsync(pedido, ct);
-    if (!r.Ok) return Results.Json(new { erro = r.Erro }, statusCode: r.Status);
-    Autenticacao.DefinirCookie(http, r.Token!);
-    return Results.Json(new { r.Utilizador!.Id, r.Utilizador.Nome, r.Utilizador.Email }, statusCode: 201);
+    if (!r.Ok) return Falha(r);
+    return Results.Json(new { r.Utilizador!.Email, r.EmailEnviado }, statusCode: 201);
+});
+
+conta.MapPost("/confirmar-email", async (ConfirmarEmailRequest pedido, HttpContext http, ContaService contas, CancellationToken ct) =>
+{
+    http.Response.Headers.CacheControl = "no-store";
+    var r = await contas.ConfirmarEmailAsync(pedido.Token, ct);
+    return r.Ok ? Results.NoContent() : Falha(r);
+});
+
+conta.MapPost("/reenviar-confirmacao", async (ReenviarConfirmacaoRequest pedido, HttpContext http, ContaService contas, CancellationToken ct) =>
+{
+    http.Response.Headers.CacheControl = "no-store";
+    var r = await contas.ReenviarConfirmacaoAsync(pedido.Email, ct);
+    return r.Ok ? Results.NoContent() : Falha(r);
 });
 
 conta.MapPost("/entrar", async (EntrarRequest pedido, HttpContext http, ContaService contas, CancellationToken ct) =>
 {
     http.Response.Headers.CacheControl = "no-store";
     var r = await contas.EntrarAsync(pedido, ct);
-    if (!r.Ok) return Results.Json(new { erro = r.Erro }, statusCode: r.Status);
+    if (!r.Ok) return Falha(r);
     Autenticacao.DefinirCookie(http, r.Token!);
     return Results.Ok(new { r.Utilizador!.Id, r.Utilizador.Nome, r.Utilizador.Email });
 });

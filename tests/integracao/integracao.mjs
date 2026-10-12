@@ -3,10 +3,12 @@
 //   API_URL=http://localhost:5080 EXCEL_DIR=./resultados node integracao/integracao.mjs
 //
 // Precisa da API a correr e de uma base de dados ACABADA DE CRIAR com db/init/*.sql: a primeira conta que o teste
-// regista herda os dados de exemplo (equipas e jogos sem dono). Sai com código 1 se alguma verificação falhar.
+// regista e confirma herda os dados de exemplo (equipas e jogos sem dono). A API tem de enviar os emails para uma caixa
+// de correio de teste (Mailpit: SMTP 1025, API http em EMAIL_API=http://localhost:8025). Sai com código 1 se alguma verificação falhar.
 import fs from 'node:fs';
 import path from 'node:path';
 import * as signalR from '@microsoft/signalr';
+import { esperarMensagens, lerMensagem, mensagensPara, tokenDe, ultimoToken } from '../correio.mjs';
 
 const API = process.env.API_URL ?? 'http://localhost:5080';
 const EXCEL_DIR = process.env.EXCEL_DIR ?? path.join(process.cwd(), 'resultados');
@@ -103,6 +105,7 @@ let jogoNovo = null;   // { id, casaId, foraId, jogadores... } criado nos passos
 const emailPrincipal = `principal-${sufixo}@exemplo.pt`;
 const emailSegunda = `segunda-${sufixo}@exemplo.pt`;
 const SENHA = 'palavra-passe-123';
+const URL_PUBLICO = process.env.URL_PUBLICO ?? 'http://localhost:8080';   // App__UrlPublico da API: vai nos links dos emails
 
 // ----------------------------------------------------------------------
 await passo('Contas: sem sessão, registo, entrada, saída', async () => {
@@ -139,19 +142,79 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
     ok(r.status === 400 && typeof r.json?.erro === 'string' && r.setCookie.length === 0, `registo recusado (400, sem cookie): ${nome}`, descricao(r));
   }
 
-  // Registo da conta principal (email com maiúsculas: fica guardado em minúsculas)
+  // Registo da conta principal (email com maiúsculas: fica guardado em minúsculas). Não inicia sessão: falta confirmar o email.
   const registo = await http('POST', '/api/conta/registar', { nome: `  Principal ${sufixo} `, email: emailPrincipal.toUpperCase(), palavraPasse: SENHA }, principal);
-  ok(registo.status === 201 && registo.json?.id > 0 && registo.json.email === emailPrincipal && registo.json.nome === `Principal ${sufixo}`,
-    'registo da conta principal = 201 (nome sem espaços, email em minúsculas)', descricao(registo));
-  ok(JSON.stringify(Object.keys(registo.json ?? {}).sort()) === '["email","id","nome"]', 'a resposta do registo não traz a palavra-passe nem o código da sessão', registo.texto);
-  const galleta = registo.setCookie.find((c) => c.startsWith('sessao='));
+  ok(registo.status === 201 && registo.json?.email === emailPrincipal && registo.json.emailEnviado === true,
+    'registo da conta principal = 201 (email em minúsculas e email de confirmação enviado)', descricao(registo));
+  ok(JSON.stringify(Object.keys(registo.json ?? {}).sort()) === '["email","emailEnviado"]', 'a resposta do registo não traz a palavra-passe nem o código da sessão', registo.texto);
+  ok(registo.setCookie.length === 0 && principal.cookie === null, 'registar não inicia sessão (só depois de confirmar o email)', registo.setCookie.join(' '));
+  ok(/no-store/.test(registo.cabecalhos.get('cache-control') ?? ''), 'a resposta do registo não vai para a cache');
+
+  // O email de confirmação chega à caixa de correio de teste, com o link para a página de confirmação
+  const primeiro = (await esperarMensagens(emailPrincipal, 1))[0];
+  const mensagem1 = primeiro ? await lerMensagem(primeiro.ID) : null;
+  const token1 = tokenDe(mensagem1?.Text);
+  ok(!!primeiro && /confirma/i.test(mensagem1.Subject) && mensagem1.From?.Address === 'scouting@exemplo.pt',
+    'o email de confirmação chegou (assunto "Confirma...", do remetente configurado)', JSON.stringify(mensagem1?.Subject));
+  ok(!!token1 && mensagem1.Text.includes(`${URL_PUBLICO}/verificar.html?t=${token1}`) && mensagem1.Text.includes(`Olá Principal ${sufixo},`),
+    'o email tem o nome (sem espaços) e o link para a página de confirmação no endereço público', mensagem1?.Text?.slice(0, 160));
+  ok(!!token1 && mensagem1.HTML.includes(`verificar.html?t=${token1}`), 'a versão HTML do email tem o mesmo link');
+  ok(/^[0-9a-f]{64}$/.test(token1 ?? ''), 'o código do link tem 32 bytes aleatórios (64 hexadecimais)');
+
+  // Antes de confirmar não se entra: 403 com código (a página oferece "reenviar"), sem cookie
+  const antes = await http('POST', '/api/conta/entrar', { email: emailPrincipal, palavraPasse: SENHA }, principal);
+  ok(antes.status === 403 && antes.json?.codigo === 'email_por_confirmar' && antes.setCookie.length === 0 && principal.cookie === null,
+    'entrar sem ter confirmado o email = 403 com o código email_por_confirmar (e sem cookie)', descricao(antes));
+  const antesErrada = await http('POST', '/api/conta/entrar', { email: emailPrincipal, palavraPasse: 'errada-errada' }, new Sessao('antes'));
+  ok(antesErrada.status === 401 && antesErrada.json?.codigo === undefined, 'com a palavra-passe errada continua a ser 401 igual aos outros (não revela que a conta existe)', descricao(antesErrada));
+  ok((await http('GET', '/api/jogos', undefined, principal)).status === 401, 'e sem sessão não vê nada');
+
+  // Registar outra vez o mesmo email, ainda por confirmar, diz para pedir outro email
+  const repetidoPorConfirmar = await http('POST', '/api/conta/registar', { nome: 'Outra', email: emailPrincipal, palavraPasse: 'outra-palavra-1' }, new Sessao('repetida'));
+  ok(repetidoPorConfirmar.status === 409 && repetidoPorConfirmar.json?.codigo === 'email_por_confirmar' && repetidoPorConfirmar.setCookie.length === 0,
+    'registar o mesmo email antes de o confirmar = 409 com o código email_por_confirmar', descricao(repetidoPorConfirmar));
+  ok((await mensagensPara(emailPrincipal)).length === 1, 'e esse registo não enviou outro email');
+
+  // Códigos inválidos
+  for (const [nome, corpo] of [['sem código', {}], ['código curto', { token: 'abc' }], ['maiúsculas', { token: 'A'.repeat(64) }], ['desconhecido', { token: 'f'.repeat(64) }], ['com lixo no fim', { token: `${token1}\n` }]]) {
+    const r = await http('POST', '/api/conta/confirmar-email', corpo, anonima);
+    ok(r.status === 400 && typeof r.json?.erro === 'string', `confirmar com código inválido (${nome}) = 400`, descricao(r));
+  }
+  ok((await http('GET', '/api/conta', undefined, principal)).status === 401, 'e a conta continua sem sessão');
+
+  // Reenviar: responde igual para contas que existem e que não existem (e só envia quando há uma conta por confirmar)
+  const desconhecidoReenvio = await http('POST', '/api/conta/reenviar-confirmacao', { email: `ninguem-${sufixo}@exemplo.pt` }, anonima);
+  ok(desconhecidoReenvio.status === 204, 'reenviar para um email sem conta = 204 (não revela se a conta existe)', descricao(desconhecidoReenvio));
+  await esperar(400);
+  ok((await mensagensPara(`ninguem-${sufixo}@exemplo.pt`)).length === 0, 'e não envia nenhum email');
+  ok((await http('POST', '/api/conta/reenviar-confirmacao', {}, anonima)).status === 400, 'reenviar sem email = 400');
+  const reenvio1 = await http('POST', '/api/conta/reenviar-confirmacao', { email: emailPrincipal.toUpperCase() }, anonima);
+  ok(reenvio1.status === 204, 'reenviar o email de confirmação = 204', descricao(reenvio1));
+  const token2 = await ultimoToken(emailPrincipal, 2);
+  ok(!!token2 && token2 !== token1 && (await mensagensPara(emailPrincipal)).length === 2, 'chega um segundo email, com um código novo');
+  ok((await http('POST', '/api/conta/reenviar-confirmacao', { email: emailPrincipal }, anonima)).status === 204, 'e um terceiro pedido ainda é aceite');
+  const token3 = await ultimoToken(emailPrincipal, 3);
+  const quarto = await http('POST', '/api/conta/reenviar-confirmacao', { email: emailPrincipal }, anonima);
+  ok(quarto.status === 429 && typeof quarto.json?.erro === 'string', 'depois de 3 pedidos para o mesmo email o quarto = 429 (limite)', descricao(quarto));
+  await esperar(300);
+  ok((await mensagensPara(emailPrincipal)).length === 3, 'e o pedido recusado não envia email');
+
+  // Confirmar com o código do último email; o do primeiro (link aberto outra vez) também continua a servir
+  const confirmou = await http('POST', '/api/conta/confirmar-email', { token: token3 }, anonima);
+  ok(confirmou.status === 204 && confirmou.setCookie.length === 0, 'confirmar o email com o código do link = 204 (sem iniciar sessão)', descricao(confirmou));
+  ok((await http('POST', '/api/conta/confirmar-email', { token: token1 }, anonima)).status === 204, 'abrir um link anterior ou o mesmo link outra vez continua a dar 204');
+
+  // Agora entra
+  const entrouPrincipal = await http('POST', '/api/conta/entrar', { email: emailPrincipal, palavraPasse: SENHA }, principal);
+  ok(entrouPrincipal.status === 200 && entrouPrincipal.json?.id > 0 && entrouPrincipal.json.email === emailPrincipal && entrouPrincipal.json.nome === `Principal ${sufixo}`,
+    'depois de confirmar, entrar = 200 (nome sem espaços, email em minúsculas)', descricao(entrouPrincipal));
+  const galleta = entrouPrincipal.setCookie.find((c) => c.startsWith('sessao='));
   ok(!!galleta && /httponly/i.test(galleta) && /samesite=lax/i.test(galleta) && /path=\//i.test(galleta) && /max-age=\d{6,}/i.test(galleta) && !/secure/i.test(galleta),
     'cookie de sessão: HttpOnly, SameSite=Lax, com validade (sem Secure em HTTP simples)', galleta ?? 'sem cookie');
   ok(/^sessao=[0-9a-f]{64}$/.test(principal.cookie ?? ''), 'o código da sessão tem 32 bytes aleatórios (64 hexadecimais)', principal.cookie ?? '');
-  ok(/no-store/.test(registo.cabecalhos.get('cache-control') ?? ''), 'a resposta do registo não vai para a cache');
 
   const repetido = await http('POST', '/api/conta/registar', { nome: 'Outra', email: emailPrincipal, palavraPasse: SENHA }, new Sessao('repetida'));
-  ok(repetido.status === 409 && repetido.setCookie.length === 0, 'registo com o mesmo email = 409 (sem cookie)', descricao(repetido));
+  ok(repetido.status === 409 && repetido.json?.codigo === undefined && repetido.setCookie.length === 0, 'registo com o mesmo email de uma conta confirmada = 409 (sem cookie, sem pedir confirmação)', descricao(repetido));
 
   // Sessão
   const eu = await http('GET', '/api/conta', undefined, principal);
@@ -191,9 +254,15 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
   ok(estados.slice(0, 5).every((e) => e === 401) && estados[5] === 429, `5 falhas seguidas bloqueiam o email: 401×5 e depois 429 (${estados})`);
   ok((await http('POST', '/api/conta/entrar', { email: emailPrincipal, palavraPasse: SENHA }, tmp)).status === 200, 'o bloqueio é só desse email: a conta principal continua a entrar');
 
-  // Segunda conta: começa vazia
+  // Segunda conta: regista, confirma e entra; começa vazia
   const registo2 = await http('POST', '/api/conta/registar', { nome: `Segunda ${sufixo}`, email: emailSegunda, palavraPasse: SENHA }, segunda);
-  ok(registo2.status === 201 && registo2.json?.id !== registo.json?.id, 'registo da segunda conta = 201', descricao(registo2));
+  ok(registo2.status === 201, 'registo da segunda conta = 201', descricao(registo2));
+  ok((await http('POST', '/api/conta/confirmar-email', { token: await ultimoToken(emailSegunda) }, anonima)).status === 204, 'a segunda conta confirma o email');
+  const entrou2 = await http('POST', '/api/conta/entrar', { email: emailSegunda, palavraPasse: SENHA }, segunda);
+  ok(entrou2.status === 200 && entrou2.json?.id !== entrouPrincipal.json?.id, 'a segunda conta entra (conta diferente da primeira)', descricao(entrou2));
+  ok((await http('POST', '/api/conta/reenviar-confirmacao', { email: emailSegunda }, anonima)).status === 204, 'reenviar para uma conta já confirmada = 204');
+  await esperar(300);
+  ok((await mensagensPara(emailSegunda)).length === 1, 'e não envia outro email a quem já confirmou');
   const equipasSegunda = await http('GET', '/api/equipas', undefined, segunda);
   const jogosSegunda = await http('GET', '/api/jogos', undefined, segunda);
   ok(JSON.stringify(equipasSegunda.json) === '[]' && JSON.stringify(jogosSegunda.json) === '[]', 'a segunda conta começa sem equipas nem jogos (não herda os dados de exemplo)', `${equipasSegunda.texto} / ${jogosSegunda.texto}`);

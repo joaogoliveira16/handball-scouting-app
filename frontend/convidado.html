@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <title>Convidado · Scouting de Andebol</title>
+  <link rel="stylesheet" href="css/estilo.css">
+</head>
+<body>
+  <header class="topo topo-marca">
+    <a class="marca" href="convidado.html"><span class="marca-icone" aria-hidden="true"></span><span>Scouting <b>Andebol</b></span></a>
+    <div class="conta-menu" id="conta-menu">
+      <a class="botao-link suave pequeno" id="link-conta" href="entrar.html">Tenho conta</a>
+    </div>
+  </header>
+
+  <main class="caixa-centro larga">
+    <h1>Área de convidado</h1>
+    <p class="sub">Vê um jogo em direto, sem criar conta. Cola o link que o treinador te enviou.</p>
+
+    <form id="form-link" class="cartao" novalidate>
+      <label>Link do jogo
+        <input id="link-jogo" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false"
+               placeholder="Cola aqui o link do jogo" required>
+      </label>
+      <p class="erro-formulario" id="erro-link" role="alert"></p>
+      <button class="botao primario" type="submit">Ver jogo em direto</button>
+    </form>
+
+    <section id="vistos" hidden>
+      <h2>Jogos que abriste neste dispositivo</h2>
+      <ul class="lista-vistos" id="lista-vistos"></ul>
+      <button class="botao suave pequeno" type="button" id="limpar-vistos">Limpar a lista</button>
+    </section>
+
+    <p class="entrar-rodape">O link está em «Copiar link», na lista de jogos de quem o regista. Quem tem o link só pode ver o jogo: não consegue registar nem editar nada.</p>
+  </main>
+
+  <script type="module" src="js/convidado.js"></script>
+</body>
+</html>

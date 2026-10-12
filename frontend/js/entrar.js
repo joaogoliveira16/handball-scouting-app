@@ -1,25 +1,36 @@
-// Entrar e criar conta.
+// Entrar e criar conta. Quem cria a conta recebe um email com um link e só entra depois de o abrir.
 import { enviar } from './api.js';
 import { obterConta } from './conta.js';
+import { h } from './dom.js';
 
+const params = new URLSearchParams(location.search);
 const formEntrar = document.getElementById('form-entrar');
 const formRegisto = document.getElementById('form-registo');
 const abaEntrar = document.getElementById('aba-entrar');
 const abaRegisto = document.getElementById('aba-registo');
 const titulo = document.getElementById('titulo-caixa');
 const subtitulo = document.getElementById('sub-caixa');
+const entrada = document.getElementById('entrada');
+const painelConfirmar = document.getElementById('painel-confirmar');
+const textoConfirmar = document.getElementById('texto-confirmar');
+const estadoConfirmar = document.getElementById('estado-confirmar');
+const botaoReenviar = document.getElementById('reenviar');
 
 const REGEX_EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const CODIGO_POR_CONFIRMAR = 'email_por_confirmar';
+const PAUSA_REENVIO = 30;   // segundos entre pedidos de novo email
 
 /** Para onde ir depois de entrar: a página de onde veio (só ficheiros .html deste site) ou a lista de jogos. */
 function destino() {
-  const voltar = new URLSearchParams(location.search).get('voltar');
+  const voltar = params.get('voltar');
   const valido = voltar && /^[a-z]+\.html(\?[\w=&%.\-]*)?$/.test(voltar) && !voltar.startsWith('entrar.html');
   return valido ? voltar : './';
 }
 
 function mostrar(modo, comFoco = true) {
   const registo = modo === 'registo';
+  entrada.hidden = false;
+  painelConfirmar.hidden = true;
   formEntrar.hidden = registo;
   formRegisto.hidden = !registo;
   for (const [aba, ativa] of [[abaEntrar, !registo], [abaRegisto, registo]]) {
@@ -48,22 +59,101 @@ for (const botao of document.querySelectorAll('.ver-senha')) {
   });
 }
 
-/** Envia o formulário para a API; em caso de sucesso segue para a página de destino. */
-function ligarFormulario(formulario, { erroId, botaoId, validar, enviarPara, corpo }) {
+// ---------------------------------------------------------------------
+// Confirmar o email
+// ---------------------------------------------------------------------
+let emailPorConfirmar = '';
+let temporizadorReenvio = null;
+
+function dizerEstado(texto, { erro = false } = {}) {
+  estadoConfirmar.hidden = !texto;
+  estadoConfirmar.textContent = texto ?? '';
+  estadoConfirmar.classList.toggle('erro', erro);
+}
+
+/** O botão "Reenviar email" fica parado uns segundos, para ninguém carregar dez vezes seguidas. */
+function pausarReenvio(segundos = PAUSA_REENVIO) {
+  clearInterval(temporizadorReenvio);
+  let restam = segundos;
+  const atualizar = () => {
+    const parado = restam > 0;
+    botaoReenviar.disabled = parado;
+    botaoReenviar.textContent = parado ? `Reenviar email (${restam} s)` : 'Reenviar email';
+    if (!parado) clearInterval(temporizadorReenvio);
+    restam -= 1;
+  };
+  atualizar();
+  temporizadorReenvio = setInterval(atualizar, 1000);
+}
+
+/** O ecrã "abre o link que te enviámos". `mensagem` diz o que acabou de acontecer (email enviado ou não). */
+function mostrarConfirmar(email, { enviado = true, mensagem = null } = {}) {
+  emailPorConfirmar = email;
+  entrada.hidden = true;
+  painelConfirmar.hidden = false;
+  titulo.textContent = 'Confirma o teu email';
+  subtitulo.textContent = 'Falta só um passo para ativares a conta.';
+  document.title = 'Confirma o teu email · Scouting de Andebol';
+  textoConfirmar.replaceChildren(
+    'Enviámos um link para ', h('b', {}, email),
+    '. Abre-o (neste ou noutro dispositivo) e depois volta aqui para entrar. Se não o vires, procura no spam.');
+  if (mensagem) dizerEstado(mensagem, { erro: !enviado });
+  else dizerEstado(enviado ? null : 'Não conseguimos enviar o email agora. Carrega em «Reenviar email» daqui a pouco.', { erro: !enviado });
+  document.getElementById('dica-teste').hidden = !['localhost', '127.0.0.1'].includes(location.hostname);
+  pausarReenvio();
+  botaoReenviar.focus();
+}
+
+async function reenviar(email, onde) {
+  try {
+    await enviar('POST', '/api/conta/reenviar-confirmacao', { email });
+    mostrarConfirmar(email, { mensagem: `Enviámos outro email para ${email}.` });
+  } catch (falha) {
+    if (onde) { onde.textContent = falha.message; } else { dizerEstado(falha.message, { erro: true }); }
+  }
+}
+
+botaoReenviar.addEventListener('click', async () => {
+  botaoReenviar.disabled = true;
+  dizerEstado(null);
+  await reenviar(emailPorConfirmar, null);
+});
+document.getElementById('ja-confirmei').addEventListener('click', () => {
+  clearInterval(temporizadorReenvio);
+  mostrar('entrar', false);
+  document.getElementById('entrar-email').value = emailPorConfirmar;
+  document.getElementById('entrar-senha').focus();
+});
+document.getElementById('outro-email').addEventListener('click', () => { clearInterval(temporizadorReenvio); mostrar('registo'); });
+
+// ---------------------------------------------------------------------
+// Formulários
+// ---------------------------------------------------------------------
+/** Envia o formulário para a API; em caso de sucesso segue (`aoSucesso`). Falhas aparecem por baixo dos campos. */
+function ligarFormulario(formulario, { erroId, botaoId, reenviarId, emailId, validar, enviarPara, corpo, aoSucesso }) {
   const erro = document.getElementById(erroId);
   const botao = document.getElementById(botaoId);
+  const botaoReenvio = document.getElementById(reenviarId);
+
+  botaoReenvio.addEventListener('click', async () => {
+    botaoReenvio.disabled = true;
+    await reenviar(document.getElementById(emailId).value.trim(), erro);
+    botaoReenvio.disabled = false;
+  });
+
   formulario.addEventListener('submit', async (evento) => {
     evento.preventDefault();
     erro.textContent = '';
+    botaoReenvio.hidden = true;
     const problema = validar();
     if (problema) { erro.textContent = problema; return; }
 
     botao.disabled = true;
     try {
-      await enviar('POST', enviarPara, corpo());
-      location.replace(destino());
+      aoSucesso(await enviar('POST', enviarPara, corpo()));
     } catch (falha) {
       erro.textContent = falha.message;
+      botaoReenvio.hidden = falha.codigo !== CODIGO_POR_CONFIRMAR;   // conta criada mas ainda por confirmar: oferece outro email
       botao.disabled = false;
     }
   });
@@ -72,13 +162,14 @@ function ligarFormulario(formulario, { erroId, botaoId, validar, enviarPara, cor
 const valor = (id) => document.getElementById(id).value;
 
 ligarFormulario(formEntrar, {
-  erroId: 'erro-entrar', botaoId: 'botao-entrar', enviarPara: '/api/conta/entrar',
+  erroId: 'erro-entrar', botaoId: 'botao-entrar', reenviarId: 'reenviar-entrar', emailId: 'entrar-email', enviarPara: '/api/conta/entrar',
   validar: () => (!valor('entrar-email').trim() || !valor('entrar-senha') ? 'Escreve o email e a palavra-passe.' : null),
   corpo: () => ({ email: valor('entrar-email').trim(), palavraPasse: valor('entrar-senha') }),
+  aoSucesso: () => location.replace(destino()),
 });
 
 ligarFormulario(formRegisto, {
-  erroId: 'erro-registo', botaoId: 'botao-registo', enviarPara: '/api/conta/registar',
+  erroId: 'erro-registo', botaoId: 'botao-registo', reenviarId: 'reenviar-registo', emailId: 'registo-email', enviarPara: '/api/conta/registar',
   validar: () => {
     const nome = valor('registo-nome').trim();
     const email = valor('registo-email').trim();
@@ -91,6 +182,11 @@ ligarFormulario(formRegisto, {
     return null;
   },
   corpo: () => ({ nome: valor('registo-nome').trim(), email: valor('registo-email').trim(), palavraPasse: valor('registo-senha') }),
+  aoSucesso: (resposta) => {
+    document.getElementById('botao-registo').disabled = false;
+    formRegisto.reset();
+    mostrarConfirmar(resposta.email, { enviado: resposta.emailEnviado });
+  },
 });
 
 // Arranque: quem já tem sessão não precisa de entrar outra vez
@@ -98,4 +194,6 @@ try {
   if (await obterConta()) location.replace(destino());
 } catch { /* sem resposta da API: mostra o formulário na mesma */ }
 
-mostrar(new URLSearchParams(location.search).get('modo') === 'registo' ? 'registo' : 'entrar', false);
+mostrar(params.get('modo') === 'registo' ? 'registo' : 'entrar', false);
+document.getElementById('nota-confirmado').hidden = params.get('confirmado') !== '1';
+if (params.get('confirmado') === '1') document.getElementById('entrar-email').focus();

@@ -9,7 +9,7 @@ async function resposta401(resposta, url) {
 export async function obter(url) {
   const resposta = await fetch(url);
   await resposta401(resposta, url);
-  if (!resposta.ok) throw new Error(await mensagemDeErro(resposta));
+  if (!resposta.ok) throw await erroDe(resposta);
   return resposta.json();
 }
 
@@ -20,16 +20,18 @@ export async function enviar(metodo, url, corpo) {
     body: corpo === undefined ? undefined : JSON.stringify(corpo),
   });
   await resposta401(resposta, url);
-  if (!resposta.ok) throw new Error(await mensagemDeErro(resposta));
+  if (!resposta.ok) throw await erroDe(resposta);
   return resposta.status === 204 ? null : resposta.json();
 }
 
-async function mensagemDeErro(resposta) {
-  try {
-    const json = await resposta.json();
-    if (json?.erro) return json.erro;
-  } catch { /* resposta sem JSON */ }
-  return `Erro ${resposta.status}`;
+/** O erro de uma resposta falhada: a mensagem da API, o estado HTTP e, se houver, o código (ex.: email_por_confirmar). */
+async function erroDe(resposta) {
+  let json = null;
+  try { json = await resposta.json(); } catch { /* resposta sem JSON */ }
+  const erro = new Error(json?.erro || `Erro ${resposta.status}`);
+  erro.status = resposta.status;
+  erro.codigo = json?.codigo ?? null;
+  return erro;
 }
 
 /** 125 segundos -> "02:05" */

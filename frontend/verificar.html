@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <!-- O endereço leva o código secreto do email: não deve aparecer em pesquisas nem em referências -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Confirmar email · Scouting de Andebol</title>
+  <link rel="stylesheet" href="css/estilo.css">
+</head>
+<body>
+  <header class="topo topo-marca">
+    <a class="marca" href="entrar.html"><span class="marca-icone" aria-hidden="true"></span><span>Scouting <b>Andebol</b></span></a>
+  </header>
+
+  <main class="caixa-centro" aria-live="polite">
+    <section id="a-confirmar">
+      <h1>A confirmar o teu email…</h1>
+      <p class="sub">Um instante.</p>
+    </section>
+
+    <section id="confirmado" hidden>
+      <h1>Email confirmado</h1>
+      <p class="sub">A tua conta está ativa. Entra com o email e a palavra-passe que escolheste.</p>
+      <a class="botao-link primario" id="ir-entrar" href="entrar.html?confirmado=1">Entrar</a>
+    </section>
+
+    <section id="falhou" hidden>
+      <h1>Não foi possível confirmar</h1>
+      <p class="sub" id="erro-confirmar"></p>
+      <form id="form-novo-link" class="cartao" novalidate>
+        <label>Email da conta
+          <input id="novo-email" type="email" name="email" autocomplete="username" inputmode="email" maxlength="160" required>
+        </label>
+        <p class="erro-formulario" id="erro-novo-link" role="alert"></p>
+        <p class="nota-ok" id="ok-novo-link" role="status" hidden></p>
+        <button class="botao primario" type="submit" id="botao-novo-link">Enviar um link novo</button>
+      </form>
+      <p class="entrar-rodape">Já confirmaste? <a href="entrar.html">Entra na tua conta</a>.</p>
+    </section>
+  </main>
+
+  <script type="module" src="js/verificar.js"></script>
+</body>
+</html>

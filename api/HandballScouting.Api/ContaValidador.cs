@@ -11,6 +11,12 @@ public static partial class ContaValidador
     [GeneratedRegex(@"^[^@\s]+@[^@\s]+\.[^@\s]+$")]
     private static partial Regex PadraoEmail();
 
+    [GeneratedRegex(@"^[0-9a-f]{64}\z")]
+    private static partial Regex PadraoToken();
+
+    /// <summary>O código do link do email: 32 bytes em hexadecimal (64 caracteres).</summary>
+    public static bool TokenValido(string? token) => token is not null && PadraoToken().IsMatch(token);
+
     /// <summary>Email sem espaços e em minúsculas (é assim que fica guardado).</summary>
     public static string NormalizarEmail(string? email) => (email ?? "").Trim().ToLowerInvariant();
 

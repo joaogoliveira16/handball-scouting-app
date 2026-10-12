@@ -9,7 +9,8 @@
 --     pertencem à equipa/jogo e por isso ao mesmo dono.
 --   * jogos.codigo: código secreto do link de partilha. Quem tem o link (jogo + código) vê o dashboard em
 --     direto sem conta; para registar ou editar é preciso ser o dono.
---   * A primeira conta criada fica com tudo o que já existia sem dono (incluindo os dados de exemplo).
+--   * A primeira conta com o email confirmado fica com tudo o que já existia sem dono (incluindo os dados de
+--     exemplo); ver 08_confirmacao_email.sql.
 
 CREATE TABLE IF NOT EXISTS utilizadores (
     id                 SERIAL       PRIMARY KEY,
@@ -64,25 +65,15 @@ CREATE TRIGGER tg_jogos_donos
     FOR EACH ROW EXECUTE FUNCTION jogos_donos_coerentes();
 
 -- ---------------------------------------------------------------------
--- Criar uma conta. A primeira de todas adota as equipas e os jogos que ainda não têm dono
--- (assim quem já usava a app não perde nada). Devolve o id da conta nova.
+-- Criar uma conta (ainda por confirmar: ver 08_confirmacao_email.sql). Devolve o id da conta nova.
 -- Um email repetido dá unique_violation (a API responde 409).
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION registar_utilizador(p_email TEXT, p_nome TEXT, p_hash TEXT) RETURNS INT
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_id       INT;
-    v_primeiro BOOLEAN;
+    v_id INT;
 BEGIN
-    LOCK TABLE utilizadores IN SHARE ROW EXCLUSIVE MODE;   -- duas primeiras contas ao mesmo tempo não adotam os dados duas vezes
-    v_primeiro := NOT EXISTS (SELECT 1 FROM utilizadores);
-
     INSERT INTO utilizadores (email, nome, palavra_passe_hash) VALUES (p_email, p_nome, p_hash) RETURNING id INTO v_id;
-
-    IF v_primeiro THEN
-        UPDATE equipas SET dono_id = v_id WHERE dono_id IS NULL;
-        UPDATE jogos   SET dono_id = v_id WHERE dono_id IS NULL;
-    END IF;
     RETURN v_id;
 END
 $$;

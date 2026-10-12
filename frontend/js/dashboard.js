@@ -8,6 +8,7 @@ import { criarCampo, novoSvgCampo, simboloLegenda } from './campo.js';
 import { criarBaliza, novoSvgBaliza } from './baliza.js';
 import { ligar, TEXTO_ESTADO } from './tempo-real.js';
 import { obterConta, mostrarMenu } from './conta.js';
+import { lembrarJogo } from './vistos.js';
 
 const parametros = new URLSearchParams(location.search);
 const jogoId = Number(parametros.get('jogo'));
@@ -281,6 +282,14 @@ function desenhar() {
 function receber(dados) {
   estado.dados = dados;
   desenhar();
+  lembrarComoConvidado(dados);
+}
+
+/** Quem veio só pelo link (sem conta) fica com o jogo na sua lista da área de convidado, neste dispositivo. */
+function lembrarComoConvidado(dados) {
+  if (conta || !codigo || dados.equipas.length !== 2) return;
+  const [casa, fora] = dados.equipas;
+  lembrarJogo({ jogo: jogoId, codigo, casa: casa.nome, fora: fora.nome, golosCasa: casa.golos, golosFora: fora.golos });
 }
 
 /** Link inválido, jogo que não existe ou que já não é visível para esta pessoa. */
@@ -297,7 +306,9 @@ function mostrarSemAcesso(conta) {
         : 'O link está incompleto ou o jogo já não existe. Pede um link novo a quem o partilhou. Se o jogo é teu, entra na tua conta.'),
       conta
         ? h('a', { class: 'botao-link primario', href: './' }, 'Ver os meus jogos')
-        : h('a', { class: 'botao-link primario', href: `entrar.html?voltar=${encodeURIComponent(`dashboard.html${location.search}`)}` }, 'Entrar na minha conta')));
+        : h('div', { class: 'acoes-formulario' },
+          h('a', { class: 'botao-link primario', href: 'convidado.html' }, 'Abrir outro link'),
+          h('a', { class: 'botao-link', href: `entrar.html?voltar=${encodeURIComponent(`dashboard.html${location.search}`)}` }, 'Entrar na minha conta'))));
 }
 
 let conta = null;
@@ -315,14 +326,21 @@ async function copiarLink() {
   else window.prompt('Copia este link para partilhar o jogo em direto:', link);
 }
 
-// Quem tem conta vê a seta de voltar e o botão de partilha; quem veio só pelo link vê o jogo e pode exportar
+// Quem tem conta volta à lista de jogos e pode copiar o link; quem veio só pelo link (convidado) volta à área de
+// convidado, vê o jogo e pode exportar
 try {
   conta = await obterConta();
-} catch { /* sem resposta da API: segue como visitante */ }
+} catch { /* sem resposta da API: segue como convidado */ }
+
+const seta = document.getElementById('voltar');
+if (!conta) {
+  seta.href = 'convidado.html';
+  seta.setAttribute('aria-label', 'Voltar à área de convidado');
+}
+seta.hidden = false;
 
 if (conta) {
   mostrarMenu(conta);
-  document.getElementById('voltar').hidden = false;
   if (!codigo) {
     // Aberto sem código (ex.: um marcador antigo): o dono vai buscá-lo ao jogo
     try { codigo = (await obter(`/api/jogos/${jogoId}`)).codigo; } catch { /* não é o dono: sem botão */ }

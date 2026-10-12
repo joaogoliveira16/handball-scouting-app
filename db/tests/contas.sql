@@ -1,4 +1,5 @@
 -- Testes das contas: dono das equipas e dos jogos, código de partilha, sessões e adoção dos dados pela primeira conta.
+-- (A confirmação do email tem os seus próprios testes em db/tests/confirmacao.sql.)
 --   psql -v ON_ERROR_STOP=1 -f db/tests/contas.sql
 -- Corre dentro de uma transação que é desfeita no fim (não deixa dados).
 
@@ -29,8 +30,14 @@ BEGIN
 
     SELECT COUNT(*) INTO v_equipas FROM equipas;
 
-    -- A primeira conta adota as equipas e os jogos que já existiam
+    -- Registar uma conta não adota nada: isso só acontece quando o email é confirmado
     v_a := registar_utilizador('ana@exemplo.pt', 'Ana', 'hash-a');
+    ASSERT (SELECT COUNT(*) FROM equipas WHERE dono_id IS NOT NULL) = 0, 'registar não devia dar equipas a ninguém';
+    ASSERT (SELECT COUNT(*) FROM jogos WHERE dono_id IS NOT NULL) = 0, 'registar não devia dar jogos a ninguém';
+
+    -- A primeira conta com o email confirmado adota as equipas e os jogos que já existiam
+    INSERT INTO verificacoes_email (token_hash, utilizador_id, expira_em) VALUES (repeat('1', 64), v_a, now() + interval '1 day');
+    ASSERT confirmar_email(repeat('1', 64)) = v_a, 'o código da Ana devia confirmar a conta dela';
     ASSERT (SELECT COUNT(*) FROM equipas WHERE dono_id IS DISTINCT FROM v_a) = 0, 'a primeira conta devia ficar com todas as equipas';
     ASSERT (SELECT COUNT(*) FROM jogos WHERE dono_id IS DISTINCT FROM v_a) = 0, 'a primeira conta devia ficar com todos os jogos';
 

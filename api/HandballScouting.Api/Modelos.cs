@@ -23,6 +23,10 @@ public record RegistoRequest(string? Nome, string? Email, string? PalavraPasse);
 
 public record EntrarRequest(string? Email, string? PalavraPasse);
 
+public record ConfirmarEmailRequest(string? Token);
+
+public record ReenviarConfirmacaoRequest(string? Email);
+
 public record NovaEquipaRequest(string? Nome);
 
 public record JogadorRequest(int Numero, string? Nome, string? Posicao);
@@ -53,6 +57,7 @@ public class Utilizador
 public class UtilizadorComHash : Utilizador
 {
     public string PalavraPasseHash { get; set; } = "";
+    public bool EmailVerificado { get; set; }
 }
 
 public class TipoEvento

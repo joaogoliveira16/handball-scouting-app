@@ -18,6 +18,11 @@ case "${1:-}" in
     export ConnectionStrings__Default="Host=${PGHOST:-localhost};Port=5432;Database=${PGDATABASE:-scouting};Username=${PGUSER:-scouting};Password=${PGPASSWORD:-scouting}"
     export ASPNETCORE_URLS="http://localhost:5080"
     export Exportacao__FusoHorario="Europe/Lisbon"
+    # Emails de confirmação: para a caixa de correio de teste (Mailpit) que o CI arranca (SMTP 1025, API http 8025)
+    export Email__Host="${EMAIL_HOST:-localhost}"
+    export Email__Porta="${EMAIL_PORTA:-1025}"
+    export Email__De="scouting@exemplo.pt"
+    export App__UrlPublico="${URL_PUBLICO:-http://localhost:8080}"
     nohup dotnet "$PASTA/HandballScouting.Api.dll" >> "$RESULTADOS/api.log" 2>&1 &
     echo $! > "$PID"
     for _ in $(seq 1 60); do

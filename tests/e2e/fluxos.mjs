@@ -10,12 +10,14 @@
 //
 // Variáveis: API_URL (http://localhost:5080), E2E_DIR (./resultados, onde ficam capturas e Excel),
 //            APP_URL (usar um servidor já a correr em vez de arrancar o próprio),
+//            EMAIL_API (caixa de correio de teste, Mailpit: http://localhost:8025, onde chegam os emails de confirmação),
 //            SIGNALR_FALSO (só para desenvolver estes testes sem a API: ficheiro JS que substitui a biblioteca SignalR).
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import pg from 'pg';
+import { esperarMensagens, lerMensagem, mensagensPara, ultimoToken } from '../correio.mjs';
 import { iniciarServidor } from './servidor.mjs';
 
 const API_URL = process.env.API_URL ?? 'http://localhost:5080';
@@ -53,10 +55,11 @@ function ok(condicao, mensagem) {
 const errosPaginas = [];
 // Abre uma página. Opções: contexto (outro "browser"), tolerar (estados HTTP que o browser regista na consola e
 // são esperados, como o 409 dos nomes repetidos ou o 401 de quem ainda não entrou), rapida (não espera pelo fim
-// da rede: para páginas que redirecionam sozinhas).
+// da rede: para páginas que redirecionam sozinhas), relogio (relógio do browser controlável: page.clock).
 const semAssentar = [];   // páginas cuja rede não ficou parada (diagnóstico: que pedidos ficaram abertos)
-async function pagina(caminho, { contexto = ctx, tolerar = [], rapida = false } = {}) {
+async function pagina(caminho, { contexto = ctx, tolerar = [], rapida = false, relogio = false } = {}) {
   const page = await contexto.newPage();
+  if (relogio) await page.clock.install();
   const esperados = ['409', ...tolerar];
   const pendentes = new Set();
   const historico = [];
@@ -125,12 +128,22 @@ async function registarPelaPagina(p, { nome, email, senha }) {
   await p.click('#botao-registo');
 }
 
-await passo('Contas: criar conta, sair e entrar', async () => {
+/** Abre, num browser, o link do email de confirmação mais recente deste endereço e espera pela página «Email confirmado». */
+async function abrirLinkDoEmail(email, { contexto = ctx, quantas = 1 } = {}) {
+  const token = await ultimoToken(email, quantas);
+  if (!token) throw new Error(`não chegou o email de confirmação para ${email}`);
+  const v = await pagina(`/verificar.html?t=${token}`, { contexto });
+  await v.waitForSelector('#confirmado:not([hidden])');
+  return { v, token };
+}
+
+await passo('Contas: criar conta, confirmar o email, sair e entrar', async () => {
   // Sem sessão, as páginas levam à entrada e guardam para onde voltar
-  let p = await pagina('/equipas.html', { tolerar: ['401'], rapida: true });
+  let p = await pagina('/equipas.html', { tolerar: ['401', '403'], rapida: true, relogio: true });   // 401: ainda sem sessão; 403: entrar sem ter confirmado o email
   await p.waitForURL(/entrar\.html/);
   ok(new URL(p.url()).searchParams.get('voltar') === 'equipas.html', `sem sessão: /equipas.html leva à entrada e guarda para onde voltar (${caminhoDe(p)})`);
   ok((await p.locator('#form-entrar').isVisible()) && (await p.locator('#form-registo').isHidden()), 'entrar: começa no formulário de entrada');
+  ok((await p.locator('#entrar-convidado').getAttribute('href')) === 'convidado.html', 'entrar: há uma ligação «Entrar como convidado»');
   await captura(p, 'entrar');
 
   await p.click('#aba-registo');
@@ -150,25 +163,100 @@ await passo('Contas: criar conta, sair e entrar', async () => {
   await p.click('.campo-palavra-passe:has(#registo-senha) .ver-senha');
   ok((await p.getAttribute('#registo-senha', 'type')) === 'password', 'registo: "Esconder" volta a escondê-la');
 
-  // Criar a conta leva à página pedida (equipas.html), já com a sessão iniciada
+  // Criar a conta pede para confirmar o email: ainda não há sessão nem dados
+  ok((await q('SELECT 1 FROM equipas WHERE dono_id IS NOT NULL')).length === 0, 'antes de haver contas, as equipas de exemplo não têm dono');
   await p.click('#botao-registo');
+  await p.waitForSelector('#painel-confirmar:not([hidden])');
+  ok((await p.locator('#titulo-caixa').textContent()) === 'Confirma o teu email' && (await p.locator('#texto-confirmar b').textContent()) === emailPrincipal,
+    'registo: aparece «Confirma o teu email» com o endereço para onde seguiu o link');
+  ok(await p.locator('#entrada').isHidden() && (await p.locator('#estado-confirmar').isHidden()), 'registo: o formulário dá lugar ao aviso (sem erros)');
+  ok(!(await ctx.cookies()).some((c) => c.name === 'sessao'), 'registo: ainda não há sessão iniciada (falta confirmar o email)');
+  const [pendente] = await q('SELECT id, nome, email_verificado_em FROM utilizadores WHERE email = $1', [emailPrincipal]);
+  donoId = pendente?.id;
+  ok(pendente && pendente.nome === nomePrincipal && pendente.email_verificado_em === null, 'base de dados: a conta nova fica por confirmar');
+  ok((await q('SELECT 1 FROM equipas WHERE dono_id IS NOT NULL')).length === 0, 'e ainda não adotou as equipas de exemplo');
+  await captura(p, 'confirmar-email');
+
+  // O email chegou à caixa de correio de teste
+  const [chegou] = await esperarMensagens(emailPrincipal, 1);
+  const email1 = chegou ? await lerMensagem(chegou.ID) : null;
+  ok(!!email1 && /Confirma/.test(email1.Subject) && email1.Text.includes(`Olá ${nomePrincipal},`), 'email: chegou o email de confirmação com o nome da pessoa', email1?.Subject);
+  ok(/\/verificar\.html\?t=[0-9a-f]{64}/.test(email1?.Text ?? '') && /<a href="[^"]+\/verificar\.html\?t=[0-9a-f]{64}"/.test(email1?.HTML ?? ''), 'email: o link para confirmar vai no texto e no botão HTML');
+
+  // "Reenviar email" espera uns segundos; passado esse tempo envia outro email
+  ok((await p.locator('#reenviar').isDisabled()) && /Reenviar email \(\d+ s\)/.test(await p.locator('#reenviar').textContent()), 'confirmar: «Reenviar email» começa parado com uma contagem');
+  await p.clock.runFor(31000);
+  ok((await p.locator('#reenviar').isEnabled()) && (await p.locator('#reenviar').textContent()) === 'Reenviar email', 'confirmar: passados 30 segundos o botão fica disponível');
+  await p.click('#reenviar');
+  await p.waitForFunction(() => document.getElementById('estado-confirmar').textContent.includes('Enviámos outro email'));
+  ok((await esperarMensagens(emailPrincipal, 2)).length === 2, 'confirmar: «Reenviar email» envia outro email');
+  ok(await p.locator('#reenviar').isDisabled(), 'confirmar: depois de reenviar o botão pára outra vez');
+
+  // Tentar entrar sem ter aberto o link: diz para confirmar e oferece outro email
+  await p.click('#ja-confirmei');
+  ok((await p.inputValue('#entrar-email')) === emailPrincipal && (await p.locator('#form-entrar').isVisible()), 'confirmar: «Já confirmei, entrar» leva ao formulário com o email preenchido');
+  await p.fill('#entrar-senha', SENHA);
+  await p.click('#botao-entrar');
+  await p.waitForFunction(() => document.getElementById('erro-entrar').textContent.length > 0);
+  ok((await p.locator('#erro-entrar').textContent()).includes('Confirma o teu email') && (await p.locator('#reenviar-entrar').isVisible()), 'entrar sem confirmar: mostra o aviso e «Reenviar email de confirmação»');
+  ok(!(await ctx.cookies()).some((c) => c.name === 'sessao'), 'entrar sem confirmar: não há sessão');
+  await captura(p, 'entrar-sem-confirmar');
+  await p.click('#reenviar-entrar');
+  await p.waitForSelector('#painel-confirmar:not([hidden])');
+  ok((await esperarMensagens(emailPrincipal, 3)).length === 3, 'entrar sem confirmar: «Reenviar email de confirmação» envia outro email');
+
+  // Abrir o link do email (noutro separador): confirma a conta
+  const { v: paginaLink, token } = await abrirLinkDoEmail(emailPrincipal, { quantas: 3 });
+  ok((await paginaLink.locator('#confirmado h1').textContent()) === 'Email confirmado', 'link do email: «Email confirmado»');
+  ok(!new URL(paginaLink.url()).searchParams.has('t'), 'link do email: o código sai do endereço depois de usado');
+  await captura(paginaLink, 'email-confirmado');
+  ok((await paginaLink.locator('#ir-entrar').getAttribute('href')) === 'entrar.html?confirmado=1', 'link do email: o botão «Entrar» leva à entrada');
+  const [confirmada] = await q('SELECT email_verificado_em FROM utilizadores WHERE id = $1', [donoId]);
+  ok(confirmada?.email_verificado_em !== null, 'base de dados: a conta ficou confirmada');
+  const hashes = (await q('SELECT token_hash FROM verificacoes_email WHERE utilizador_id = $1', [donoId])).map((l) => l.token_hash);
+  ok(hashes.length === 3 && hashes.includes(crypto.createHash('sha256').update(token).digest('hex')) && !hashes.includes(token), 'base de dados: dos links só ficam os SHA-256 dos códigos');
+  await paginaLink.close();
+
+  // Abrir o mesmo link outra vez continua a dar «confirmado»; códigos errados mostram o motivo e oferecem um link novo
+  const outraVez = await pagina(`/verificar.html?t=${token}`);
+  await outraVez.waitForSelector('#confirmado:not([hidden])');
+  ok(true, 'link do email: abrir o mesmo link outra vez continua a mostrar «Email confirmado»');
+  await outraVez.close();
+  const invalido = await pagina(`/verificar.html?t=${'f'.repeat(64)}`, { tolerar: ['400'] });
+  await invalido.waitForSelector('#falhou:not([hidden])');
+  ok((await invalido.locator('#erro-confirmar').textContent()).includes('inválido ou já expirou') && (await invalido.locator('#form-novo-link').isVisible()), 'link inválido: explica o que se passou e oferece um link novo');
+  await captura(invalido, 'email-link-invalido');
+  await invalido.fill('#novo-email', `ninguem-${sufixo}@exemplo.pt`);
+  await invalido.click('#botao-novo-link');
+  await invalido.waitForSelector('#ok-novo-link:not([hidden])');
+  ok((await invalido.locator('#ok-novo-link').textContent()).includes('Se a conta existir'), 'link inválido: pedir um link novo responde sem revelar se a conta existe');
+  ok((await mensagensPara(`ninguem-${sufixo}@exemplo.pt`)).length === 0, 'link inválido: para um email sem conta não segue nenhum email');
+  await invalido.close();
+  const semCodigo = await pagina('/verificar.html', { tolerar: ['400'] });
+  await semCodigo.waitForSelector('#falhou:not([hidden])');
+  ok((await semCodigo.locator('#erro-confirmar').textContent()).includes('Falta o código'), 'link sem código: explica o que falta');
+  await semCodigo.close();
+
+  // De volta ao separador original: entrar leva à página pedida (equipas.html), já com a sessão iniciada
+  await p.click('#ja-confirmei');
+  await p.fill('#entrar-senha', SENHA);
+  await p.click('#botao-entrar');
   await p.waitForURL((u) => u.pathname === '/equipas.html');
   await p.waitForSelector('.item-equipa');
-  ok(true, 'registo: criar a conta leva de volta à página pedida');
+  ok(true, 'entrar: depois de confirmar, entrar leva de volta à página pedida');
   ok((await p.locator('#conta-menu .quem').textContent()).includes(nomePrincipal), 'menu: mostra o nome da conta');
   ok((await p.locator('#conta-menu .avatar').textContent()) === 'P', 'menu: avatar com a inicial do nome');
 
-  // O que ficou na base de dados: hash PBKDF2, só o hash da sessão, dados de exemplo herdados
+  // O que ficou na base de dados: hash PBKDF2, só o hash da sessão, dados de exemplo herdados na confirmação
   const [u] = await q('SELECT id, email, nome, palavra_passe_hash FROM utilizadores WHERE email = $1', [emailPrincipal]);
-  donoId = u?.id;
   ok(u && u.nome === nomePrincipal && /^pbkdf2-sha256\$600000\$/.test(u.palavra_passe_hash) && !u.palavra_passe_hash.includes(SENHA), 'base de dados: palavra-passe guardada só como hash PBKDF2');
   const galleta = (await ctx.cookies()).find((c) => c.name === 'sessao');
   ok(galleta?.httpOnly === true && galleta.sameSite === 'Lax' && /^[0-9a-f]{64}$/.test(galleta.value), 'cookie de sessão: HttpOnly, SameSite=Lax, 64 hexadecimais');
   const hashDaSessao = galleta ? crypto.createHash('sha256').update(galleta.value).digest('hex') : '';
   const sessoes = await q('SELECT token_hash FROM sessoes WHERE utilizador_id = $1', [donoId]);
   ok(sessoes.length === 1 && sessoes[0].token_hash === hashDaSessao, 'base de dados: da sessão só fica o SHA-256 do código do cookie');
-  ok((await q('SELECT 1 FROM equipas WHERE dono_id = $1 AND id IN ($2, $3)', [donoId, aguias.id, leoes.id])).length === 2, 'a primeira conta herdou as equipas de exemplo');
-  ok((await q('SELECT 1 FROM jogos WHERE dono_id = $1 AND id = 2', [donoId])).length === 1, 'a primeira conta herdou os jogos de exemplo');
+  ok((await q('SELECT 1 FROM equipas WHERE dono_id = $1 AND id IN ($2, $3)', [donoId, aguias.id, leoes.id])).length === 2, 'a primeira conta confirmada herdou as equipas de exemplo');
+  ok((await q('SELECT 1 FROM jogos WHERE dono_id = $1 AND id = 2', [donoId])).length === 1, 'a primeira conta confirmada herdou os jogos de exemplo');
 
   // Sair
   await Promise.all([p.waitForURL(/entrar\.html/), p.click('#conta-menu button')]);
@@ -185,7 +273,7 @@ await passo('Contas: criar conta, sair e entrar', async () => {
   await p.click('#botao-entrar');
   await p.waitForFunction(() => document.getElementById('erro-entrar').textContent.length > 0);
   ok((await p.locator('#erro-entrar').textContent()) === 'Email ou palavra-passe errados.', 'entrar: palavra-passe errada mostra o erro da API');
-  ok(await p.locator('#botao-entrar').isEnabled(), 'entrar: o botão volta a ficar ativo depois do erro');
+  ok((await p.locator('#botao-entrar').isEnabled()) && (await p.locator('#reenviar-entrar').isHidden()), 'entrar: o botão volta a ficar ativo e não oferece reenviar (a conta já está confirmada)');
   await p.fill('#entrar-senha', SENHA);
   await Promise.all([p.waitForURL((u) => u.pathname === '/'), p.click('#botao-entrar')]);
   await p.waitForSelector('.lista-jogos');
@@ -200,6 +288,17 @@ await passo('Contas: criar conta, sair e entrar', async () => {
     ok(true, `entrar: o parâmetro voltar="${hostil}" não leva para fora do site`);
     await h.close();
   }
+
+  // Registar o mesmo email antes de o confirmar pede outro email; depois de confirmado é «já existe»
+  const ctxNovo = await novoContexto();
+  const outro = await pagina('/entrar.html?modo=registo', { contexto: ctxNovo, tolerar: ['401'] });
+  await outro.fill('#registo-nome', 'Outra pessoa'); await outro.fill('#registo-email', emailPrincipal); await outro.fill('#registo-senha', 'outra-palavra-1');
+  await outro.click('#botao-registo');
+  await outro.waitForFunction(() => document.getElementById('erro-registo').textContent.length > 0);
+  ok((await outro.locator('#erro-registo').textContent()).includes('Já existe uma conta com esse email') && (await outro.locator('#reenviar-registo').isHidden()),
+    'registo com o email de uma conta confirmada: «já existe» e sem oferta de reenviar');
+  await outro.close();
+  await ctxNovo.close();
 });
 
 // ======================= Equipas e jogadores =======================
@@ -232,7 +331,7 @@ await passo('Equipas e jogadores', async () => {
   await p.click('.formulario-jogador button[type=submit]');
   await p.waitForFunction(() => document.querySelectorAll('table.tabela tbody tr').length === 3);
   ok(true, 'jogadores: 3 jogadores adicionados');
-  ok((await p.locator('.item-equipa[aria-current="true"] small').textContent()).includes('3'), 'equipas: contador de jogadores atualizado (3)');
+  ok(await esperarPor(async () => ((await p.locator('.item-equipa[aria-current="true"] small').textContent()) ?? '').includes('3')), 'equipas: contador de jogadores atualizado (3)');
   ok((await q('SELECT count(*)::int AS n FROM jogadores WHERE equipa_id = (SELECT id FROM equipas WHERE nome = $1)', [nomeDragoes]))[0].n === 3, 'jogadores: gravados na base de dados');
 
   await p.fill('#numero', '2'); await p.fill('#nome', 'Duplicado');
@@ -526,7 +625,7 @@ await passo('Link de partilha: copiar e ver sem conta', async () => {
   ok(await esperarPor(async () => (await v.locator('#ligacao').getAttribute('class'))?.includes('ok')), 'visitante: o dashboard liga-se em direto sem conta');
   ok(await esperarPor(async () => (await texto(v.locator('#golos-casa'))) === '6' && (await texto(v.locator('#golos-fora'))) === '9'), 'visitante: vê o jogo 6–9');
   if (SIGNALR_FALSO) await empurrar(v, 2, codigo);
-  ok(await v.locator('#voltar').isHidden(), 'visitante: sem seta para a lista de jogos (não tem conta)');
+  ok((await v.locator('#voltar').isVisible()) && (await v.locator('#voltar').getAttribute('href')) === 'convidado.html', 'visitante: a seta leva à área de convidado (não à lista de jogos, que é da conta)');
   ok((await v.locator('svg.campo .camada-marcadores .marcador').count()) > 0, 'visitante: o mapa de remates aparece');
   await captura(v, 'dashboard-visitante');
   await v.click('#partilhar');
@@ -555,10 +654,68 @@ await passo('Link de partilha: copiar e ver sem conta', async () => {
     const n = await pagina(url, { contexto: ctxVisitante, tolerar: ['401', '404'] });
     ok(await esperarPor(async () => (await n.locator('.sem-acesso').count()) === 1), `visitante ${nome}: mostra "Este jogo não está disponível"`);
     ok((await n.locator('#ligacao').textContent()) === 'sem acesso' && (await n.locator('.placar').isHidden()), `visitante ${nome}: sem acesso, sem placar`);
-    ok((await n.locator('.sem-acesso a').getAttribute('href')).startsWith('entrar.html?voltar='), `visitante ${nome}: ligação para entrar na conta`);
+    ok((await n.locator('.sem-acesso a[href^="entrar.html?voltar="]').count()) === 1 && (await n.locator('.sem-acesso a[href="convidado.html"]').count()) === 1, `visitante ${nome}: ligações para entrar na conta e para a área de convidado`);
     if (nome === 'sem código') await captura(n, 'dashboard-sem-acesso');
     await n.close();
   }
+});
+
+// ======================= Área de convidado =======================
+await passo('Área de convidado: ver jogos só com o link', async () => {
+  const [{ codigo }] = await q('SELECT codigo FROM jogos WHERE id = 2');
+  const link = `${servidor.url}/dashboard.html?jogo=2&c=${codigo}`;
+  const CHAVE = 'scouting.convidado.jogos';
+
+  // Quem abriu os links dos passos anteriores (sem conta) já os tem na lista, com o último resultado visto
+  const e = await pagina('/entrar.html', { contexto: ctxVisitante, tolerar: ['401'] });
+  await Promise.all([e.waitForURL(/convidado\.html/), e.click('#entrar-convidado')]);
+  await e.waitForSelector('#form-link');
+  ok(true, 'convidado: «Entrar como convidado», na página de entrada, abre a área de convidado');
+  ok((await e.locator('#link-conta').isVisible()) && (await e.locator('#link-conta').getAttribute('href')) === 'entrar.html', 'convidado: oferece «Tenho conta» a quem tem conta');
+  ok((await e.locator('#vistos').isVisible()) && (await e.locator('.visto', { hasText: 'Águias do Norte vs Leões do Sul' }).filter({ hasText: '6–9' }).count()) === 1,
+    'convidado: lembra os jogos que já abriu neste dispositivo, com o último resultado visto (6–9)');
+  await captura(e, 'convidado');
+
+  // Link inválido: explica o que falta
+  await e.click('#form-link button[type=submit]');
+  ok((await e.locator('#erro-link').textContent()).includes('Cola o link'), 'convidado: sem link pede para colar o link');
+  for (const mau of ['isto não é um link', `${servidor.url}/dashboard.html?jogo=2&c=curto`, `${servidor.url}/dashboard.html?c=${codigo}`, `${servidor.url}/dashboard.html?jogo=0&c=${codigo}`]) {
+    await e.fill('#link-jogo', mau);
+    await e.click('#form-link button[type=submit]');
+    ok((await e.locator('#erro-link').textContent()).includes('não parece o link de um jogo') && e.url().includes('convidado.html'), `convidado: recusa "${mau.replace(servidor.url, '')}" e fica na página`);
+  }
+
+  // Link bom, no meio de uma mensagem: abre o dashboard do jogo, sem conta
+  await e.fill('#link-jogo', `Vê o jogo em direto: ${link} obrigado!`);
+  await Promise.all([e.waitForURL(/dashboard\.html\?jogo=2&c=/), e.click('#form-link button[type=submit]')]);
+  ok(await esperarPor(async () => (await e.locator('#ligacao').getAttribute('class'))?.includes('ok')), 'convidado: o link colado abre o dashboard em direto');
+  ok(await esperarPor(async () => (await texto(e.locator('#golos-casa'))) === '6' && (await texto(e.locator('#golos-fora'))) === '9'), 'convidado: vê o jogo 6–9 sem conta');
+  ok(await e.locator('#conta-menu .quem').count() === 0, 'convidado: no dashboard não aparece menu de conta');
+
+  // A seta leva de volta à área de convidado, onde o jogo continua na lista; "Tirar" e "Limpar a lista" esvaziam-na
+  await Promise.all([e.waitForURL(/convidado\.html/), e.click('#voltar')]);
+  const antes = await e.locator('.visto').count();
+  ok(antes >= 1, `convidado: de volta à área de convidado o jogo está na lista (${antes})`);
+  await Promise.all([e.waitForURL(/dashboard\.html\?jogo=2/), e.locator('.visto-ligacao', { hasText: 'Águias do Norte' }).first().click()]);
+  ok(true, 'convidado: abrir um jogo da lista leva ao dashboard');
+  await Promise.all([e.waitForURL(/convidado\.html/), e.click('#voltar')]);
+  await e.locator('.visto', { hasText: 'Águias do Norte' }).first().getByRole('button', { name: /Tirar/ }).click();
+  ok((await e.locator('.visto').count()) === antes - 1, 'convidado: «Tirar» esquece só esse jogo');
+  if (antes - 1 > 0) await e.click('#limpar-vistos');
+  ok(await e.locator('#vistos').isHidden() && (await e.evaluate((c) => localStorage.getItem(c), CHAVE)) === null, 'convidado: «Limpar a lista» esvazia-a (e apaga o que estava guardado no browser)');
+  await e.reload({ waitUntil: 'domcontentloaded' });
+  await e.waitForSelector('#form-link');
+  ok(await e.locator('#vistos').isHidden(), 'convidado: depois de recarregar a lista continua vazia');
+  await e.close();
+
+  // Quem tem conta não usa a área de convidado e o dashboard não lhe enche a lista
+  const dono = await pagina('/convidado.html');
+  ok((await dono.locator('#link-conta').count()) === 0 && (await dono.locator('#conta-menu a:has-text("Os meus jogos")').count()) === 1, 'convidado: com sessão iniciada oferece «Os meus jogos» em vez de «Tenho conta»');
+  const dash = await pagina(`/dashboard.html?jogo=2&c=${codigo}`);
+  ok(await esperarPor(async () => (await dash.locator('#ligacao').getAttribute('class'))?.includes('ok')), 'convidado: o dono também abre o link');
+  ok((await dash.evaluate((c) => localStorage.getItem(c), CHAVE)) === null, 'convidado: quem tem conta não enche a lista de convidado');
+  await dash.close();
+  await dono.close();
 });
 
 // ======================= Segunda conta =======================
@@ -570,11 +727,18 @@ await passo('Segunda conta: começa vazia e não vê os dados da primeira', asyn
   let p = await pagina('/', { contexto: ctxB, tolerar: ['401'], rapida: true });
   await p.waitForURL(/entrar\.html/);
   await registarPelaPagina(p, { nome: 'Bruno', email: emailB, senha: 'outra-palavra-1' });
+  await p.waitForSelector('#painel-confirmar:not([hidden])');
+  ok((await ctxB.cookies()).every((c) => c.name !== 'sessao'), 'segunda conta: depois de registar ainda não tem sessão');
+  const { v: linkB } = await abrirLinkDoEmail(emailB, { contexto: ctxB });
+  await linkB.close();
+  await p.click('#ja-confirmei');
+  await p.fill('#entrar-senha', 'outra-palavra-1');
+  await p.click('#botao-entrar');
   await p.waitForURL((u) => u.pathname === '/');
   await p.waitForSelector('.estado-vazio');
   const [b] = await q('SELECT id FROM utilizadores WHERE email = $1', [emailB]);
   ok(b?.id && b.id !== donoId, 'segunda conta: criada (conta diferente da primeira)');
-  ok((await q('SELECT 1 FROM equipas WHERE dono_id = $1', [b.id])).length === 0 && (await q('SELECT 1 FROM jogos WHERE dono_id = $1', [b.id])).length === 0, 'segunda conta: não herda os dados de exemplo (só a primeira conta herda)');
+  ok((await q('SELECT 1 FROM equipas WHERE dono_id = $1', [b.id])).length === 0 && (await q('SELECT 1 FROM jogos WHERE dono_id = $1', [b.id])).length === 0, 'segunda conta: não herda os dados de exemplo (só a primeira conta confirmada herda)');
   ok(await p.locator('#novo-jogo').isHidden(), 'segunda conta: sem equipas não há "Novo jogo"');
   ok((await p.locator('.estado-vazio .passos li').count()) === 3 && (await p.locator('.estado-vazio a[href="equipas.html"]').count()) === 1, 'segunda conta: lista vazia mostra os 3 primeiros passos e leva às equipas');
   ok((await p.locator('.jogo-linha').count()) === 0, 'segunda conta: não vê os jogos da primeira');
