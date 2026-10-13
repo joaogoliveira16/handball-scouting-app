@@ -268,9 +268,9 @@ function desenharOutros() {
   const tipos = estado.tipos.filter((t) => !t.eRemate && !TIPOS_SETE_SEIS.includes(t.codigo));
   const ligado = seteSeisAtivo(equipaAtacante());
   substituir(document.getElementById('outros'),
-    tipos.map((t) => h('button', { type: 'button', onclick: () => registarOutro(t) }, t.nome)),
+    tipos.map((t) => h('button', { type: 'button', disabled: estado.aEnviar, onclick: () => registarOutro(t) }, t.nome)),
     h('button', {
-      type: 'button', id: 'btn-sete-seis', class: `alternar${ligado ? ' ativo' : ''}`, 'aria-pressed': String(ligado),
+      type: 'button', id: 'btn-sete-seis', disabled: estado.aEnviar, class: `alternar${ligado ? ' ativo' : ''}`, 'aria-pressed': String(ligado),
       title: 'Marca quando a equipa que ataca troca o guarda-redes por um sétimo jogador de campo',
       onclick: alternarSeteSeis,
     }, ligado ? '7×6 ligado · desligar' : 'Ataque 7×6'));
@@ -380,7 +380,7 @@ function registar(corpo, mensagem, { limpar = true } = {}) {
     estado.situacao = 'POSICIONAL';
   }
   estado.aEnviar = true;
-  setTimeout(() => { estado.aEnviar = false; desenharResultados(); }, BLOQUEIO_MS);
+  setTimeout(() => { estado.aEnviar = false; desenharResultados(); desenharOutros(); }, BLOQUEIO_MS);
   avisar(`${mensagem}${navigator.onLine ? '' : ' · sem rede: guardado no tablet'}`);
   recalcular();
   desenharTudo();
