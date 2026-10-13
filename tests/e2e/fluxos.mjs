@@ -925,7 +925,12 @@ await passo('Banco: o 3.º 2 minutos e o vermelho direto tiram o jogador do jogo
 // ======================= Superioridade numérica =======================
 await passo('Superioridade: o banco conta os 2 minutos, marca o 7×6 e o dashboard acompanha o relógio', async () => {
   const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
-  const banco = await pagina(`/banco.html?jogo=${jogoId}`, { relogio: true });
+  // O relógio falso do Playwright vale para todo o contexto (todas as páginas do browser): o banco fica num contexto
+  // só dele (com a mesma sessão), para o dashboard continuar com o tempo verdadeiro. Os saltos de 10 minutos fazem
+  // o SignalR do banco dar «Server timeout elapsed» (esperado: liga-se outra vez sozinho).
+  const ctxBanco = await novoContexto();
+  await ctxBanco.addCookies(await ctx.cookies());
+  const banco = await pagina(`/banco.html?jogo=${jogoId}`, { contexto: ctxBanco, relogio: true, tolerar: ['Server timeout elapsed'] });
   await banco.waitForSelector('.botao-jogador');
   ok(await esperarPor(async () => (await banco.locator('#ligacao').getAttribute('class'))?.includes('ok')), 'superioridade: banco ligado ao hub');
   const dash = await pagina(`/dashboard.html?jogo=${jogoId}`);
@@ -1009,6 +1014,7 @@ await passo('Superioridade: o banco conta os 2 minutos, marca o 7×6 e o dashboa
   await empurrar(dash, jogoId);
   ok(await esperarPor(async () => (await dash.locator('#relogio-dash.parado').count()) === 1), 'superioridade: o dashboard mostra o relógio parado');
   await banco.close();
+  await ctxBanco.close();
   await dash.close();
 });
 
