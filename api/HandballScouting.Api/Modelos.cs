@@ -224,6 +224,18 @@ public class EstatJogador
     public decimal? Eficacia { get; set; }
 }
 
+/// <summary>Sanções de um jogador no jogo: expulso = vermelho direto ou 3.º "2 minutos" (a regra está na vista v_sancoes).</summary>
+public class SancaoJogador
+{
+    public int JogadorId { get; set; }
+    public int EquipaId { get; set; }
+    public short Numero { get; set; }
+    public string Nome { get; set; } = "";
+    public long DoisMinutos { get; set; }
+    public long Vermelhos { get; set; }
+    public bool Expulso { get; set; }
+}
+
 public class EstatZona
 {
     public int EquipaId { get; set; }
@@ -338,6 +350,7 @@ public class EstatisticasJogo
     public int ParcialMinutos { get; set; }
     public List<ParcialEquipa> Parcial { get; set; } = new();
     public List<OutroEvento> OutrosEventos { get; set; } = new();
+    public List<SancaoJogador> Sancoes { get; set; } = new();
     public List<EventoResumo> UltimosEventos { get; set; } = new();
     public List<RemateMapa> Remates { get; set; } = new();
 }

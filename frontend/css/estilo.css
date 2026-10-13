@@ -245,7 +245,7 @@ h3 { font: 600 1.05rem/1.2 var(--fonte); }
 .botao-jogador {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   min-height: 78px; border: 2px solid var(--linha); background: var(--superficie); border-radius: var(--raio-controlo);
-  padding: 4px; line-height: 1.1;
+  padding: 4px; line-height: 1.1; position: relative;
   transition: border-color 0.12s, background 0.12s;
 }
 .botao-jogador:hover { border-color: var(--linha-forte); background: var(--realce); }
@@ -254,6 +254,14 @@ h3 { font: 600 1.05rem/1.2 var(--fonte); }
 .botao-jogador em { font-style: normal; font-size: 0.78rem; font-weight: 600; color: var(--suave); }
 .botao-jogador.ativo { border-color: var(--eq); background: rgba(var(--eq-rgb), 0.12); }
 .botao-jogador.ativo small { color: var(--tinta); }
+/* Suspensões: "2′×2" no canto; a partir da 3.ª (ou com vermelho direto) o jogador fica expulso e já não se escolhe */
+.botao-jogador .sancao {
+  position: absolute; top: 3px; right: 3px; padding: 1px 5px; border-radius: 6px;
+  background: var(--alerta-fundo); color: var(--alerta); font: 700 0.78rem/1.2 var(--fonte-num);
+}
+.botao-jogador.expulso, .botao-jogador.expulso:hover { background: var(--perigo-fundo); border-color: transparent; opacity: 0.6; }
+.botao-jogador.expulso b { text-decoration: line-through; }
+.botao-jogador.expulso em { color: var(--perigo); }
 
 .resultados { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 @media (max-width: 600px) { .resultados { grid-template-columns: repeat(3, 1fr); } }
@@ -302,6 +310,7 @@ h3 { font: 600 1.05rem/1.2 var(--fonte); }
   font-size: 0.88rem; font-weight: 700;
 }
 .etiqueta.neutra { color: var(--suave); background: var(--realce); }
+.etiqueta.expulso { color: var(--perigo); background: var(--perigo-fundo); }
 .ponto-equipa { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
 .ponto-equipa.casa { background: var(--cor-casa); }
 .ponto-equipa.fora { background: var(--cor-fora); }

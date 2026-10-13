@@ -212,6 +212,18 @@ function blocoOutrosEventos() {
     : h('p', { class: 'vazio' }, 'Ainda sem faltas, perdas de bola ou exclusões.'));
 }
 
+/** Quem já viu 2 minutos ou vermelho; "Expulso" = vermelho direto ou 3.º 2 minutos (os remates que fez continuam contados). */
+function blocoSancoes() {
+  const sancoes = estado.dados.sancoes ?? [];
+  if (!sancoes.length) return null;
+  const linhas = sancoes.map((s) => h('tr', {},
+    h('td', {}, pontoEquipa(equipaPorId(s.equipaId)), `#${s.numero} ${s.nome}`),
+    h('td', { class: 'num' }, s.doisMinutos),
+    h('td', { class: 'num' }, s.vermelhos),
+    h('td', {}, s.expulso ? h('span', { class: 'etiqueta expulso' }, 'Expulso') : '')));
+  return cartao('Sanções', tabela([['Jogador'], ['2 min', true], ['Vermelhos', true], ['']], linhas));
+}
+
 function blocoUltimosEventos() {
   const eventos = estado.dados.ultimosEventos.slice(0, 10);
   const lista = eventos.map((e) => {
@@ -276,6 +288,7 @@ function desenhar() {
     blocoPorParte(),
     blocoGuardaRedes(),
     blocoOutrosEventos(),
+    blocoSancoes(),
     blocoUltimosEventos());
 }
 

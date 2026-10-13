@@ -65,6 +65,7 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
             ParcialMinutos = ParcialMinutos,
             Parcial = (await Consulta<ParcialEquipa>(con, "parcial", new { jogoId, minutos = ParcialMinutos }, ct)).ToList(),
             OutrosEventos = (await Consulta<OutroEvento>(con, "outros_eventos", p, ct)).ToList(),
+            Sancoes = (await Consulta<SancaoJogador>(con, "sancoes", p, ct)).ToList(),
             UltimosEventos = (await Consulta<EventoResumo>(con, "ultimos_eventos", new { jogoId, limite = 15 }, ct)).ToList(),
             Remates = (await Consulta<RemateMapa>(con, "remates_mapa", p, ct)).ToList()
         };

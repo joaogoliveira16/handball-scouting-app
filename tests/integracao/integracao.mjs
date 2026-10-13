@@ -380,6 +380,7 @@ await passo('Saúde e dados de exemplo', async () => {
 
   const tipos = await http('GET', '/api/tipos-evento');
   ok(tipos.status === 200 && tipos.json?.some((t) => t.codigo === 'REMATE' && t.eRemate === true), 'GET /api/tipos-evento', descricao(tipos));
+  ok(tipos.json?.some((t) => t.codigo === 'VERMELHO' && t.eRemate === false), 'GET /api/tipos-evento inclui o vermelho direto', descricao(tipos));
 
   const detalhe = await http('GET', '/api/jogos/2');
   ok(detalhe.status === 200 && detalhe.json?.jogadores?.length === 16, 'GET /api/jogos/2 devolve os 16 jogadores', descricao(detalhe));
@@ -408,6 +409,8 @@ await passo('Estatísticas (GROUP BY / COUNT) sobre os dados de exemplo', async 
   ok(est.json?.parcial?.length === 2 && est.json.parcial.find((p) => p.equipaId === fora?.equipaId)?.golos === 3, 'parcial dos últimos 5 minutos: 3 golos da equipa de fora');
   ok(est.json?.guardaRedes?.length >= 2, 'estatísticas de guarda-redes presentes');
   ok(est.json?.outrosEventos?.length > 0, 'outros eventos (faltas, perdas...) presentes');
+  ok(est.json?.sancoes?.length === 1 && est.json.sancoes[0].jogadorId === 14 && est.json.sancoes[0].doisMinutos === 1 && est.json.sancoes[0].vermelhos === 0 && est.json.sancoes[0].expulso === false,
+    'sanções: o jogo de exemplo tem um jogador com um 2 minutos (ainda não expulso)', JSON.stringify(est.json?.sancoes));
 
   // lateral esquerdo, linha de 9 m, segunda parte
   const e1 = await http('GET', '/api/jogos/2/estatisticas/eficacia?posicao=LE&distancia=LINHA_9M&parte=2');
@@ -667,6 +670,40 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
   await esperar(500);
   ok(doOutroJogo.length === 0, 'quem está noutro jogo não recebe as atualizações deste');
   await outro.stop();
+
+  // sanções: o 3.º 2 minutos e o vermelho direto desqualificam o jogador (os eventos dele continuam nas estatísticas)
+  const { foraId: equipaFora, lateralFora: jogadorFora } = jogoNovo;
+  const sancionar = (tipo, equipaId, jogadorId, segundoJogo) => http('POST', `/api/jogos/${id}/eventos`, { tipoEvento: tipo, equipaId, jogadorId, parte: 1, segundoJogo });
+  const sancaoDe = async (jogadorId) => (await http('GET', `/api/jogos/${id}/estatisticas`)).json?.sancoes?.find((x) => x.jogadorId === jogadorId);
+  const sancoesCriadas = [];
+  for (const [vez, segundo] of [[1, 400], [2, 500]]) {
+    const r = await sancionar('DOIS_MINUTOS', casaId, lateralCasa, segundo);
+    ok(r.status === 201, `sanções: ${vez}.º 2 minutos = 201`, descricao(r));
+    sancoesCriadas.push(r.json?.id);
+    const x = await sancaoDe(lateralCasa);
+    ok(x?.doisMinutos === vez && x.vermelhos === 0 && x.expulso === false, `sanções: com ${vez} 2 minutos o jogador não está expulso`, JSON.stringify(x));
+  }
+  const terceiro = await sancionar('DOIS_MINUTOS', casaId, lateralCasa, 600);
+  ok(terceiro.status === 201, 'sanções: 3.º 2 minutos = 201', descricao(terceiro));
+  sancoesCriadas.push(terceiro.json?.id);
+  ok(await ate(() => recebidos.at(-1)?.sancoes?.find((x) => x.jogadorId === lateralCasa)?.expulso === true), 'sanções: o dashboard recebe o jogador expulso ao 3.º 2 minutos');
+  const expulso = recebidos.at(-1).sancoes.find((x) => x.jogadorId === lateralCasa);
+  ok(expulso.doisMinutos === 3 && expulso.equipaId === casaId && expulso.numero > 0 && expulso.nome, 'sanções: traz a equipa, o número, o nome e os 3 2 minutos', JSON.stringify(expulso));
+  ok(recebidos.at(-1).remates.length >= 1 && recebidos.at(-1).equipas.find((e) => e.equipaId === casaId)?.remates >= 1, 'sanções: os remates do jogador expulso continuam nas estatísticas');
+
+  const vermelho = await sancionar('VERMELHO', equipaFora, jogadorFora, 700);
+  ok(vermelho.status === 201, 'sanções: vermelho direto = 201', descricao(vermelho));
+  sancoesCriadas.push(vermelho.json?.id);
+  const v = await sancaoDe(jogadorFora);
+  ok(v?.vermelhos === 1 && v.doisMinutos === 0 && v.expulso === true && v.equipaId === equipaFora, 'sanções: o vermelho direto expulsa logo', JSON.stringify(v));
+  ok((await sancionar('VERMELHO', casaId, null, 750)).status === 400, 'sanções: o vermelho direto sem jogador = 400');
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { tipoEvento: 'VERMELHO', equipaId: casaId, jogadorId: lateralCasa, parte: 1, segundoJogo: 800, x: 50, y: 50 })).status === 400, 'sanções: o vermelho não tem posição no campo = 400');
+
+  // apagar os eventos devolve os jogadores ao jogo (e deixa o jogo como estava)
+  for (const eventoId of sancoesCriadas) {
+    ok((await http('DELETE', `/api/jogos/${id}/eventos/${eventoId}`)).status === 204, 'sanções: apagar o evento = 204');
+  }
+  ok((await http('GET', `/api/jogos/${id}/estatisticas`)).json?.sancoes?.length === 0, 'sanções: sem os eventos ninguém tem sanções');
 
   await ligacao.stop();
   ok(true, 'ligações fechadas');

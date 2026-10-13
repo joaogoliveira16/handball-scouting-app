@@ -4,6 +4,8 @@ namespace HandballScouting.Api;
 public static class EventoValidador
 {
     public static readonly string[] Resultados = { "GOLO", "DEFESA", "FORA", "POSTE", "BLOQUEADO" };
+    /// <summary>Código do vermelho direto na tabela tipos_evento (ver db/init/12_expulsoes.sql).</summary>
+    public const string TipoVermelho = "VERMELHO";
     public static readonly string[] Situacoes = { "POSICIONAL", "CONTRA_ATAQUE", "SETE_METROS" };
 
     public static List<string> Validar(NovoEventoRequest r, bool eRemate)
@@ -35,6 +37,10 @@ public static class EventoValidador
         {
             erros.Add("eventos que não são remates não levam resultado, coordenadas nem guarda-redes.");
         }
+
+        // Um vermelho direto é de um jogador (é ele que fica desqualificado)
+        if (r.TipoEvento == TipoVermelho && r.JogadorId is null)
+            erros.Add("jogadorId é obrigatório num vermelho direto.");
 
         // Local da defesa na baliza: opcional, mas os dois pontos vêm juntos, dentro da baliza e só numa defesa
         if (eRemate && (r.BalizaX is not null || r.BalizaY is not null))

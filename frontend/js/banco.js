@@ -100,6 +100,11 @@ const temConvocatoria = (equipaId) => jogadoresDe(equipaId).some((j) => j.convoc
 const plantelDe = (equipaId) => (temConvocatoria(equipaId) ? jogadoresDe(equipaId).filter((j) => j.convocado) : jogadoresDe(equipaId));
 const nomeCurto = (nome) => nome.split(' ')[0];
 
+// Sanções: o 3.º "2 minutos" ou um vermelho direto desqualifica o jogador (a regra está na base de dados, vista v_sancoes).
+// Quem está expulso deixa de poder ser escolhido, mas os eventos que já tem continuam nas estatísticas.
+const sancaoDe = (jogadorId) => estado.estatisticas?.sancoes?.find((s) => s.jogadorId === jogadorId) ?? null;
+const motivoExpulsao = (sancao) => (sancao.vermelhos > 0 ? 'vermelho direto' : `${sancao.doisMinutos} × 2 minutos`);
+
 function guardaRedesAdversario() {
   const lista = plantelDe(equipaAdversaria()).filter((j) => j.posicao === 'GR');
   const escolhido = estado.grPorEquipa[equipaAtacante()];
@@ -154,6 +159,25 @@ function desenharSeletorEquipa() {
     botao('casa', estado.jogo.casaNome), botao('fora', estado.jogo.foraNome));
 }
 
+function botaoJogador(j) {
+  const sancao = sancaoDe(j.id);
+  const expulso = Boolean(sancao?.expulso);
+  const marca = !expulso && sancao?.doisMinutos
+    ? h('span', { class: 'sancao', title: `${sancao.doisMinutos} × 2 minutos` }, `2′×${sancao.doisMinutos}`)
+    : null;
+  return h('button', {
+    type: 'button',
+    class: `botao-jogador${estado.jogadorId === j.id ? ' ativo' : ''}${expulso ? ' expulso' : ''}`,
+    disabled: expulso,
+    'data-jogador': j.id,
+    title: expulso ? `Expulso (${motivoExpulsao(sancao)}): já não pode jogar` : null,
+    onclick: () => {
+      estado.jogadorId = estado.jogadorId === j.id ? null : j.id;
+      desenharTudo();
+    },
+  }, h('b', {}, j.numero), h('small', {}, nomeCurto(j.nome)), h('em', {}, expulso ? 'Expulso' : j.posicao), marca);
+}
+
 function desenharJogadores() {
   const jogadores = plantelDe(equipaAtacante())
     .filter((j) => j.posicao !== 'GR')
@@ -161,13 +185,7 @@ function desenharJogadores() {
   const grelha = document.getElementById('jogadores');
   grelha.dataset.lado = estado.lado;
   substituir(grelha, jogadores.length
-    ? jogadores.map((j) => h('button', {
-      type: 'button', class: `botao-jogador${estado.jogadorId === j.id ? ' ativo' : ''}`,
-      onclick: () => {
-        estado.jogadorId = estado.jogadorId === j.id ? null : j.id;
-        desenharTudo();
-      },
-    }, h('b', {}, j.numero), h('small', {}, nomeCurto(j.nome)), h('em', {}, j.posicao)))
+    ? jogadores.map(botaoJogador)
     : h('p', { class: 'vazio' }, 'Sem jogadores de campo convocados.'));
 
   const nota = document.getElementById('nota-convocatoria');
@@ -320,6 +338,10 @@ async function registarRemate(resultado) {
     return;
   }
   const jogador = estado.jogo.jogadores.find((j) => j.id === estado.jogadorId);
+  if (sancaoDe(jogador.id)?.expulso) {
+    avisar(`#${jogador.numero} ${jogador.nome} está expulso.`, { erro: true });
+    return;
+  }
   const guardaRedes = guardaRedesAdversario();
   const ponto = estado.ponto;
   const corpo = {
@@ -348,13 +370,25 @@ async function registarRemate(resultado) {
   registar(corpo, descricao);
 }
 
+/** O que acontece ao jogador com esta sanção (para o aviso depois de registar), ou '' se continua em jogo. */
+function consequencia(tipo, jogador) {
+  if (!jogador) return '';
+  if (tipo.codigo === 'VERMELHO') return ' · expulso';
+  if (tipo.codigo === 'DOIS_MINUTOS' && (sancaoDe(jogador.id)?.doisMinutos ?? 0) + 1 >= 3) return ' · expulso (3.º 2 minutos)';
+  return '';
+}
+
 function registarOutro(tipo) {
   if (estado.aEnviar) return;
   const jogador = estado.jogo.jogadores.find((j) => j.id === estado.jogadorId);
+  if (tipo.codigo === 'VERMELHO' && !jogador) {
+    avisar('Escolhe o jogador que viu o vermelho.', { erro: true });
+    return;
+  }
   registar({
     ...corpoBase(tipo.codigo),
     jogadorId: jogador?.id ?? null,
-  }, `${tipo.nome}${jogador ? ` · #${jogador.numero} ${jogador.nome}` : ''}`);
+  }, `${tipo.nome}${jogador ? ` · #${jogador.numero} ${jogador.nome}` : ''}${consequencia(tipo, jogador)}`);
 }
 
 async function apagarEvento(evento) {
@@ -373,6 +407,8 @@ async function apagarEvento(evento) {
 
 function receberEstatisticas(estatisticas) {
   estado.estatisticas = estatisticas;
+  // Se o jogador escolhido acabou de ser expulso (aqui ou noutro tablet), deixa de estar escolhido
+  if (estado.jogadorId && sancaoDe(estado.jogadorId)?.expulso) estado.jogadorId = null;
   desenharTudo();
 }
 

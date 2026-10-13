@@ -803,6 +803,90 @@ await passo('Banco regista, dashboard recebe em tempo real', async () => {
   await visitante.close();
 });
 
+// ======================= Banco: 3.º 2 minutos e vermelho direto expulsam =======================
+await passo('Banco: o 3.º 2 minutos e o vermelho direto tiram o jogador do jogo', async () => {
+  const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  const banco = await pagina(`/banco.html?jogo=${jogoId}`);
+  await banco.waitForSelector('.botao-jogador');
+  ok(await esperarPor(async () => (await banco.locator('#ligacao').getAttribute('class'))?.includes('ok')), 'expulsões: banco ligado ao hub');
+  const dash = await pagina(`/dashboard.html?jogo=${jogoId}`);
+  await dash.waitForSelector('.placar');
+
+  const botoes = banco.locator('.botao-jogador');
+  const idA = await botoes.nth(0).getAttribute('data-jogador');
+  const idB = await botoes.nth(1).getAttribute('data-jogador');
+  const botaoA = banco.locator(`.botao-jogador[data-jogador="${idA}"]`);
+  const botaoB = banco.locator(`.botao-jogador[data-jogador="${idB}"]`);
+  const doisMinutos = banco.locator('#outros button', { hasText: /^2 minutos$/ });
+  const vermelho = banco.locator('#outros button', { hasText: /^Vermelho direto$/ });
+  const avisoDiz = async (trecho) => esperarPor(async () => ((await banco.locator('#aviso').textContent()) ?? '').includes(trecho), 4000);
+  const eventosDe = async (tipo, jogador) => (await q('SELECT 1 FROM eventos WHERE jogo_id = $1 AND tipo_evento_codigo = $2 AND jogador_id = $3', [jogoId, tipo, jogador])).length;
+
+  ok((await vermelho.count()) === 1 && (await doisMinutos.count()) === 1, 'expulsões: o banco tem o botão «Vermelho direto» ao lado dos «2 minutos»');
+  ok((await botoes.count()) === 6 && (await banco.locator('.botao-jogador:disabled').count()) === 0, 'expulsões: no início todos os jogadores se podem escolher');
+
+  // 1.º e 2.º 2 minutos: o contador sobe e o jogador continua disponível
+  for (const vez of [1, 2]) {
+    await botaoA.click();
+    await doisMinutos.click();
+    ok(await esperarPor(async () => (await eventosDe('DOIS_MINUTOS', idA)) === vez), `expulsões: o ${vez}.º «2 minutos» ficou registado`);
+    await empurrar(banco, jogoId);
+    ok(await esperarPor(async () => (await texto(botaoA.locator('.sancao'))) === `2′×${vez}`), `expulsões: o jogador mostra 2′×${vez}`);
+    ok(await botaoA.isEnabled(), `expulsões: com ${vez} «2 minutos» o jogador ainda pode jogar`);
+  }
+  ok(!((await banco.locator('#aviso').textContent()) ?? '').includes('expulso'), 'expulsões: antes do 3.º não há aviso de expulsão');
+
+  // 3.º 2 minutos: fica expulso
+  await botaoA.click();
+  await doisMinutos.click();
+  ok(await avisoDiz('expulso (3.º 2 minutos)'), 'expulsões: o aviso diz que o jogador ficou expulso ao 3.º 2 minutos');
+  ok(await esperarPor(async () => (await eventosDe('DOIS_MINUTOS', idA)) === 3), 'expulsões: o 3.º «2 minutos» ficou registado');
+  await empurrar(banco, jogoId);
+  ok(await esperarPor(async () => await botaoA.isDisabled()), 'expulsões: o jogador com 3 «2 minutos» já não se pode escolher');
+  ok((await texto(botaoA.locator('em'))) === 'Expulso' && (await botaoA.getAttribute('class')).includes('expulso'), 'expulsões: o botão diz «Expulso» e fica a cinzento');
+  ok(((await botaoA.getAttribute('title')) ?? '').includes('3 × 2 minutos'), 'expulsões: o motivo (3 × 2 minutos) aparece ao passar o rato');
+  ok((await botoes.count()) === 6, 'expulsões: o jogador expulso continua na grelha (não desaparece)');
+  ok((await banco.locator('.botao-jogador:disabled').count()) === 1, 'expulsões: só ele ficou desativado');
+  ok(await banco.locator('#dica.pronto').count() === 0 && ((await banco.locator('#dica').textContent()) ?? '').includes('escolhe o jogador'), 'expulsões: depois da expulsão não fica nenhum jogador escolhido');
+  await captura(banco, 'banco-expulso');
+
+  // Vermelho direto sem jogador: não regista nada
+  await vermelho.click();
+  ok(await avisoDiz('Escolhe o jogador'), 'expulsões: «Vermelho direto» sem jogador pede para escolher o jogador');
+  ok((await q("SELECT 1 FROM eventos WHERE jogo_id = $1 AND tipo_evento_codigo = 'VERMELHO'", [jogoId])).length === 0, 'expulsões: sem jogador o vermelho não fica registado');
+
+  // Vermelho direto a outro jogador: expulso logo
+  await botaoB.click();
+  await vermelho.click();
+  ok(await avisoDiz('expulso'), 'expulsões: o aviso diz que o vermelho expulsa o jogador');
+  ok(await esperarPor(async () => (await eventosDe('VERMELHO', idB)) === 1), 'expulsões: o vermelho ficou registado');
+  await empurrar(banco, jogoId);
+  ok(await esperarPor(async () => await botaoB.isDisabled()), 'expulsões: o vermelho direto desativa logo o jogador');
+  ok(((await botaoB.getAttribute('title')) ?? '').includes('vermelho direto'), 'expulsões: o motivo é «vermelho direto»');
+  ok((await banco.locator('.botao-jogador:disabled').count()) === 2, 'expulsões: agora há dois jogadores expulsos');
+
+  // O dashboard mostra quem está expulso e os remates antigos não desaparecem
+  await empurrar(dash, jogoId);
+  const sancoes = dash.locator('section.cartao', { has: dash.locator('h2', { hasText: 'Sanções' }) });
+  ok(await esperarPor(async () => (await sancoes.locator('tbody tr').count()) === 2), 'expulsões: o dashboard tem um quadro «Sanções» com os dois jogadores');
+  ok((await sancoes.locator('.etiqueta.expulso').count()) === 2, 'expulsões: ambos aparecem como «Expulso» no dashboard');
+  const linhaA = sancoes.locator('tbody tr').filter({ has: dash.locator('td.num', { hasText: /^3$/ }) });
+  ok((await linhaA.count()) === 1, 'expulsões: o dashboard mostra os 3 «2 minutos» do primeiro jogador');
+  await captura(dash, 'dashboard-sancoes');
+
+  // Enganos corrigem-se: apagar o vermelho devolve o jogador ao jogo
+  await banco.click('#btn-desfazer');
+  ok(await esperarPor(async () => (await eventosDe('VERMELHO', idB)) === 0), 'expulsões: apagar o vermelho tira o evento da base de dados');
+  await empurrar(banco, jogoId);
+  ok(await esperarPor(async () => await botaoB.isEnabled()), 'expulsões: sem o vermelho o jogador volta a poder ser escolhido');
+  ok(await botaoA.isDisabled(), 'expulsões: o outro continua expulso');
+
+  // Os eventos do expulso continuam na base de dados (e nas estatísticas)
+  ok((await eventosDe('DOIS_MINUTOS', idA)) === 3, 'expulsões: os 3 «2 minutos» continuam registados depois da expulsão');
+  await banco.close();
+  await dash.close();
+});
+
 // ======================= Dashboard: Excel =======================
 await passo('Dashboard: exportar para Excel', async () => {
   const [{ codigo }] = await q('SELECT codigo FROM jogos WHERE id = 2');

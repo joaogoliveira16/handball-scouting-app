@@ -146,4 +146,28 @@ public class EventoValidadorTests
         var invalido = new NovoEventoRequest("PERDA_BOLA", 1, 5, null, null, null, null, null, 1, 450, 50, 50);
         Assert.NotEmpty(EventoValidador.Validar(invalido, eRemate: false));
     }
+
+    [Fact]
+    public void Vermelho_direto_exige_o_jogador()
+    {
+        var semJogador = new NovoEventoRequest("VERMELHO", 1, null, null, null, null, null, null, 2, 2100);
+        Assert.Contains(EventoValidador.Validar(semJogador, eRemate: false), e => e.Contains("vermelho"));
+        var comJogador = semJogador with { JogadorId = 5 };
+        Assert.Empty(EventoValidador.Validar(comJogador, eRemate: false));
+    }
+
+    [Fact]
+    public void Dois_minutos_sem_jogador_continuam_validos()
+    {
+        // pode ser uma sanção ao treinador ou a um oficial: só o vermelho exige jogador
+        var dois = new NovoEventoRequest("DOIS_MINUTOS", 1, null, null, null, null, null, null, 1, 900);
+        Assert.Empty(EventoValidador.Validar(dois, eRemate: false));
+    }
+
+    [Fact]
+    public void Vermelho_direto_nao_tem_posicao_no_campo()
+    {
+        var invalido = new NovoEventoRequest("VERMELHO", 1, 5, null, null, null, 50, 50, 2, 2100);
+        Assert.NotEmpty(EventoValidador.Validar(invalido, eRemate: false));
+    }
 }
