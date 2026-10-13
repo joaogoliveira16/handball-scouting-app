@@ -424,6 +424,19 @@ await passo('Estatísticas (GROUP BY / COUNT) sobre os dados de exemplo', async 
   ok(est.json?.relogio?.aCorrer === false && est.json.relogio.segundo >= 1900, 'superioridade: sem relógio avisado pelo banco, o relógio é o do último evento e está parado', JSON.stringify(est.json?.relogio));
   ok(est.json?.remates?.every((r) => Number.isInteger(r.segundoJogo)), 'superioridade: cada remate do mapa traz o segundo de jogo');
 
+  // treinador-assistente: no jogo de exemplo o adversário marcou 4 golos seguidos depois do time-out da casa
+  const assistenteExemplo = est.json?.assistente;
+  const sugestaoTimeout = assistenteExemplo?.sugestoes?.find((x) => x.codigo === 'TIMEOUT');
+  ok(Array.isArray(assistenteExemplo?.sugestoes) && assistenteExemplo.sugestoes.length > 0 && assistenteExemplo.sugestoes.length <= 6, 'assistente: o jogo de exemplo traz sugestões (no máximo 6)', JSON.stringify(assistenteExemplo));
+  ok(sugestaoTimeout?.nivel === 'urgente' && sugestaoTimeout.equipaId === casa?.equipaId && sugestaoTimeout.detalhe.includes('4 golos seguidos') && sugestaoTimeout.detalhe.includes('parcial de 3–0'),
+    'assistente: série de golos e parcial do adversário -> time-out urgente para a casa', JSON.stringify(sugestaoTimeout));
+  ok(assistenteExemplo?.sugestoes?.every((x) => x.id && x.codigo && x.titulo && x.detalhe && ['urgente', 'atencao', 'sugestao', 'info'].includes(x.nivel) && !('prioridade' in x)),
+    'assistente: cada sugestão traz id, regra, nível, título e detalhe (a prioridade fica no servidor)');
+  ok(new Set(assistenteExemplo?.sugestoes?.map((x) => x.id)).size === assistenteExemplo?.sugestoes?.length, 'assistente: os ids das sugestões são únicos');
+  const direitos = (equipaId) => assistenteExemplo?.timeouts?.find((t) => t.equipaId === equipaId);
+  ok(assistenteExemplo?.timeouts?.length === 2 && direitos(casa?.equipaId)?.usados === 1 && direitos(fora?.equipaId)?.usados === 0 && direitos(fora?.equipaId)?.restantes === 2,
+    'assistente: o time-out do jogo de exemplo conta para a casa (1 usado) e o adversário tem os 2 da parte', JSON.stringify(assistenteExemplo?.timeouts));
+
   // lateral esquerdo, linha de 9 m, segunda parte
   const e1 = await http('GET', '/api/jogos/2/estatisticas/eficacia?posicao=LE&distancia=LINHA_9M&parte=2');
   ok(e1.status === 200 && e1.json?.resultado?.remates === 2 && e1.json.resultado.golos === 1 && Number(e1.json.resultado.eficacia) === 50,
@@ -778,6 +791,32 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
   ok(recebidos.at(-1).outrosEventos.every((o) => !String(o.tipo).startsWith('SETE_SEIS')), 'superioridade: o 7×6 não conta em «outros eventos»');
   ok((await http('POST', `/api/jogos/${id}/eventos`, { tipoEvento: 'SETE_SEIS_INICIO', equipaId: casaId, parte: 1, segundoJogo: 1, x: 50, y: 50 })).status === 400, 'superioridade: o 7×6 não leva coordenadas = 400');
   ok((await http('POST', `/api/jogos/${id}/eventos`, { tipoEvento: 'SETE_SEIS_INICIO', equipaId: 999999, parte: 1, segundoJogo: 1 })).status === 400, 'superioridade: o 7×6 de uma equipa que não é do jogo = 400');
+
+  // treinador-assistente: 4 golos seguidos do adversário -> time-out; o time-out pedido tira a sugestão e gasta direitos
+  const golosFora = [1010, 1020, 1030, 1040];
+  for (const [i, segundoJogo] of golosFora.entries()) {
+    const r = await registar({ ...remate, equipaId: equipaFora, jogadorId: jogadorFora, guardaRedesId: null, segundoJogo, y: 25 + i });
+    ok(r.status === 201, `assistente: golo ${i + 1} de 4 do adversário = 201`, descricao(r));
+  }
+  const sugestaoDe = (codigo) => recebidos.at(-1)?.assistente?.sugestoes?.find((x) => x.codigo === codigo);
+  ok(await ate(() => sugestaoDe('TIMEOUT')?.equipaId === casaId), 'assistente: o dashboard recebe a sugestão de time-out para a equipa que sofre');
+  ok(sugestaoDe('TIMEOUT').nivel === 'urgente' && sugestaoDe('TIMEOUT').detalhe.includes('4 golos seguidos') && sugestaoDe('TIMEOUT').detalhe.includes('Restam 2 time-outs'),
+    'assistente: a sugestão diz porquê e quantos time-outs restam', JSON.stringify(sugestaoDe('TIMEOUT')));
+  ok(sugestaoDe('MARCAR_JOGADOR')?.equipaId === casaId && sugestaoDe('MARCAR_JOGADOR').detalhe.includes('4 golos em 4 remates (100%)'),
+    'assistente: o jogador do adversário que marcou sempre é para marcar de perto', JSON.stringify(sugestaoDe('MARCAR_JOGADOR')));
+  ok(recebidos.at(-1).assistente.sugestoes[0].codigo === 'TIMEOUT', 'assistente: o time-out é a primeira sugestão');
+
+  const pedirTimeout = (segundoJogo) => registar({ tipoEvento: 'TIMEOUT', equipaId: casaId, parte: 1, segundoJogo });
+  const direitosDaCasa = () => recebidos.at(-1)?.assistente?.timeouts?.find((t) => t.equipaId === casaId);
+  ok((await pedirTimeout(1050)).status === 201, 'assistente: a casa pede time-out = 201');
+  ok(await ate(() => direitosDaCasa()?.usados === 1 && !sugestaoDe('TIMEOUT')), 'assistente: depois do time-out a sugestão desaparece e conta 1 usado');
+  ok(direitosDaCasa().naParte === 1 && direitosDaCasa().restantes === 1, 'assistente: um time-out na 1.ª parte deixa mais 1 para pedir', JSON.stringify(direitosDaCasa()));
+  ok((await pedirTimeout(1060)).status === 201, 'assistente: a casa pede o 2.º time-out = 201');
+  ok(await ate(() => direitosDaCasa()?.usados === 2 && direitosDaCasa().restantes === 0), 'assistente: dois time-outs na parte esgotam os da 1.ª parte', JSON.stringify(direitosDaCasa()));
+  // na 2.ª parte (o relógio do banco passa dos 30:00) volta a haver direito a um, porque no jogo são 3
+  ok((await relogioDe({ segundo: 1900, aCorrer: false })).status === 204, 'assistente: o relógio passa para a 2.ª parte = 204');
+  ok(await ate(() => direitosDaCasa()?.restantes === 1 && direitosDaCasa().naParte === 0), 'assistente: na 2.ª parte a casa ainda pode pedir 1 time-out', JSON.stringify(direitosDaCasa()));
+  ok((await relogioDe({ segundo: 1000, aCorrer: false })).status === 204, 'assistente: o relógio volta aos 1000 s = 204');
 
   // limpar (deixa o jogo como estava) e confirmar que o relógio é do jogo
   for (const eventoId of criados) ok((await http('DELETE', `/api/jogos/${id}/eventos/${eventoId}`)).status === 204, 'superioridade: apagar o evento = 204');

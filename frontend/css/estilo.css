@@ -510,10 +510,20 @@ td .acoes-linha { display: flex; gap: 6px; justify-content: flex-end; }
 /* ---------- Dashboard ---------- */
 .dash { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; padding: 20px; max-width: 1400px; margin: 0 auto; }
 .dash .largo { grid-column: 1 / -1; }
-.alerta-parcial {
-  background: var(--alerta-fundo); border: 1px solid #ecc766; border-radius: var(--raio);
-  padding: 14px 18px; font-weight: 600; color: var(--alerta);
-}
+/* Treinador-assistente: uma lista simples; a cor da barra à esquerda diz a urgência */
+.assistente .timeouts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin-bottom: 12px; font-size: 0.92rem; }
+.assistente .suave { color: var(--suave); font-weight: 600; }
+.assistente .timeouts-equipa b { margin-right: 4px; }
+.sugestoes { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.sugestao { --nivel: var(--linha-forte); --nivel-fundo: var(--realce); --nivel-texto: var(--tinta);
+  border-left: 5px solid var(--nivel); background: var(--nivel-fundo); color: var(--nivel-texto);
+  border-radius: var(--raio-controlo); padding: 10px 14px; }
+.sugestao.urgente { --nivel: var(--perigo); --nivel-fundo: var(--perigo-fundo); --nivel-texto: #7f1220; }
+.sugestao.atencao { --nivel: #d99a14; --nivel-fundo: var(--alerta-fundo); --nivel-texto: var(--alerta); }
+.sugestao.sugestao { --nivel: var(--foco); }
+.sugestao-titulo { font-weight: 700; display: flex; align-items: center; }
+.sugestao-detalhe { font-size: 0.92rem; margin-top: 2px; }
+.assistente-nota { font-size: 0.82rem; margin: 10px 0 0; }
 .cartoes-equipa { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .equipa-resumo h3 { margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
 .numeros { display: flex; gap: 22px; flex-wrap: wrap; margin-bottom: 10px; }

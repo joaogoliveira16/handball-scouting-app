@@ -376,6 +376,47 @@ public class EstatisticasJogo
     public List<RemateMapa> Remates { get; set; } = new();
     public RelogioJogo Relogio { get; set; } = new();
     public NumericaJogo Numerica { get; set; } = new();
+    public AssistenteJogo Assistente { get; set; } = new();
+}
+
+/// <summary>Um time-out pedido por uma equipa.</summary>
+public class TimeoutJogo
+{
+    public long EventoId { get; set; }
+    public int EquipaId { get; set; }
+    public short Parte { get; set; }
+    public int SegundoJogo { get; set; }
+}
+
+/// <summary>Time-outs de uma equipa: quantos usou e quantos ainda pode pedir agora (3 por jogo, no máximo 2 por parte).</summary>
+public class TimeoutsEquipa
+{
+    public int EquipaId { get; set; }
+    public int Usados { get; set; }
+    public int NaParte { get; set; }
+    public int Restantes { get; set; }
+}
+
+/// <summary>Uma sugestão do treinador-assistente. <c>EquipaId</c> é a equipa a quem a sugestão serve.</summary>
+public class Sugestao
+{
+    /// <summary>Identifica a sugestão (regra, equipa e jogador): a mesma sugestão tem sempre o mesmo id.</summary>
+    public string Id { get; set; } = "";
+    public string Codigo { get; set; } = "";
+    /// <summary>urgente, atencao, sugestao ou info.</summary>
+    public string Nivel { get; set; } = "";
+    public int? EquipaId { get; set; }
+    public string Titulo { get; set; } = "";
+    public string Detalhe { get; set; } = "";
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int Prioridade { get; set; }
+}
+
+/// <summary>O que o treinador-assistente diz neste momento do jogo (calculado em Assistente.cs).</summary>
+public class AssistenteJogo
+{
+    public List<Sugestao> Sugestoes { get; set; } = new();
+    public List<TimeoutsEquipa> Timeouts { get; set; } = new();
 }
 
 /// <summary>O relógio do jogo agora (o tablet do banco avisa o servidor quando o relógio arranca, pára ou é ajustado).</summary>

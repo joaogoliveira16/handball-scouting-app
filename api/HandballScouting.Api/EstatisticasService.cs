@@ -91,6 +91,10 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
             (await Consulta<SeteSeisEvento>(con, "sete_seis", p, ct)).ToList(),
             estatisticas.Remates, estatisticas.Relogio.Segundo,
             relogioUsado: relogio is not null || ultimoEvento > 0);
+
+        // Treinador-assistente: regras sobre tudo o que acima ficou calculado
+        estatisticas.Assistente = Assistente.Calcular(
+            estatisticas, (await Consulta<TimeoutJogo>(con, "timeouts", p, ct)).ToList());
         return estatisticas;
     }
 

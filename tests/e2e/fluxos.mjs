@@ -1084,6 +1084,79 @@ await passo('Superioridade: a eficácia por situação (igualdade, superioridade
   await semRelogio.close();
 });
 
+// ======================= Treinador-assistente =======================
+await passo('Treinador-assistente: sugestões ao dono do jogo (time-out, sanções, jogadores) e nada para quem vê pelo link', async () => {
+  const [{ id: jogoId, codigo }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id, codigo', [aguias.id, leoes.id, donoId]);
+  const [{ id: jogCasa }] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [aguias.id]);
+  const [{ id: jogFora }] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [leoes.id]);
+  const evento = (tipo, equipa, jogador, segundo, resultado = null) => q(
+    `INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, resultado, situacao, x, y, parte, segundo_jogo)
+     VALUES ($1, $2, $3, $4, $5, 'POSICIONAL', $6, $7, 1, $8)`,
+    [jogoId, equipa, tipo, jogador, resultado, resultado ? 50 : null, resultado ? 40 : null, segundo]);
+
+  // Quatro golos seguidos do #fora nos últimos minutos (4 golos em 5 remates); o #casa falha 5 remates e leva dois 2 minutos
+  await evento('DOIS_MINUTOS', aguias.id, jogCasa, 400);
+  await evento('DOIS_MINUTOS', aguias.id, jogCasa, 450);
+  for (const segundo of [500, 540, 580, 620, 660]) await evento('REMATE', aguias.id, jogCasa, segundo, 'FORA');
+  await evento('REMATE', leoes.id, jogFora, 780, 'DEFESA');
+  for (const segundo of [800, 840, 880, 920]) await evento('REMATE', leoes.id, jogFora, segundo, 'GOLO');
+  await q('INSERT INTO relogios_jogo (jogo_id, segundo, a_correr) VALUES ($1, 1000, FALSE)', [jogoId]);
+
+  const dash = await pagina(`/dashboard.html?jogo=${jogoId}`);
+  const painel = dash.locator('section.assistente');
+  await painel.waitFor();
+  const sugestao = (codigoRegra) => painel.locator(`li.sugestao[data-codigo="${codigoRegra}"]`);
+  const conteudo = async (locator) => ((await locator.textContent()) ?? '').replace(/\s+/g, ' ').trim();
+
+  ok(await sugestao('TIMEOUT').count() === 1 && (await sugestao('TIMEOUT').getAttribute('data-nivel')) === 'urgente', 'assistente: série de golos do adversário -> time-out urgente');
+  const textoTimeout = await conteudo(sugestao('TIMEOUT'));
+  ok(textoTimeout.includes('Time-out: Águias do Norte') && textoTimeout.includes('Leões do Sul marcou 4 golos seguidos') && textoTimeout.includes('Restam 2 time-outs'),
+    `assistente: o time-out explica porquê e quantos restam (${textoTimeout})`);
+  ok(await sugestao('SANCAO').count() === 1 && (await conteudo(sugestao('SANCAO'))).includes('à beira da expulsão'), 'assistente: avisa quem já tem dois 2 minutos');
+  ok(await sugestao('MARCAR_JOGADOR').count() === 1 && (await conteudo(sugestao('MARCAR_JOGADOR'))).includes('4 golos em 5 remates (80%)'),
+    'assistente: o jogador em chamas do adversário é para marcar de perto, com os números');
+  ok(await sugestao('REVER_JOGADOR').count() === 1 && (await conteudo(sugestao('REVER_JOGADOR'))).includes('0 golos em 5 remates (0%)'),
+    'assistente: o jogador que só falha é para rever, com os números');
+  const ordem = await painel.locator('li.sugestao').evaluateAll((lis) => lis.map((li) => li.dataset.codigo));
+  ok(ordem[0] === 'TIMEOUT' && ordem[1] === 'SANCAO', `assistente: as sugestões mais importantes vêm primeiro (${ordem})`);
+  const linhaTimeouts = await conteudo(painel.locator('.timeouts'));
+  ok(linhaTimeouts.includes('Águias do Norte 0/3 usados · pode pedir 2') && linhaTimeouts.includes('Leões do Sul 0/3 usados · pode pedir 2'), `assistente: mostra os time-outs de cada equipa (${linhaTimeouts})`);
+  ok((await dash.locator('.alerta-parcial').count()) === 0, 'assistente: o aviso antigo do parcial foi substituído pelo painel');
+  await captura(dash, 'dashboard-assistente');
+
+  // Quem vê o jogo só pelo link não tem o treinador-assistente
+  const visitante = await pagina(`/dashboard.html?jogo=${jogoId}&c=${codigo}`, { contexto: ctxVisitante, tolerar: ['401'] });
+  await visitante.waitForSelector('#painel .cartao');
+  ok((await visitante.locator('section.assistente').count()) === 0, 'assistente: quem vê pelo link (sem conta) não tem o painel do treinador');
+  ok((await visitante.locator('#painel .cartao').count()) > 3, 'assistente: o resto do dashboard continua igual para quem vê pelo link');
+  await visitante.close();
+
+  // Pedir time-out no banco: a série zera e os direitos baixam
+  const banco = await pagina(`/banco.html?jogo=${jogoId}`);
+  await banco.waitForSelector('.botao-jogador');
+  await banco.locator('#outros button', { hasText: /^Time-out$/ }).click();
+  ok(await esperarPor(async () => (await q("SELECT 1 FROM eventos WHERE jogo_id = $1 AND tipo_evento_codigo = 'TIMEOUT'", [jogoId])).length === 1), 'assistente: o banco registou o time-out da equipa da casa');
+  await empurrar(dash, jogoId);
+  ok(await esperarPor(async () => (await sugestao('TIMEOUT').count()) === 0), 'assistente: depois do time-out a sugestão desaparece');
+  ok(await esperarPor(async () => (await conteudo(painel.locator('.timeouts'))).includes('Águias do Norte 1/3 usados · pode pedir 1')), 'assistente: o painel conta o time-out usado');
+  ok(await sugestao('SANCAO').count() === 1, 'assistente: as outras sugestões mantêm-se');
+
+  // Segundo time-out: nesta parte já não pode pedir mais
+  await banco.locator('#outros button', { hasText: /^Time-out$/ }).click();
+  ok(await esperarPor(async () => (await q("SELECT 1 FROM eventos WHERE jogo_id = $1 AND tipo_evento_codigo = 'TIMEOUT'", [jogoId])).length === 2), 'assistente: o banco registou o 2.º time-out');
+  await empurrar(dash, jogoId);
+  ok(await esperarPor(async () => (await conteudo(painel.locator('.timeouts'))).includes('Águias do Norte 2/3 usados · sem time-outs agora')), 'assistente: com 2 time-outs na parte já não há mais para pedir');
+  await banco.close();
+  await dash.close();
+
+  // Um jogo sem eventos: o painel existe mas não inventa sugestões
+  const [{ id: vazioId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  const vazio = await pagina(`/dashboard.html?jogo=${vazioId}`);
+  await vazio.locator('section.assistente').waitFor();
+  ok((await vazio.locator('li.sugestao').count()) === 0 && (await conteudo(vazio.locator('section.assistente'))).includes('Sem sugestões por agora'), 'assistente: sem dados diz que não há sugestões');
+  await vazio.close();
+});
+
 // ======================= Escudos das equipas =======================
 await passo('Escudos: carregar, trocar e tirar o escudo da equipa', async () => {
   const [{ equipa_id: propriaId }] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [donoId]);

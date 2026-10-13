@@ -18,12 +18,12 @@ const jogoId = Number(parametros.get('jogo'));
 let codigo = parametros.get('c');   // código do link de partilha (quem não tem conta entra só com ele)
 if (!jogoId) location.replace('./');
 
-// Diferença de golos no parcial a partir da qual se sugere um time-out
-const LIMIAR_PARCIAL = 3;
+const TIMEOUTS_POR_JOGO = 3;          // as regras da IHF (o servidor aplica os mesmos números)
 
 const estado = {
   dados: null,
   recebidoEm: 0,                        // quando chegou o estado (o relógio do jogo avança a partir daí)
+  eDono: false,                         // só o dono do jogo vê o treinador-assistente
   equipaId: null,                       // equipa mostrada no mapa e nas tabelas
   filtros: new Set(RESULTADOS),         // resultados visíveis no mapa
 };
@@ -58,15 +58,35 @@ function tabela(cabecalho, linhas) {
 // ---------------------------------------------------------------------
 // Blocos do dashboard
 // ---------------------------------------------------------------------
-function blocoAlerta() {
-  const [a, b] = estado.dados.parcial;
-  if (!a || !b) return null;
-  const diferenca = a.golos - b.golos;
-  if (Math.abs(diferenca) < LIMIAR_PARCIAL) return null;
-  const [lider, atras] = diferenca > 0 ? [a, b] : [b, a];
-  return h('div', { class: 'alerta-parcial largo' },
-    `Parcial de ${lider.golos}–${atras.golos} para ${lider.nome} nos últimos ${estado.dados.parcialMinutos} minutos. `,
-    `Momento a considerar para um time-out de ${atras.nome}.`);
+/**
+ * Treinador-assistente: sugestões calculadas pelo servidor a partir dos dados do jogo (série de golos, parcial, sanções,
+ * jogadores, guarda-redes, superioridade...). Só o dono do jogo as vê: é ele quem decide, a equipa de adeptos não precisa delas.
+ */
+function blocoAssistente() {
+  const assistente = estado.dados.assistente;
+  if (!estado.eDono || !assistente) return null;
+  const sugestoes = assistente.sugestoes ?? [];
+
+  const timeouts = (assistente.timeouts ?? []).map((t) => {
+    const equipa = equipaPorId(t.equipaId);
+    const podePedir = t.restantes > 0 ? `pode pedir ${t.restantes}` : 'sem time-outs agora';
+    return h('span', { class: 'timeouts-equipa', 'data-equipa': t.equipaId },
+      pontoEquipa(equipa), h('b', {}, equipa.nome), ` ${t.usados}/${TIMEOUTS_POR_JOGO} usados · ${podePedir}`);
+  });
+
+  return h('section', { class: 'cartao assistente largo', 'data-assistente': '' },
+    h('h2', { style: 'margin-top:0' }, 'Treinador-assistente'),
+    h('div', { class: 'timeouts' }, h('span', { class: 'suave' }, 'Time-outs'), timeouts),
+    sugestoes.length
+      ? h('ul', { class: 'sugestoes' }, sugestoes.map((s) => {
+        const equipa = s.equipaId != null ? equipaPorId(s.equipaId) : null;
+        return h('li', { class: `sugestao ${s.nivel}`, 'data-codigo': s.codigo, 'data-nivel': s.nivel },
+          h('div', { class: 'sugestao-titulo' }, equipa ? pontoEquipa(equipa) : null, s.titulo),
+          h('div', { class: 'sugestao-detalhe' }, s.detalhe));
+      }))
+      : h('p', { class: 'vazio', style: 'margin:8px 0 0' }, 'Sem sugestões por agora. Aparecem quando os números o justificam.'),
+    h('p', { class: 'vazio assistente-nota' },
+      'Sugestões automáticas a partir das estatísticas do jogo. A decisão é sempre do treinador.'));
 }
 
 function blocoEficacia() {
@@ -324,7 +344,7 @@ function desenhar() {
   faixaNumerica = h('div', { class: 'faixa-numerica largo', hidden: true });
   substituir(painel,
     faixaNumerica,
-    blocoAlerta(),
+    blocoAssistente(),
     blocoEficacia(),
     blocoParcial(),
     abas,
@@ -425,10 +445,13 @@ seta.hidden = false;
 
 if (conta) {
   mostrarMenu(conta);
-  if (!codigo) {
-    // Aberto sem código (ex.: um marcador antigo): o dono vai buscá-lo ao jogo
-    try { codigo = (await obter(`/api/jogos/${jogoId}`)).codigo; } catch { /* não é o dono: sem botão */ }
-  }
+  // O servidor só entrega o código de partilha ao dono: é assim que se sabe se este jogo é dele. Quem abriu o link de
+  // outra pessoa (mesmo com conta) vê o jogo, mas sem o treinador-assistente.
+  try {
+    const jogo = await obter(`/api/jogos/${jogoId}${codigo ? `?c=${encodeURIComponent(codigo)}` : ''}`);
+    estado.eDono = Boolean(jogo.codigo);
+    codigo ??= jogo.codigo;   // aberto sem código (ex.: um marcador antigo): o dono vai buscá-lo ao jogo
+  } catch { /* sem resposta: segue sem o assistente */ }
 }
 if (codigo) {
   const botaoPartilhar = document.getElementById('partilhar');

@@ -2,7 +2,7 @@
 
 Plataforma de scouting e play-by-play para andebol, em tempo real.
 
-O adjunto, no banco e com um tablet, toca num mapa do campo para marcar **onde** foi o remate, escolhe **quem** rematou e carrega no resultado (**golo, defesa, fora, poste ou bloqueado**). O treinador e os adeptos veem um dashboard que se atualiza sozinho, sem recarregar a página, para decidir o momento certo de pedir um time-out.
+O adjunto, no banco e com um tablet, toca num mapa do campo para marcar **onde** foi o remate, escolhe **quem** rematou e carrega no resultado (**golo, defesa, fora, poste ou bloqueado**). O treinador e os adeptos veem um dashboard que se atualiza sozinho, sem recarregar a página, para decidir o momento certo de pedir um time-out. Ao treinador, o dashboard junta um **treinador-assistente** que sugere, com os números que o justificam, quando pedir time-out, quem marcar de perto, quem rever ou por onde estão a marcar.
 
 Antes do jogo gere-se o **plantel da tua equipa**, cria-se o **jogo** (com o nome do adversário) e escolhe-se a **convocatória** (até 16 jogadores por equipa). No fim (ou durante o jogo) exportam-se as **estatísticas para Excel**. A interface é clara e limpa, pensada para tablet e telemóvel.
 
@@ -32,7 +32,7 @@ Precisas do Docker com Docker Compose.
 docker compose up --build
 ```
 
-Abre **http://localhost:8080** e cria a tua conta (separador *Criar conta*). O email de confirmação chega à **caixa de correio de teste** em **http://localhost:8025** (nada sai para a internet; ver *Email* mais abaixo para usar emails a sério). A **primeira conta confirmada** fica com os dados de exemplo: dois jogos, o jogo 1 vazio e o jogo 2 com eventos fictícios (e um parcial que dispara o aviso de time-out). As contas seguintes começam vazias.
+Abre **http://localhost:8080** e cria a tua conta (separador *Criar conta*). O email de confirmação chega à **caixa de correio de teste** em **http://localhost:8025** (nada sai para a internet; ver *Email* mais abaixo para usar emails a sério). A **primeira conta confirmada** fica com os dados de exemplo: dois jogos, o jogo 1 vazio e o jogo 2 com eventos fictícios (com uma série de golos do adversário que dispara a sugestão de time-out). As contas seguintes começam vazias.
 
 - **No tablet**: liga-o à mesma rede do computador e abre `http://<IP-do-computador>:8080`.
 - **Configuração** (porta, palavra-passe, email): copia `.env.example` para `.env`.
@@ -95,7 +95,26 @@ Ainda no banco:
 - **Ataque 7×6**: o botão **Ataque 7×6** (junto aos outros eventos) liga e desliga o ataque sem guarda-redes da equipa que está a atacar (a escolhida em «Ataca: …»). Fica a faixa `7×6 · Equipa` enquanto estiver ligado. Os remates feitos nesse período contam à parte, e os do adversário contra a baliza vazia também.
 - **Desfazer**: `↶ Desfazer último` ou o `✕` ao lado de cada evento.
 
-**Dashboard** (`dashboard.html?jogo=ID`, com `&c=CÓDIGO` para quem só tem o link): placar, eficácia por equipa, parcial dos últimos 5 minutos (com aviso quando há uma diferença de 3 ou mais golos), mapa de remates com filtros, **defesas na baliza** (onde o guarda-redes adversário defendeu os remates da equipa escolhida, com a contagem por zona e a zona mais atacada), jogadores, zonas, guarda-redes, outros eventos, **sanções** (quem viu 2 minutos ou vermelho e quem está expulso), **superioridade numérica** e últimos eventos. No topo do cabeçalho está o **relógio do jogo** (o do banco, em leitura) e, quando há alguém a menos ou um ataque 7×6, a faixa com a contagem decrescente dos 2 minutos. O quadro «Superioridade numérica» mostra, para a equipa escolhida, os remates, golos e eficácia em **superioridade, igualdade, inferioridade, ataque 7×6 e contra baliza vazia**, os golos sofridos na situação contrária («Sofr.») e o tempo passado em cada uma. Os 7 metros ficam de fora: é um castigo, não depende de quantos estão em campo.
+**Dashboard** (`dashboard.html?jogo=ID`, com `&c=CÓDIGO` para quem só tem o link): o **treinador-assistente** (só para o dono do jogo, ver abaixo), placar, eficácia por equipa, parcial dos últimos 5 minutos, mapa de remates com filtros, **defesas na baliza** (onde o guarda-redes adversário defendeu os remates da equipa escolhida, com a contagem por zona e a zona mais atacada), jogadores, zonas, guarda-redes, outros eventos, **sanções** (quem viu 2 minutos ou vermelho e quem está expulso), **superioridade numérica** e últimos eventos. No topo do cabeçalho está o **relógio do jogo** (o do banco, em leitura) e, quando há alguém a menos ou um ataque 7×6, a faixa com a contagem decrescente dos 2 minutos. O quadro «Superioridade numérica» mostra, para a equipa escolhida, os remates, golos e eficácia em **superioridade, igualdade, inferioridade, ataque 7×6 e contra baliza vazia**, os golos sofridos na situação contrária («Sofr.») e o tempo passado em cada uma. Os 7 metros ficam de fora: é um castigo, não depende de quantos estão em campo.
+
+### Treinador-assistente
+
+No topo do dashboard do **dono do jogo** há um painel com os time-outs de cada equipa (`0/3 usados · pode pedir 2`) e até 6 sugestões, as mais importantes primeiro. Cada uma diz **porquê**, com os números (por exemplo «4 golos em 5 remates (80%)»), para o treinador confiar ou discordar: a decisão é sempre dele. Vêm de regras simples sobre os dados que já existem, sem adivinhar nada, e só disparam a partir de um número mínimo de remates, golos ou eventos (poucos remates enganam em qualquer percentagem):
+
+| Sugestão | Quando aparece | Para quem |
+|---|---|---|
+| **Time-out** (urgente) | o adversário marcou **4 golos seguidos** ou ganha por **3 ou mais golos nos últimos 5 minutos** (só com o relógio do banco em uso); só conta o que veio depois do último time-out dessa equipa. Se já não tem time-outs, passa a um aviso | a equipa que sofre |
+| **Sanções** | um jogador com **dois «2 minutos»** que ainda não foi expulso (o terceiro desqualifica) | a equipa do jogador |
+| **Aproveitar mal a superioridade** | **35% ou menos** de golos com mais um jogador, em 4 remates ou mais | a equipa |
+| **Defender melhor em inferioridade** | o adversário marcou **65% ou mais** quando esta equipa jogava com menos um, em 4 remates ou mais | a equipa |
+| **Guarda-redes** | **20% ou menos** de defesas em 8 remates à baliza ou mais (considerar trocar); **45% ou mais** (variar as finalizações) | a equipa do guarda-redes / o adversário |
+| **Marcar de perto** | um jogador do adversário com **3 golos ou mais, 70% ou mais**, em 4 remates ou mais | a equipa que defende |
+| **Rever jogador** | um jogador com **25% ou menos** de golos em 5 remates ou mais | a própria equipa |
+| **Fechar o corredor** | o adversário marca **70% ou mais** por um corredor (ponta, lateral ou central), com 5 remates e 4 golos ou mais | a equipa que defende |
+| **7×6 a sair caro** | mais golos sofridos na baliza vazia do que marcados (3 ou mais lances) | a equipa |
+| **Perdas de bola** | 6 perdas ou mais e 4 a mais do que o adversário | a equipa |
+
+Os **time-outs** seguem as regras da IHF: 3 por jogo e no máximo 2 por parte (a 2.ª parte começa aos 30:00 do relógio; sem relógio, vale a parte do último evento). Outras competições têm outros números: estão no topo de `api/HandballScouting.Api/Assistente.cs`, junto com todos os limiares, para se acertarem num sítio só. As sugestões do relógio (parcial, superioridade, 7×6) só aparecem se o relógio do banco foi usado; sem ele, os eventos ficam todos a 00:00 e não se inventa nada. Quem vê o jogo só pelo link (ou numa conta que não é a do dono) vê o dashboard sem este painel: é uma escolha do ecrã (o servidor envia as sugestões a todos os dashboards, tal como já envia as estatísticas de que elas saem).
 
 ## Exportar para Excel
 
@@ -204,6 +223,8 @@ Um evento `VERMELHO` (vermelho direto) exige `jogadorId`. O estado das estatíst
 
 Superioridade numérica: os eventos `SETE_SEIS_INICIO` e `SETE_SEIS_FIM` (da equipa, sem jogador nem coordenadas) marcam o ataque 7×6. O banco avisa o servidor do relógio com `PUT /api/jogos/{id}/relogio` ao arrancar, parar, ajustar ou mudar de parte e de 30 em 30 segundos enquanto corre; o servidor guarda o segundo e se anda (tabela `relogios_jogo`) e só envia aos dashboards os avisos que mudam alguma coisa (se o banco deixar de avisar, o relógio pára ao fim de 3 minutos). O estado das estatísticas traz `relogio` (`{ segundo, aCorrer }`; sem aviso do banco, o segundo do último evento) e `numerica`: `relogioUsado`, `duracaoSegundos` (120), `suspensoes` (cada 2 minutos ou vermelho com `eventoId`, `equipaId`, `jogadorId`, `jogadorNumero`, `tipo` e `segundoJogo`), `seteSeis` (por equipa: `ativo` e `desde`), `eficacia` (por equipa e situação: `remates`, `golos`) e `tempo` (segundos por equipa e situação). Quem calcula tudo isto é `api/HandballScouting.Api/Numerica.cs` (sem base de dados, com testes xUnit); as situações são `SUPERIORIDADE`, `IGUALDADE`, `INFERIORIDADE`, `SETE_SEIS` (a equipa ataca sem guarda-redes) e `BALIZA_VAZIA` (remata contra o 7×6 do adversário). Se o relógio nunca foi usado (todos os eventos a 00:00), `relogioUsado` é `false` e não há eficácia nem tempo.
 
+Treinador-assistente: o estado das estatísticas traz `assistente`: `sugestoes` (até 6, as mais importantes primeiro, cada uma com `id`, `codigo` da regra, `nivel` — `urgente`, `atencao`, `sugestao` ou `info` —, `equipaId` da equipa a quem serve, `titulo` e `detalhe` com os números) e `timeouts` (por equipa: `usados`, `naParte` e `restantes` agora). Os time-outs são os eventos `TIMEOUT` (consulta `timeouts.sql`). Quem calcula tudo é `api/HandballScouting.Api/Assistente.cs` (sem base de dados, com testes xUnit).
+
 Exemplo de remate (precisa do cookie da sessão; aqui guardado com `-c`/`-b`):
 
 ```bash
@@ -237,7 +258,7 @@ Um tipo com `e_remate = TRUE` seria um evento com posição no mapa, jogador e r
 ## Testes e CI
 
 ```bash
-dotnet test api/HandballScouting.sln        # validação, palavras-passe, travão de tentativas, emails de confirmação e de recuperação, exportação para Excel e cadastro (xUnit)
+dotnet test api/HandballScouting.sln        # validação, palavras-passe, travão de tentativas, emails de confirmação e de recuperação, exportação para Excel, cadastro, superioridade numérica e treinador-assistente (xUnit)
 
 # SQL: com o PostgreSQL a correr e PGHOST, PGUSER, PGPASSWORD e PGDATABASE definidos
 psql -v ON_ERROR_STOP=1 -f db/tests/zonas.sql          # zonas do campo
@@ -259,9 +280,9 @@ python3 db/tests/validar_consultas.py                  # todas as consultas cont
 
 Há ainda testes que usam a **API verdadeira** e um browser (pasta `tests/`, ver `tests/README.md`):
 
-- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação e de recuperação da palavra-passe lidos na caixa de teste, sessões, a equipa da conta (pedida no registo, `propria` na lista de equipas), isolamento entre contas, link de partilha, jogos abertos a convidados durante 24 horas (lista aberta sem sessão, jogos sem eventos pela hora marcada, acesso sem link, código escondido, jogo escondido pelo dono), estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, sanções e expulsões (3.º 2 minutos, vermelho direto, apagar para corrigir), superioridade numérica (relógio do banco no servidor, sanções, 7×6, eficácia e tempo por situação), escudos (permissões, formatos, limite de 200 KB, cache, versão nas listas), atualizações em tempo real e descarga do Excel);
+- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação e de recuperação da palavra-passe lidos na caixa de teste, sessões, a equipa da conta (pedida no registo, `propria` na lista de equipas), isolamento entre contas, link de partilha, jogos abertos a convidados durante 24 horas (lista aberta sem sessão, jogos sem eventos pela hora marcada, acesso sem link, código escondido, jogo escondido pelo dono), estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, sanções e expulsões (3.º 2 minutos, vermelho direto, apagar para corrigir), superioridade numérica (relógio do banco no servidor, sanções, 7×6, eficácia e tempo por situação), treinador-assistente (sugestões, time-outs e direitos por parte), escudos (permissões, formatos, limite de 200 KB, cache, versão nas listas), atualizações em tempo real e descarga do Excel);
 - `tests/integracao/verificar_excel.py`: abre os `.xlsx` descarregados e confere os números com os dados de exemplo;
-- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pelo link, reenviar o email, recuperar a palavra-passe pelo link, a página que só mostra a equipa da conta, criar um jogo escrevendo o adversário, a área de convidado e a lista de jogos das últimas 24 horas (incluindo esconder um jogo), sair e entrar, uma segunda conta que não vê os dados da primeira, o link de partilha aberto sem conta, juntar jogadores à equipa, convocatória (incluindo ler a lista de uma foto com o leitor verdadeiro), registar remates no banco, expulsar jogadores (3.º 2 minutos e vermelho direto) e ver o quadro de sanções, contar os 2 minutos com o relógio a andar (faixa 6×5, 7×6, relógio no dashboard) e ver a eficácia por situação, carregar, trocar e tirar o escudo da equipa (a imagem é reduzida no browser) e vê-lo no placar, nas listas e na área de convidado, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
+- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pelo link, reenviar o email, recuperar a palavra-passe pelo link, a página que só mostra a equipa da conta, criar um jogo escrevendo o adversário, a área de convidado e a lista de jogos das últimas 24 horas (incluindo esconder um jogo), sair e entrar, uma segunda conta que não vê os dados da primeira, o link de partilha aberto sem conta, juntar jogadores à equipa, convocatória (incluindo ler a lista de uma foto com o leitor verdadeiro), registar remates no banco, expulsar jogadores (3.º 2 minutos e vermelho direto) e ver o quadro de sanções, contar os 2 minutos com o relógio a andar (faixa 6×5, 7×6, relógio no dashboard) e ver a eficácia por situação, ver as sugestões do treinador-assistente (só o dono) e gastar time-outs no banco, carregar, trocar e tirar o escudo da equipa (a imagem é reduzida no browser) e vê-lo no placar, nas listas e na área de convidado, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
 
 O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada pull request:
 
