@@ -7,8 +7,10 @@ SELECT g.id,
        g.visivel_convidados,
        c.id   AS casa_id,
        c.nome AS casa_nome,
+       escudo_versao(c.id) AS casa_escudo,
        f.id   AS fora_id,
        f.nome AS fora_nome,
+       escudo_versao(f.id) AS fora_escudo,
        COUNT(r.id) FILTER (WHERE r.resultado = 'GOLO' AND r.equipa_id = g.equipa_casa_id) AS golos_casa,
        COUNT(r.id) FILTER (WHERE r.resultado = 'GOLO' AND r.equipa_id = g.equipa_fora_id) AS golos_fora
 FROM jogos g

@@ -24,6 +24,14 @@ export async function enviar(metodo, url, corpo) {
   return resposta.status === 204 ? null : resposta.json();
 }
 
+/** Envia um ficheiro (por exemplo a imagem de um escudo) como corpo do pedido, sem JSON. */
+export async function enviarFicheiro(metodo, url, ficheiro) {
+  const resposta = await fetch(url, { method: metodo, headers: { 'Content-Type': ficheiro.type || 'application/octet-stream' }, body: ficheiro });
+  await resposta401(resposta, url);
+  if (!resposta.ok) throw await erroDe(resposta);
+  return resposta.status === 204 ? null : resposta.json();
+}
+
 /** O erro de uma resposta falhada: a mensagem da API, o estado HTTP e, se houver, o código (ex.: email_por_confirmar). */
 async function erroDe(resposta) {
   let json = null;

@@ -3,6 +3,7 @@ import { h, substituir, avisar } from './dom.js';
 import { obter, enviar, ROTULO_POSICAO, urlExcel } from './api.js';
 import { exigirConta } from './conta.js';
 import { abrirLeituraDeFoto } from './foto-lista.js';
+import { escudo } from './escudo.js';
 
 const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
 if (!jogoId) location.replace('./');
@@ -22,8 +23,8 @@ const estado = {
 };
 
 const equipas = () => [
-  { id: estado.jogo.casaId, nome: estado.jogo.casaNome, lado: 'casa' },
-  { id: estado.jogo.foraId, nome: estado.jogo.foraNome, lado: 'fora' },
+  { id: estado.jogo.casaId, nome: estado.jogo.casaNome, escudo: estado.jogo.casaEscudo, lado: 'casa' },
+  { id: estado.jogo.foraId, nome: estado.jogo.foraNome, escudo: estado.jogo.foraEscudo, lado: 'fora' },
 ];
 const plantelDe = (equipaId) => estado.jogo.jogadores.filter((j) => j.equipaId === equipaId).sort((a, b) => a.numero - b.numero);
 const convocadosDe = (equipaId) => plantelDe(equipaId).filter((j) => estado.selecionados.has(j.id));
@@ -164,7 +165,7 @@ function colunaEquipa(equipa) {
 
   return h('section', { class: 'cartao coluna-equipa', 'data-lado': equipa.lado },
     h('div', { class: 'cabecalho-equipa' },
-      h('h3', {}, equipa.nome),
+      h('h3', {}, escudo(equipa.id, equipa.escudo), equipa.nome),
       h('span', { class: `contador${cheia ? ' cheio' : ''}` }, escolhidos.length, h('small', {}, ` / ${estado.max}`)),
       h('div', { class: 'atalhos' },
         h('button', { type: 'button', class: 'botao suave pequeno', onclick: () => escolherTodos(equipa.id) }, 'Todos'),

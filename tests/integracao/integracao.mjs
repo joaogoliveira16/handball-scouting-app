@@ -887,6 +887,102 @@ await passo('Cada conta só vê e altera o que é seu', async () => {
 });
 
 // ----------------------------------------------------------------------
+// Escudos: cada equipa pode ter um (PNG, JPEG ou WebP, até 200 KB). Só o dono o muda; qualquer pessoa o vê.
+const PNG_MINIMO = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const JPEG_MINIMO = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0xff, 0xd9]);
+const WEBP_MINIMO = Buffer.concat([Buffer.from('RIFF'), Buffer.from([0x1a, 0, 0, 0]), Buffer.from('WEBPVP8 '), Buffer.alloc(14)]);
+
+/** Envia os bytes de uma imagem (não JSON) como corpo do pedido. */
+async function enviarImagem(metodo, caminho, bytes, sessao = principal, tipo = 'image/png') {
+  const cabecalhos = { 'Content-Type': tipo };
+  if (sessao.cookie) cabecalhos.Cookie = sessao.cookie;
+  const resposta = await fetch(API + caminho, { method: metodo, headers: cabecalhos, body: bytes });
+  const texto = await resposta.text();
+  let json = null;
+  try { json = texto ? JSON.parse(texto) : null; } catch { /* sem JSON */ }
+  return { status: resposta.status, json, texto };
+}
+
+await passo('Escudos das equipas', async () => {
+  const principalEq = (await http('GET', '/api/equipas')).json?.find((e) => e.propria);
+  const adversaria = (await http('GET', '/api/equipas')).json?.find((e) => !e.propria);
+  ok(principalEq && adversaria && principalEq.escudo == null && adversaria.escudo == null, 'escudos: as equipas começam sem escudo (escudo = null)', JSON.stringify(principalEq));
+  const caminho = `/api/equipas/${principalEq.id}/escudo`;
+
+  // sem escudo
+  const sem = await fetch(API + caminho);
+  ok(sem.status === 404, 'escudos: sem escudo, GET = 404');
+  ok((await fetch(API + '/api/equipas/99999/escudo')).status === 404, 'escudos: equipa que não existe, GET = 404');
+
+  // só o dono (e só com sessão) o altera
+  ok((await enviarImagem('PUT', caminho, PNG_MINIMO, anonima)).status === 401, 'escudos: sem sessão, PUT = 401');
+  ok((await http('DELETE', caminho, undefined, anonima)).status === 401, 'escudos: sem sessão, DELETE = 401');
+  ok((await enviarImagem('PUT', caminho, PNG_MINIMO, segunda)).status === 404, 'escudos: a conta de outra pessoa não consegue pôr o escudo (404)');
+  ok((await http('DELETE', caminho, undefined, segunda)).status === 404, 'escudos: nem tirá-lo (404)');
+  ok((await enviarImagem('PUT', '/api/equipas/99999/escudo', PNG_MINIMO)).status === 404, 'escudos: PUT numa equipa que não existe = 404');
+
+  // validações: só PNG, JPEG e WebP (os primeiros bytes mandam, não o que o cliente diz), até 200 KB
+  const vazio = await enviarImagem('PUT', caminho, Buffer.alloc(0));
+  ok(vazio.status === 400 && /Falta a imagem/.test(vazio.texto), 'escudos: corpo vazio = 400', descricao(vazio));
+  const svg = await enviarImagem('PUT', caminho, Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'), principal, 'image/png');
+  ok(svg.status === 400 && /PNG, JPEG ou WebP/.test(svg.texto), 'escudos: um SVG a fingir que é PNG = 400', descricao(svg));
+  const html = await enviarImagem('PUT', caminho, Buffer.from('<html></html>'), principal, 'image/jpeg');
+  ok(html.status === 400, 'escudos: HTML = 400', descricao(html));
+  const grande = await enviarImagem('PUT', caminho, Buffer.concat([PNG_MINIMO, Buffer.alloc(200 * 1024)]));
+  ok(grande.status === 413 && /200 KB/.test(grande.texto), 'escudos: mais de 200 KB = 413', descricao(grande));
+  ok((await fetch(API + caminho)).status === 404, 'escudos: os pedidos recusados não guardaram nada');
+
+  // guardar: PNG
+  const guardado = await enviarImagem('PUT', caminho, PNG_MINIMO);
+  ok(guardado.status === 200 && guardado.json?.escudo > 1700000000000, 'escudos: PUT de um PNG = 200 com a versão do escudo', descricao(guardado));
+  const versao1 = guardado.json?.escudo;
+  const imagem = await fetch(API + caminho);   // sem sessão nem versão: qualquer pessoa o vê
+  const bytes = Buffer.from(await imagem.arrayBuffer());
+  ok(imagem.status === 200 && imagem.headers.get('content-type') === 'image/png' && bytes.equals(PNG_MINIMO), 'escudos: GET devolve a mesma imagem, como PNG');
+  ok(imagem.headers.get('x-content-type-options') === 'nosniff', 'escudos: o browser não adivinha o tipo da imagem (nosniff)');
+  ok(imagem.headers.get('cache-control') === 'no-cache' && !!imagem.headers.get('etag'), 'escudos: sem versão no endereço o browser pergunta sempre (ETag)');
+  const comVersao = await fetch(`${API}${caminho}?v=${versao1}`);
+  ok(comVersao.headers.get('cache-control') === 'public, max-age=86400', 'escudos: com a versão no endereço a imagem fica um dia na cache');
+  const semMudar = await fetch(API + caminho, { headers: { 'If-None-Match': imagem.headers.get('etag') } });
+  ok(semMudar.status === 304, 'escudos: com o ETag certo a API responde 304 (sem a imagem)');
+
+  // a versão chega a tudo o que mostra equipas
+  ok((await http('GET', '/api/equipas')).json?.find((e) => e.id === principalEq.id)?.escudo === versao1, 'escudos: GET /api/equipas traz a versão do escudo');
+  ok((await http('GET', '/api/equipas')).json?.find((e) => e.id === adversaria.id)?.escudo == null, 'escudos: a equipa sem escudo continua com null');
+  const jogoComEscudo = await http('POST', '/api/jogos', { casaId: principalEq.id, foraId: adversaria.id });
+  const idJogoEscudo = jogoComEscudo.json?.id;
+  const detalhe = (await http('GET', `/api/jogos/${idJogoEscudo}`)).json;
+  ok(detalhe?.casaEscudo === versao1 && detalhe.foraEscudo == null, 'escudos: o jogo traz a versão do escudo de cada equipa', JSON.stringify(detalhe));
+  ok((await http('GET', '/api/jogos')).json?.find((j) => j.id === idJogoEscudo)?.casaEscudo === versao1, 'escudos: a lista de jogos também');
+  const estado = (await http('GET', `/api/jogos/${idJogoEscudo}/estatisticas`)).json;
+  ok(estado?.equipas?.find((e) => e.equipaId === principalEq.id)?.escudo === versao1 && estado.equipas.find((e) => e.equipaId === adversaria.id)?.escudo == null,
+    'escudos: o estado do dashboard (e do tempo real) traz o escudo de cada equipa');
+  const aoVivo = (await http('GET', '/api/convidado/jogos-em-direto', undefined, anonima)).json?.find((j) => j.id === idJogoEscudo);
+  ok(aoVivo?.casaId === principalEq.id && aoVivo.casaEscudo === versao1 && aoVivo.foraId === adversaria.id && aoVivo.foraEscudo == null,
+    'escudos: a lista da área de convidado traz os ids e o escudo', JSON.stringify(aoVivo));
+
+  // trocar: JPEG e depois WebP (cada um muda a versão e o tipo); continua a haver um só
+  await esperar(5);
+  const troca = await enviarImagem('PUT', caminho, JPEG_MINIMO, principal, 'application/octet-stream');
+  ok(troca.status === 200 && troca.json?.escudo > versao1, 'escudos: trocar por um JPEG muda a versão (o tipo vem dos bytes, não do cabeçalho)', descricao(troca));
+  const jpeg = await fetch(API + caminho);
+  ok(jpeg.headers.get('content-type') === 'image/jpeg' && Buffer.from(await jpeg.arrayBuffer()).equals(JPEG_MINIMO), 'escudos: GET passa a devolver o JPEG');
+  const webp = await enviarImagem('PUT', caminho, WEBP_MINIMO);
+  ok(webp.status === 200 && (await fetch(API + caminho)).headers.get('content-type') === 'image/webp', 'escudos: e depois um WebP');
+  ok(webp.json?.escudo > troca.json?.escudo, 'escudos: cada troca tem uma versão nova');
+  ok((await enviarImagem('PUT', caminho, Buffer.concat([PNG_MINIMO, Buffer.alloc(100 * 1024)]))).status === 200, 'escudos: até 200 KB é aceite');
+
+  // tirar o escudo
+  ok((await http('DELETE', caminho)).status === 204, 'escudos: DELETE = 204');
+  ok((await fetch(API + caminho)).status === 404, 'escudos: depois de tirado, GET = 404');
+  ok((await http('GET', '/api/equipas')).json?.find((e) => e.id === principalEq.id)?.escudo == null, 'escudos: e a equipa volta a ter escudo = null');
+  ok((await http('DELETE', caminho)).status === 204, 'escudos: tirar um escudo que já não existe também dá 204');
+
+  // o jogo criado aqui fica escondido, para os passos de privacidade que se seguem
+  await http('PUT', `/api/jogos/${idJogoEscudo}/visibilidade`, { visivel: false });
+});
+
+// ----------------------------------------------------------------------
 await passo('Link de partilha: ver o jogo em direto sem conta', async () => {
   if (!jogoNovo?.id) return ok(false, 'sem jogo do passo anterior');
   const lista = (await http('GET', '/api/jogos')).json ?? [];

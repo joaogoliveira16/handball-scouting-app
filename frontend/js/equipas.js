@@ -1,8 +1,9 @@
 // A equipa da conta e o seu plantel: adicionar, editar e apagar jogadores. Os adversários não se listam aqui:
 // criam-se ao criar o jogo e abrem-se a partir da convocatória (equipas.html?equipa=ID).
 import { h, substituir, avisar } from './dom.js';
-import { obter, enviar, POSICOES, ROTULO_POSICAO } from './api.js';
+import { obter, enviar, enviarFicheiro, POSICOES, ROTULO_POSICAO } from './api.js';
 import { exigirConta } from './conta.js';
+import { escudo, iniciais, prepararEscudo } from './escudo.js';
 
 await exigirConta();
 
@@ -43,7 +44,28 @@ const formJogador = h('form', { class: 'formulario formulario-jogador', novalida
 
 const tituloPlantel = h('h2', {}, 'Plantel');
 const zonaTabela = h('div', {});
-cartaoPlantel.replaceChildren(tituloPlantel, zonaTabela, formJogador);
+
+// ---------------------------------------------------------------------
+// Escudo da equipa (o seletor de ficheiros é criado uma vez)
+// ---------------------------------------------------------------------
+const campoEscudo = h('input', {
+  type: 'file', id: 'ficheiro-escudo', accept: 'image/png,image/jpeg,image/webp,image/svg+xml', hidden: true,
+  onchange: () => escolherEscudo(),
+});
+const zonaEscudo = h('div', { class: 'escudo-atual', 'aria-hidden': 'true' });
+const nomeEscudo = h('strong', {}, 'Escudo');
+const botaoEscudo = h('button', { type: 'button', id: 'escolher-escudo', class: 'botao pequeno', onclick: () => campoEscudo.click() }, 'Escolher imagem');
+const botaoRemoverEscudo = h('button', { type: 'button', id: 'remover-escudo', class: 'botao perigo pequeno', onclick: () => removerEscudo() }, 'Tirar escudo');
+const erroEscudo = h('p', { class: 'erro-formulario', role: 'alert' });
+const blocoEscudo = h('div', { class: 'bloco-escudo', id: 'bloco-escudo' },
+  zonaEscudo,
+  h('div', { class: 'texto' },
+    nomeEscudo,
+    h('small', {}, 'PNG, JPEG, WebP ou SVG. Aparece no placar e nas listas de jogos; a imagem fica reduzida a 256 px.'),
+    h('div', { class: 'acoes-linha' }, botaoEscudo, botaoRemoverEscudo, campoEscudo),
+    erroEscudo));
+
+cartaoPlantel.replaceChildren(blocoEscudo, tituloPlantel, zonaTabela, formJogador);
 
 const equipaAtual = () => estado.equipas.find((e) => e.id === estado.equipaId) ?? null;
 const equipaDaConta = () => estado.equipas.find((e) => e.propria) ?? null;
@@ -81,13 +103,59 @@ function desenharEquipas() {
     ? visiveis.map((e) => h('li', {}, h('button', {
       type: 'button', class: 'item-equipa', 'aria-current': e.id === estado.equipaId ? 'true' : 'false',
       onclick: () => selecionar(e.id),
-    }, h('span', {}, e.nome, e.propria ? '' : ' (adversário)'), h('small', {}, `${e.jogadores} jog.`))))
+    }, h('span', { class: 'nome-equipa' }, escudo(e.id, e.escudo), h('span', {}, e.nome, e.propria ? '' : ' (adversário)')), h('small', {}, `${e.jogadores} jog.`))))
     : h('li', { class: 'vazio' }, 'Ainda não tens equipa. Cria a tua abaixo.'));
+}
+
+function desenharEscudo() {
+  const equipa = equipaAtual();
+  blocoEscudo.hidden = !equipa;
+  if (!equipa) return;
+  erroEscudo.textContent = '';
+  nomeEscudo.textContent = `Escudo · ${equipa.nome}`;
+  substituir(zonaEscudo, escudo(equipa.id, equipa.escudo, 'grande') ?? h('span', { class: 'escudo-vazio' }, iniciais(equipa.nome) || '?'));
+  botaoEscudo.textContent = equipa.escudo != null ? 'Trocar imagem' : 'Escolher imagem';
+  botaoRemoverEscudo.hidden = equipa.escudo == null;
+}
+
+async function escolherEscudo() {
+  const equipa = equipaAtual();
+  const ficheiro = campoEscudo.files?.[0];
+  campoEscudo.value = '';   // deixa escolher a mesma imagem outra vez
+  if (!equipa || !ficheiro) return;
+  erroEscudo.textContent = '';
+  botaoEscudo.disabled = true;
+  try {
+    const imagem = await prepararEscudo(ficheiro);
+    await enviarFicheiro('PUT', `/api/equipas/${equipa.id}/escudo`, imagem);
+    avisar(`Escudo de ${equipa.nome} guardado.`);
+    await carregarEquipas();
+    desenharEscudo();
+  } catch (erro) {
+    erroEscudo.textContent = erro.message;
+  } finally {
+    botaoEscudo.disabled = false;
+  }
+}
+
+async function removerEscudo() {
+  const equipa = equipaAtual();
+  if (!equipa || equipa.escudo == null) return;
+  if (!confirm(`Tirar o escudo de ${equipa.nome}?`)) return;
+  try {
+    await enviar('DELETE', `/api/equipas/${equipa.id}/escudo`);
+    avisar('Escudo retirado.');
+    await carregarEquipas();
+    desenharEscudo();
+  } catch (erro) {
+    erroEscudo.textContent = erro.message;
+  }
 }
 
 function desenharPlantel() {
   const equipa = equipaAtual();
   cartaoPlantel.hidden = false;
+  desenharEscudo();
   formJogador.hidden = !equipa;
   tituloPlantel.textContent = equipa ? `Plantel · ${equipa.nome}` : 'Plantel';
 

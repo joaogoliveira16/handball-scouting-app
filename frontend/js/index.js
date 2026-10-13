@@ -2,6 +2,7 @@
 import { h, substituir, avisar, copiarTexto } from './dom.js';
 import { obter, enviar, urlExcel, urlPartilha } from './api.js';
 import { exigirConta } from './conta.js';
+import { escudo } from './escudo.js';
 
 await exigirConta();
 
@@ -50,7 +51,9 @@ function linhaJogo(jogo) {
   return h('li', { class: 'jogo-linha' },
     h('div', { class: 'info' },
       h('div', { class: 'equipas' },
-        h('span', {}, jogo.casaNome), h('span', { class: 'contra' }, 'vs'), h('span', {}, jogo.foraNome)),
+        h('span', { class: 'equipa-nome' }, escudo(jogo.casaId, jogo.casaEscudo), jogo.casaNome),
+        h('span', { class: 'contra' }, 'vs'),
+        h('span', { class: 'equipa-nome' }, escudo(jogo.foraId, jogo.foraEscudo), jogo.foraNome)),
       h('div', { class: 'meta' }, [data, jogo.local].filter(Boolean).join(' · '))),
     h('div', { class: 'resultado', 'aria-label': `Resultado ${jogo.golosCasa} a ${jogo.golosFora}` }, `${jogo.golosCasa} – ${jogo.golosFora}`),
     h('div', { class: 'acoes-jogo' },

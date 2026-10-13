@@ -48,6 +48,22 @@ api.MapGet("/saude", async (NpgsqlDataSource dados) =>
 api.MapGet("/tipos-evento", async (EstatisticasService est, CancellationToken ct) =>
     Results.Ok(await est.TiposEventoAsync(ct)));
 
+// O escudo de uma equipa. É só o símbolo do clube, por isso qualquer pessoa o pode ver (quem tem o link de um jogo
+// também vê os escudos das equipas). O endereço traz ?v=versão: com ela a imagem fica um dia na cache do browser e,
+// quando o escudo muda, o endereço muda; sem ela o browser pergunta sempre se mudou (ETag).
+api.MapGet("/equipas/{id:int}/escudo", async (int id, HttpContext http, EstatisticasService est, CancellationToken ct) =>
+{
+    var escudo = await est.EscudoAsync(id, ct);
+    if (escudo is null) return Results.NotFound(new { erro = "Esta equipa não tem escudo." });
+
+    var etag = $"\"escudo-{escudo.Versao}\"";
+    http.Response.Headers.ETag = etag;
+    http.Response.Headers.CacheControl = http.Request.Query.ContainsKey("v") ? "public, max-age=86400" : "no-cache";
+    http.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    if (http.Request.Headers.IfNoneMatch == etag) return Results.StatusCode(StatusCodes.Status304NotModified);
+    return Results.File(escudo.Dados, escudo.Tipo);
+});
+
 // Área de convidado: os jogos das últimas 24 horas (sem sessão e sem o código do link de partilha).
 // Só aparecem os que o dono não escondeu. O resultado muda a cada evento, por isso não se guarda em cache.
 api.MapGet("/convidado/jogos-em-direto", async (HttpContext http, EstatisticasService est, CancellationToken ct) =>
@@ -223,6 +239,20 @@ protegido.MapPost("/equipas", async (NovaEquipaRequest pedido, HttpContext http,
         : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
 });
 
+// Escudo: o corpo do pedido é a própria imagem (PNG, JPEG ou WebP, até 200 KB). Só o dono da equipa o muda.
+protegido.MapPut("/equipas/{id:int}/escudo", async (int id, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
+{
+    var imagem = await LerCorpoAteAsync(http.Request.Body, Escudos.MaxBytes, ct);
+    var r = await cadastro.GuardarEscudoAsync(http.ContaAtual().Id, id, imagem, ct);
+    return r.Ok ? Results.Ok(new { escudo = r.Id }) : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
+});
+
+protegido.MapDelete("/equipas/{id:int}/escudo", async (int id, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
+{
+    var r = await cadastro.ApagarEscudoAsync(http.ContaAtual().Id, id, ct);
+    return r.Ok ? Results.NoContent() : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
+});
+
 protegido.MapGet("/equipas/{id:int}/jogadores", async (int id, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
     await cadastro.JogadoresDaEquipaAsync(http.ContaAtual().Id, id, ct) is { } jogadores
         ? Results.Ok(jogadores)
@@ -280,6 +310,20 @@ protegido.MapPut("/jogos/{id:int}/convocados", async (int id, ConvocatoriaReques
 app.MapHub<JogoHub>("/hub/jogo");
 
 app.Run();
+
+// Lê o corpo do pedido sem passar de "limite" bytes (devolve um byte a mais se houver mais, para o pedido ser recusado).
+static async Task<byte[]> LerCorpoAteAsync(Stream corpo, int limite, CancellationToken ct)
+{
+    var memoria = new byte[limite + 1];
+    var total = 0;
+    while (total < memoria.Length)
+    {
+        var lidos = await corpo.ReadAsync(memoria.AsMemory(total), ct);
+        if (lidos == 0) break;
+        total += lidos;
+    }
+    return memoria[..total];
+}
 
 // Depois de gravar, envia o estado atualizado a todos os ecrãs ligados a este jogo.
 // Corre sem o token do pedido: o evento já foi gravado e os dashboards têm de o receber.

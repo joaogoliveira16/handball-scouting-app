@@ -7,6 +7,7 @@ import { criarCampo } from './campo.js';
 import { criarBaliza } from './baliza.js';
 import { ligar, TEXTO_ESTADO } from './tempo-real.js';
 import { exigirConta } from './conta.js';
+import { escudo } from './escudo.js';
 
 const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
 if (!jogoId) location.replace('./');
@@ -140,6 +141,8 @@ function desenharPlacar() {
   const { jogo, estatisticas } = estado;
   document.getElementById('nome-casa').textContent = jogo.casaNome;
   document.getElementById('nome-fora').textContent = jogo.foraNome;
+  substituir(document.getElementById('escudo-casa'), escudo(jogo.casaId, jogo.casaEscudo, 'placar'));
+  substituir(document.getElementById('escudo-fora'), escudo(jogo.foraId, jogo.foraEscudo, 'placar'));
   const golos = (equipaId) => estatisticas?.equipas.find((e) => e.equipaId === equipaId)?.golos ?? 0;
   document.getElementById('golos-casa').textContent = golos(jogo.casaId);
   document.getElementById('golos-fora').textContent = golos(jogo.foraId);

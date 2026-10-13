@@ -1,6 +1,7 @@
 -- Resumo de remates por equipa (inclui equipas sem remates)
 SELECT eq.id   AS equipa_id,
        eq.nome,
+       escudo_versao(eq.id) AS escudo,
        (eq.id = g.equipa_casa_id) AS e_casa,
        COUNT(r.id)                                         AS remates,
        COUNT(r.id) FILTER (WHERE r.resultado = 'GOLO')      AS golos,

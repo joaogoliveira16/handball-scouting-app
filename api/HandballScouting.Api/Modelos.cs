@@ -104,6 +104,7 @@ public class EquipaLinha
     public string Nome { get; set; } = "";
     public long Jogadores { get; set; }
     public bool Propria { get; set; }   // true = a equipa da conta; false = adversária
+    public long? Escudo { get; set; }   // versão do escudo (vai no endereço da imagem); null = sem escudo
 }
 
 public class JogadorEquipa
@@ -161,8 +162,10 @@ public class JogoLinha
     public bool VisivelConvidados { get; set; } = true;   // pode aparecer na área de convidado durante 24 horas
     public int CasaId { get; set; }
     public string CasaNome { get; set; } = "";
+    public long? CasaEscudo { get; set; }   // versão do escudo; null = sem escudo
     public int ForaId { get; set; }
     public string ForaNome { get; set; } = "";
+    public long? ForaEscudo { get; set; }
     public long GolosCasa { get; set; }
     public long GolosFora { get; set; }
 }
@@ -173,8 +176,12 @@ public class JogoEmDireto
     public int Id { get; set; }
     public DateTime DataHora { get; set; }
     public string? Local { get; set; }
+    public int CasaId { get; set; }
     public string CasaNome { get; set; } = "";
+    public long? CasaEscudo { get; set; }
+    public int ForaId { get; set; }
     public string ForaNome { get; set; } = "";
+    public long? ForaEscudo { get; set; }
     public DateTime? UltimoEvento { get; set; }   // null = ainda sem eventos
     public long GolosCasa { get; set; }
     public long GolosFora { get; set; }
@@ -188,8 +195,10 @@ public class JogoDetalhe
     public string? Local { get; set; }
     public int CasaId { get; set; }
     public string CasaNome { get; set; } = "";
+    public long? CasaEscudo { get; set; }
     public int ForaId { get; set; }
     public string ForaNome { get; set; } = "";
+    public long? ForaEscudo { get; set; }
     public int MaxConvocados { get; set; } = CadastroValidador.MaxConvocados;
     public List<JogadorInfo> Jogadores { get; set; } = new();
 }
@@ -202,6 +211,7 @@ public class ResumoEquipa
 {
     public int EquipaId { get; set; }
     public string Nome { get; set; } = "";
+    public long? Escudo { get; set; }   // versão do escudo; null = sem escudo
     public bool ECasa { get; set; }
     public long Remates { get; set; }
     public long Golos { get; set; }

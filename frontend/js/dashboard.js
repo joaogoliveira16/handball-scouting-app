@@ -9,6 +9,7 @@ import { criarBaliza, novoSvgBaliza } from './baliza.js';
 import { ligar, TEXTO_ESTADO } from './tempo-real.js';
 import { obterConta, mostrarMenu } from './conta.js';
 import { lembrarJogo } from './vistos.js';
+import { escudo } from './escudo.js';
 
 const parametros = new URLSearchParams(location.search);
 const jogoId = Number(parametros.get('jogo'));
@@ -252,6 +253,8 @@ function desenharPlacar() {
   const [casa, fora] = estado.dados.equipas;
   document.getElementById('nome-casa').textContent = casa.nome;
   document.getElementById('nome-fora').textContent = fora.nome;
+  substituir(document.getElementById('escudo-casa'), escudo(casa.equipaId, casa.escudo, 'placar'));
+  substituir(document.getElementById('escudo-fora'), escudo(fora.equipaId, fora.escudo, 'placar'));
   document.getElementById('golos-casa').textContent = casa.golos;
   document.getElementById('golos-fora').textContent = fora.golos;
   document.title = `${casa.golos}–${fora.golos} · ${casa.nome} vs ${fora.nome}`;

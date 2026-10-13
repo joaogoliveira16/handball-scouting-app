@@ -169,7 +169,7 @@ h3 { font: 600 1.05rem/1.2 var(--fonte); }
 .topo-jogo .marca b { color: var(--fora-claro); }
 
 .placar { display: flex; align-items: center; justify-content: center; gap: 14px; flex: 1 1 auto; }
-.placar > span:not(.eq) { color: rgba(255, 255, 255, 0.5); font: 600 2rem var(--fonte-num); }
+.placar > span:not(.eq):not(.slot-escudo) { color: rgba(255, 255, 255, 0.5); font: 600 2rem var(--fonte-num); }
 .placar strong {
   min-width: 1.35ch; text-align: center;
   font: 700 3.3rem/1 var(--fonte-num); font-variant-numeric: tabular-nums;
@@ -402,6 +402,29 @@ details.novo-jogo[open] > summary::before { content: "−"; }
 details.novo-jogo > .formulario { padding: 0 18px 18px; }
 details.novo-jogo[open] > summary { border-bottom: 1px solid var(--linha); margin-bottom: 16px; }
 
+/* escudos das equipas (o símbolo do clube): cabem sempre num quadrado, sem cortar nem deformar */
+.escudo { display: inline-block; flex: none; object-fit: contain; vertical-align: middle; }
+.escudo-pequeno { width: 28px; height: 28px; }
+.escudo-grande { width: 96px; height: 96px; }
+/* no cabeçalho escuro leva um fundo claro, para se ver qualquer escudo */
+.slot-escudo:empty { display: none; }
+.slot-escudo .escudo { width: 46px; height: 46px; padding: 3px; border-radius: 10px; background: #fff; }
+.escudo-vazio {
+  display: inline-flex; align-items: center; justify-content: center; flex: none; width: 96px; height: 96px;
+  border-radius: 22px; background: var(--realce); border: 1px dashed var(--linha-forte);
+  color: var(--suave); font: 700 2rem/1 var(--fonte-num); letter-spacing: 0.04em;
+}
+.bloco-escudo { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin: 0 0 18px; padding-bottom: 18px; border-bottom: 1px solid var(--linha); }
+.bloco-escudo .texto { display: grid; gap: 4px; flex: 1 1 260px; min-width: 0; }
+.bloco-escudo .texto small { color: var(--suave); }
+.bloco-escudo .acoes-linha { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.bloco-escudo .erro-formulario { margin: 0; min-height: 0; }
+.item-equipa .nome-equipa { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.jogo-linha .equipas .equipa-nome { display: inline-flex; align-items: center; gap: 10px; }
+.jogo-direto-equipas .escudo { width: 24px; height: 24px; margin: 0 6px 2px 0; }
+.jogo-direto-equipas .contra { font-weight: 500; color: var(--suave); }
+.cabecalho-equipa h3 { display: flex; align-items: center; gap: 10px; }
+
 /* equipas e jogadores */
 .duas-colunas { display: grid; grid-template-columns: minmax(250px, 330px) 1fr; gap: 20px; align-items: start; }
 @media (max-width: 820px) { .duas-colunas { grid-template-columns: minmax(0, 1fr); } }
@@ -623,6 +646,7 @@ table.tabela td.suave { color: var(--suave); }
   .placar { gap: 8px; width: 100%; flex-basis: 100%; order: 5; }
   .placar strong { font-size: 2.6rem; }
   .placar .eq { max-width: 11ch; font-size: 1rem; }
+  .slot-escudo .escudo { width: 34px; height: 34px; }
   .pagina, .dash, .banco { padding-left: 12px; padding-right: 12px; }
   .dash { grid-template-columns: minmax(0, 1fr); }
   .cartoes-equipa { grid-template-columns: minmax(0, 1fr); }

@@ -37,7 +37,7 @@ Abre **http://localhost:8080** e cria a tua conta (separador *Criar conta*). O e
 - **No tablet**: liga-o à mesma rede do computador e abre `http://<IP-do-computador>:8080`.
 - **Configuração** (porta, palavra-passe, email): copia `.env.example` para `.env`.
 - **Recomeçar do zero**: `docker compose down -v` apaga a base de dados; ao arrancar de novo os scripts de `db/init` voltam a correr.
-- **Já tinhas a app a correr de uma versão anterior?** Basta `git pull` e `docker compose up -d --build`. O serviço `migrar` atualiza sozinho a base de dados em cada arranque (convocatória, local da defesa na baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados e uma equipa por conta; são scripts que se podem repetir sem problema) e **não apaga nada**. As contas que já existiam ficam logo confirmadas. Se ainda não havia nenhuma conta, a primeira que criares e confirmares fica com as equipas e os jogos que já existiam.
+- **Já tinhas a app a correr de uma versão anterior?** Basta `git pull` e `docker compose up -d --build`. O serviço `migrar` atualiza sozinho a base de dados em cada arranque (convocatória, local da defesa na baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, uma equipa por conta, expulsões e escudos; são scripts que se podem repetir sem problema) e **não apaga nada**. As contas que já existiam ficam logo confirmadas. Se ainda não havia nenhuma conta, a primeira que criares e confirmares fica com as equipas e os jogos que já existiam.
 
 ## Contas e partilha
 
@@ -58,7 +58,7 @@ Por omissão o `docker compose` junta uma caixa de correio de teste (**Mailpit**
 
 ## Preparar o jogo
 
-1. **A tua equipa e os jogadores** (`equipas.html`, botão *Equipas* no topo da lista de jogos): adiciona, edita ou apaga os jogadores da tua equipa (número 1–99, nome e posição). O número livre mais baixo é sugerido. Um jogador que já tem eventos registados não pode ser apagado (os dados do jogo ficariam incoerentes).
+1. **A tua equipa e os jogadores** (`equipas.html`, botão *Equipas* no topo da lista de jogos): adiciona, edita ou apaga os jogadores da tua equipa (número 1–99, nome e posição). O número livre mais baixo é sugerido. Um jogador que já tem eventos registados não pode ser apagado (os dados do jogo ficariam incoerentes). **Escudo**: no topo do plantel há *Escolher imagem* para pôr o símbolo do clube (PNG, JPEG, WebP ou SVG; o browser reduz-o a 256 px antes de o enviar, por isso nunca falha por ser grande) e *Tirar escudo*. Também se põe o escudo de um adversário: abre-o a partir da convocatória. Aparece no placar do banco e do dashboard, na lista de jogos, na área de convidado, na convocatória e na lista de equipas; quem não tem escudo fica só com o nome.
 2. **Novo jogo** (lista de jogos, *Novo jogo*): escreve o nome do adversário (os que já usaste aparecem como sugestão), diz se a tua equipa joga em casa ou fora e, se quiseres, o local e a data e hora. Depois de criar, abre-se a convocatória.
 3. **Convocatória** (`convocatoria.html?jogo=ID`): toca nos jogadores que vão ao jogo, até **16 por equipa**. *Todos* e *Nenhum* aceleram a escolha e há um aviso se não houver guarda-redes convocado. Fica guardada no servidor; podes voltar a alterá-la a qualquer momento. Em vez de tocar um a um, *Ler de uma foto* (por baixo do nome de cada equipa) deixa-te escolher uma foto ou um print da convocatória, ver mais abaixo.
 
@@ -181,6 +181,9 @@ As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas
 | PUT | `/api/jogos/{id}/convocados` | Substitui a convocatória: `{ "jogadorIds": [1, 2, ...] }` (máx. 16 por equipa) |
 | GET | `/api/equipas` | As equipas da conta, com o número de jogadores e `propria` (`true` na equipa da conta, `false` nos adversários); a da conta vem primeiro |
 | POST | `/api/equipas` | Cria uma equipa da conta (um adversário): `{ "nome" }` (409 se já existe uma com esse nome na conta). Se a conta ainda não tem equipa, esta passa a ser a equipa da conta |
+| GET | `/api/equipas/{id}/escudo` | O escudo da equipa, como imagem (aberta: é só o símbolo do clube; 404 se não tem). Com `?v=versão` fica um dia na cache do browser; sem ela responde a `If-None-Match` com 304 |
+| PUT | `/api/equipas/{id}/escudo` | Põe ou troca o escudo: o corpo é a própria imagem (PNG, JPEG ou WebP, até 200 KB; o tipo é decidido pelos primeiros bytes) → 200 `{ "escudo": versão }` (400 outro formato ou vazio; 413 acima de 200 KB; 404 se a equipa não é da conta) |
+| DELETE | `/api/equipas/{id}/escudo` | Tira o escudo (204; 404 se a equipa não é da conta) |
 | GET | `/api/equipas/{id}/jogadores` | Plantel (com o número de eventos de cada jogador) |
 | POST | `/api/equipas/{id}/jogadores` | Adiciona um jogador: `{ "numero", "nome", "posicao" }` |
 | PUT | `/api/jogadores/{id}` | Edita um jogador |
@@ -191,6 +194,8 @@ As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas
 | GET | `/api/saude` | Estado da API (aberta) |
 
 Numa defesa podes juntar `"balizaX"` e `"balizaY"` (0 a 100, os dois juntos) com o sítio onde o guarda-redes defendeu; em qualquer outro resultado a API responde 400. O estado das estatísticas devolve `balizaX`, `balizaY` e `balizaZona` em cada remate do mapa e `balizaZona` nos últimos eventos.
+
+Escudos: as listas de equipas e de jogos, o jogo (`GET /api/jogos/{id}`), o estado das estatísticas e a lista da área de convidado trazem a **versão** do escudo de cada equipa (`escudo` nas equipas, `casaEscudo` e `foraEscudo` nos jogos; `null` se não tem) e, na lista da área de convidado, também `casaId` e `foraId`. A versão são os milissegundos da última alteração e vai no endereço da imagem (`/api/equipas/ID/escudo?v=VERSÃO`): quando o escudo muda, o endereço muda e o browser vai buscar o novo. A imagem fica na tabela `escudos` (e não em pastas), por isso entra nas cópias de segurança da base de dados. Não se aceita SVG no servidor (pode trazer scripts): o browser converte-o em PNG antes de o enviar.
 
 Um evento `VERMELHO` (vermelho direto) exige `jogadorId`. O estado das estatísticas traz `sancoes`: um item por jogador com 2 minutos ou vermelho, `{ jogadorId, equipaId, numero, nome, doisMinutos, vermelhos, expulso }`, onde `expulso` é `true` com um vermelho ou 3 «2 minutos» (a regra está na vista `v_sancoes`). A API não impede de registar eventos a um jogador expulso (um engano corrige-se apagando o evento); quem os impede é o banco.
 
@@ -214,7 +219,7 @@ As equipas, jogadores e jogos de `db/init/03_equipas_jogadores.sql` e `04_demo_e
 
 Por exemplo, contabilizar "passes errados". (O «Vermelho direto» foi acrescentado assim, em `db/init/12_expulsoes.sql`.) Os tipos vivem na tabela `tipos_evento`, por isso não é preciso mexer no código: o botão aparece sozinho no banco e a contagem aparece em "Outros eventos" no dashboard.
 
-1. Cria `db/init/08_passe_errado.sql`:
+1. Cria `db/init/14_passe_errado.sql`:
    ```sql
    INSERT INTO tipos_evento (codigo, nome, e_remate, ordem) VALUES ('PASSE_ERRADO', 'Passe errado', FALSE, 7)
    ON CONFLICT (codigo) DO NOTHING;
@@ -239,6 +244,7 @@ psql -v ON_ERROR_STOP=1 -f db/tests/redefinir.sql      # recuperação da palavr
 psql -v ON_ERROR_STOP=1 -f db/tests/em_direto.sql      # jogos abertos a convidados (24 horas, jogo escondido, jogo sem eventos)
 psql -v ON_ERROR_STOP=1 -f db/tests/equipa_da_conta.sql # uma equipa por conta (criada com a conta, dados de exemplo, contas antigas)
 psql -v ON_ERROR_STOP=1 -f db/tests/expulsoes.sql      # sanções (3.º 2 minutos e vermelho direto expulsam, por jogo e por jogador)
+psql -v ON_ERROR_STOP=1 -f db/tests/escudos.sql        # escudos das equipas (versão, troca, limites, apagar com a equipa)
 python3 db/tests/validar_consultas.py                  # todas as consultas contra o esquema
 
 # Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR
@@ -247,9 +253,9 @@ python3 db/tests/validar_consultas.py                  # todas as consultas cont
 
 Há ainda testes que usam a **API verdadeira** e um browser (pasta `tests/`, ver `tests/README.md`):
 
-- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação e de recuperação da palavra-passe lidos na caixa de teste, sessões, a equipa da conta (pedida no registo, `propria` na lista de equipas), isolamento entre contas, link de partilha, jogos abertos a convidados durante 24 horas (lista aberta sem sessão, jogos sem eventos pela hora marcada, acesso sem link, código escondido, jogo escondido pelo dono), estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, sanções e expulsões (3.º 2 minutos, vermelho direto, apagar para corrigir), atualizações em tempo real e descarga do Excel);
+- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação e de recuperação da palavra-passe lidos na caixa de teste, sessões, a equipa da conta (pedida no registo, `propria` na lista de equipas), isolamento entre contas, link de partilha, jogos abertos a convidados durante 24 horas (lista aberta sem sessão, jogos sem eventos pela hora marcada, acesso sem link, código escondido, jogo escondido pelo dono), estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, sanções e expulsões (3.º 2 minutos, vermelho direto, apagar para corrigir), escudos (permissões, formatos, limite de 200 KB, cache, versão nas listas), atualizações em tempo real e descarga do Excel);
 - `tests/integracao/verificar_excel.py`: abre os `.xlsx` descarregados e confere os números com os dados de exemplo;
-- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pelo link, reenviar o email, recuperar a palavra-passe pelo link, a página que só mostra a equipa da conta, criar um jogo escrevendo o adversário, a área de convidado e a lista de jogos das últimas 24 horas (incluindo esconder um jogo), sair e entrar, uma segunda conta que não vê os dados da primeira, o link de partilha aberto sem conta, juntar jogadores à equipa, convocatória (incluindo ler a lista de uma foto com o leitor verdadeiro), registar remates no banco, expulsar jogadores (3.º 2 minutos e vermelho direto) e ver o quadro de sanções, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
+- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pelo link, reenviar o email, recuperar a palavra-passe pelo link, a página que só mostra a equipa da conta, criar um jogo escrevendo o adversário, a área de convidado e a lista de jogos das últimas 24 horas (incluindo esconder um jogo), sair e entrar, uma segunda conta que não vê os dados da primeira, o link de partilha aberto sem conta, juntar jogadores à equipa, convocatória (incluindo ler a lista de uma foto com o leitor verdadeiro), registar remates no banco, expulsar jogadores (3.º 2 minutos e vermelho direto) e ver o quadro de sanções, carregar, trocar e tirar o escudo da equipa (a imagem é reduzida no browser) e vê-lo no placar, nas listas e na área de convidado, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
 
 O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada pull request:
 
@@ -272,7 +278,7 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 
 ```
 api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
-db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados e equipa da conta (correm por ordem)
+db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões e escudos (correm por ordem)
 db/tests/              testes SQL
 frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard), JS, CSS e fontes; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
 tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)

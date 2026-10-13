@@ -1,6 +1,7 @@
 // Área de convidado: abrir o dashboard de um jogo a partir do link de partilha, sem conta.
 import { h, substituir } from './dom.js';
 import { obter } from './api.js';
+import { escudo } from './escudo.js';
 import { obterConta, mostrarMenu } from './conta.js';
 import { lerLinkDoJogo, enderecoDoJogo, jogosLembrados, esquecerJogo, esquecerTodos } from './vistos.js';
 
@@ -80,7 +81,10 @@ const aDecorrer = (jogo) => !!jogo.ultimoEvento && Date.now() - new Date(jogo.ul
 function linhaDireto(jogo) {
   return h('li', { class: aDecorrer(jogo) ? 'jogo-direto ao-vivo' : 'jogo-direto' },
     h('a', { class: 'jogo-direto-ligacao', href: `dashboard.html?jogo=${jogo.id}` },
-      h('span', { class: 'jogo-direto-equipas' }, `${jogo.casaNome} vs ${jogo.foraNome}`),
+      h('span', { class: 'jogo-direto-equipas' },
+        escudo(jogo.casaId, jogo.casaEscudo), jogo.casaNome,
+        h('span', { class: 'contra' }, ' vs '),
+        escudo(jogo.foraId, jogo.foraEscudo), jogo.foraNome),
       h('small', {}, [jogo.local, estadoDoJogo(jogo)].filter(Boolean).join(' · '))),
     h('span', { class: 'jogo-direto-resultado', 'aria-label': `Resultado ${jogo.golosCasa} a ${jogo.golosFora}` }, `${jogo.golosCasa}–${jogo.golosFora}`));
 }

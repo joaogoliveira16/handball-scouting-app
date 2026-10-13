@@ -14,6 +14,7 @@
 //            SIGNALR_FALSO (só para desenvolver estes testes sem a API: ficheiro JS que substitui a biblioteca SignalR).
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import zlib from 'node:zlib';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import pg from 'pg';
@@ -99,6 +100,40 @@ async function empurrar(page, jogoId, codigo = null) {
     window.__hub.EstatisticasAtualizadas(await (await fetch(`/api/jogos/${id}/estatisticas${c ? `?c=${c}` : ''}`)).json());
   }, { id: jogoId, c: codigo });
 }
+
+/** Um PNG de uma cor só (sem bibliotecas): serve para ver o escudo ser reduzido pelo browser. */
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let k = 0; k < 8; k++) crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+function criarPng(largura, altura, [r, g, b]) {
+  const linha = Buffer.alloc(1 + largura * 4);   // o 1.º byte é o filtro (0 = nenhum)
+  for (let x = 0; x < largura; x++) linha.set([r, g, b, 255], 1 + x * 4);
+  const pedaco = (tipo, dados) => {
+    const comprimento = Buffer.alloc(4);
+    comprimento.writeUInt32BE(dados.length);
+    const soma = Buffer.alloc(4);
+    soma.writeUInt32BE(crc32(Buffer.concat([Buffer.from(tipo), dados])));
+    return Buffer.concat([comprimento, Buffer.from(tipo), dados, soma]);
+  };
+  const cabecalho = Buffer.alloc(13);
+  cabecalho.writeUInt32BE(largura, 0);
+  cabecalho.writeUInt32BE(altura, 4);
+  cabecalho[8] = 8;   // 8 bits por canal
+  cabecalho[9] = 6;   // RGBA
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pedaco('IHDR', cabecalho),
+    pedaco('IDAT', zlib.deflateSync(Buffer.concat(Array.from({ length: altura }, () => linha)))),
+    pedaco('IEND', Buffer.alloc(0)),
+  ]);
+}
+const largura = (dados) => dados.readUInt32BE(16);   // o PNG guarda largura e altura logo a seguir ao nome IHDR
+const altura = (dados) => dados.readUInt32BE(20);
 
 async function passo(nome, funcao) {
   console.log(`\n== ${nome}`);
@@ -885,6 +920,90 @@ await passo('Banco: o 3.º 2 minutos e o vermelho direto tiram o jogador do jogo
   ok((await eventosDe('DOIS_MINUTOS', idA)) === 3, 'expulsões: os 3 «2 minutos» continuam registados depois da expulsão');
   await banco.close();
   await dash.close();
+});
+
+// ======================= Escudos das equipas =======================
+await passo('Escudos: carregar, trocar e tirar o escudo da equipa', async () => {
+  const [{ equipa_id: propriaId }] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [donoId]);
+  const [{ nome: nomePropria }] = await q('SELECT nome FROM equipas WHERE id = $1', [propriaId]);
+  const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [propriaId, aguias.id, donoId]);
+  const escudoDe = async () => (await q('SELECT tipo, dados, escudo_versao(equipa_id) AS versao FROM escudos WHERE equipa_id = $1', [propriaId]))[0];
+  const srcDoEscudo = (page) => page.locator('#bloco-escudo img.escudo-grande').getAttribute('src');
+  const carregou = (locator) => locator.evaluate((img) => img.complete && img.naturalWidth > 0);
+
+  const p = await pagina('/equipas.html');
+  await p.waitForSelector('#bloco-escudo');
+  ok(await p.locator('#bloco-escudo .escudo-vazio').isVisible(), 'escudos: sem escudo a página mostra as iniciais da equipa');
+  ok((await p.locator('#remover-escudo').isHidden()) && (await texto(p.locator('#escolher-escudo'))) === 'Escolherimagem', 'escudos: sem escudo só há «Escolher imagem»');
+  ok((await p.locator('.item-equipa img.escudo').count()) === 0 && (await p.locator('#bloco-escudo input[type=file]').getAttribute('accept')).includes('image/png'), 'escudos: a lista ainda não tem escudos e o seletor aceita imagens');
+
+  // Uma imagem grande (600 x 300) é reduzida pelo browser a 256 x 128 antes de seguir para a API
+  await p.setInputFiles('#ficheiro-escudo', { name: 'clube.png', mimeType: 'image/png', buffer: criarPng(600, 300, [200, 30, 40]) });
+  await p.waitForSelector('#bloco-escudo img.escudo-grande');
+  const primeiro = await escudoDe();
+  ok(primeiro?.tipo === 'image/png' && largura(primeiro.dados) === 256 && altura(primeiro.dados) === 128 && primeiro.dados.length < 200 * 1024,
+    `escudos: o escudo 600×300 ficou guardado reduzido a 256×128 (${primeiro && largura(primeiro.dados)}×${primeiro && altura(primeiro.dados)}, ${primeiro?.dados.length} bytes)`);
+  ok(await carregou(p.locator('#bloco-escudo img.escudo-grande')), 'escudos: a página mostra o escudo (a imagem carregou)');
+  ok(((await srcDoEscudo(p)) ?? '').endsWith(`/api/equipas/${propriaId}/escudo?v=${primeiro.versao}`), 'escudos: o endereço da imagem leva a versão');
+  ok((await p.locator('#bloco-escudo .escudo-vazio').count()) === 0 && (await p.locator('#remover-escudo').isVisible()) && (await texto(p.locator('#escolher-escudo'))) === 'Trocarimagem', 'escudos: com escudo aparecem «Trocar imagem» e «Tirar escudo»');
+  ok((await p.locator('.item-equipa img.escudo').count()) === 1, 'escudos: a equipa na lista também mostra o escudo');
+  await captura(p, 'equipas-escudo');
+
+  // Quem não tem conta vê a imagem e a API trata a cache (ETag)
+  const imagemAberta = await ctxVisitante.request.get(`${servidor.url}/api/equipas/${propriaId}/escudo?v=${primeiro.versao}`);
+  ok(imagemAberta.status() === 200 && imagemAberta.headers()['content-type'] === 'image/png' && imagemAberta.headers()['x-content-type-options'] === 'nosniff',
+    'escudos: o escudo vê-se sem conta (imagem PNG, sem adivinhar o tipo)');
+  ok(imagemAberta.headers()['cache-control']?.includes('max-age=86400'), 'escudos: com a versão no endereço a imagem fica um dia na cache');
+  const semMudar = await ctxVisitante.request.get(`${servidor.url}/api/equipas/${propriaId}/escudo`, { headers: { 'If-None-Match': imagemAberta.headers().etag } });
+  ok(semMudar.status() === 304, 'escudos: se não mudou a API responde 304');
+
+  // Aparece onde o jogo aparece: placar do banco e do dashboard, lista de jogos, convocatória e área de convidado
+  const banco = await pagina(`/banco.html?jogo=${jogoId}`);
+  await banco.waitForSelector('#escudo-casa img');
+  ok(await carregou(banco.locator('#escudo-casa img')) && (await banco.locator('#escudo-fora img').count()) === 0, 'escudos: o placar do banco mostra o escudo da casa e não inventa o do adversário');
+  await captura(banco, 'banco-escudo');
+  const dash = await pagina(`/dashboard.html?jogo=${jogoId}`);
+  await dash.waitForSelector('#escudo-casa img');
+  ok(await carregou(dash.locator('#escudo-casa img')) && (await dash.locator('#escudo-fora img').count()) === 0, 'escudos: o placar do dashboard também');
+  const jogos = await pagina('/');
+  await jogos.waitForSelector('.jogo-linha');
+  ok((await jogos.locator('.jogo-linha', { hasText: nomePropria }).first().locator('img.escudo').count()) >= 1, 'escudos: a lista de jogos mostra o escudo');
+  const conv = await pagina(`/convocatoria.html?jogo=${jogoId}`);
+  await conv.waitForSelector('.cabecalho-equipa');
+  ok((await conv.locator('.cabecalho-equipa img.escudo').count()) === 1, 'escudos: a convocatória mostra o escudo (só o da equipa que o tem)');
+  const convidado = await pagina('/convidado.html', { contexto: ctxVisitante, tolerar: ['401'] });
+  const linhaConvidado = convidado.locator('#lista-direto .jogo-direto', { hasText: nomePropria });
+  await linhaConvidado.first().waitFor();
+  ok(await carregou(linhaConvidado.first().locator('img.escudo')), 'escudos: a lista de jogos da área de convidado mostra o escudo');
+  const aoVivo = await (await ctxVisitante.request.get(`${servidor.url}/api/convidado/jogos-em-direto`)).json();
+  ok(aoVivo.some((j) => j.id === jogoId && j.casaId === propriaId && j.casaEscudo === Number(primeiro.versao) && j.foraEscudo == null), 'escudos: a lista pública traz a versão do escudo de cada equipa');
+  await captura(convidado, 'convidado-escudo');
+  await Promise.all([banco.close(), dash.close(), jogos.close(), conv.close(), convidado.close()]);
+
+  // Trocar o escudo (aqui por um SVG pequeno, ampliado até aos 256 px) muda a versão e, com ela, o endereço
+  const srcAntes = await srcDoEscudo(p);
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#2457e6"/></svg>';
+  await p.setInputFiles('#ficheiro-escudo', { name: 'clube.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(svg) });
+  ok(await esperarPor(async () => (await srcDoEscudo(p)) !== srcAntes), 'escudos: ao trocar a imagem o endereço muda (o browser vai buscar a nova)');
+  const segundo = await escudoDe();
+  ok(segundo.tipo === 'image/png' && largura(segundo.dados) === 256 && altura(segundo.dados) === 128 && Number(segundo.versao) > Number(primeiro.versao),
+    `escudos: o SVG ficou guardado como PNG 256×128 (${largura(segundo.dados)}×${altura(segundo.dados)})`);
+  ok((await q('SELECT 1 FROM escudos WHERE equipa_id = $1', [propriaId])).length === 1, 'escudos: cada equipa tem um só escudo');
+
+  // Ficheiros que não servem: a mensagem explica e o escudo fica como estava
+  await p.setInputFiles('#ficheiro-escudo', { name: 'notas.txt', mimeType: 'text/plain', buffer: Buffer.from('não sou uma imagem') });
+  ok(await esperarPor(async () => ((await p.locator('#bloco-escudo .erro-formulario').textContent()) ?? '').includes('Escolhe uma imagem')), 'escudos: um ficheiro que não é imagem é recusado com uma mensagem');
+  await p.setInputFiles('#ficheiro-escudo', { name: 'falso.png', mimeType: 'image/png', buffer: Buffer.from('isto parece um png mas não é') });
+  ok(await esperarPor(async () => ((await p.locator('#bloco-escudo .erro-formulario').textContent()) ?? '').includes('Não foi possível ler')), 'escudos: uma imagem estragada é recusada com uma mensagem');
+  ok(Number((await escudoDe()).versao) === Number(segundo.versao), 'escudos: depois dos erros o escudo continua o mesmo');
+  ok(await p.locator('#escolher-escudo').isEnabled(), 'escudos: depois de um erro dá para escolher outra imagem');
+
+  // Tirar o escudo (a confirmação é aceite pelo teste)
+  await p.click('#remover-escudo');
+  ok(await esperarPor(async () => (await escudoDe()) === undefined), 'escudos: «Tirar escudo» apaga-o da base de dados');
+  ok(await p.locator('#bloco-escudo .escudo-vazio').isVisible() && (await p.locator('.item-equipa img.escudo').count()) === 0 && await p.locator('#remover-escudo').isHidden(), 'escudos: sem escudo voltam as iniciais');
+  ok((await ctxVisitante.request.get(`${servidor.url}/api/equipas/${propriaId}/escudo`)).status() === 404, 'escudos: sem escudo a imagem dá 404');
+  await p.close();
 });
 
 // ======================= Dashboard: Excel =======================

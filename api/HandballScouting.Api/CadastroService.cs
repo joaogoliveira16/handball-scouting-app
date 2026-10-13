@@ -37,6 +37,30 @@ public class CadastroService(NpgsqlDataSource dados, SqlLoader sql)
         }
     }
 
+    // ------------------------- Escudos -------------------------
+
+    /// <summary>Guarda o escudo de uma equipa da conta. Em caso de sucesso o Id é a versão nova do escudo.</summary>
+    public async Task<ResultadoRegisto> GuardarEscudoAsync(int donoId, int equipaId, byte[] imagem, CancellationToken ct = default)
+    {
+        var (tipo, erro, status) = Escudos.Validar(imagem);
+        if (erro is not null) return ResultadoRegisto.Falha(status, erro);
+
+        await using var con = await dados.OpenConnectionAsync(ct);
+        if (!await con.ExecuteScalarAsync<bool>(Cmd(sql["equipa_existe"], new { equipaId, donoId }, ct)))
+            return ResultadoRegisto.Falha(404, "Equipa não encontrada.");
+        var versao = await con.ExecuteScalarAsync<long>(Cmd(sql["escudo_guardar"], new { equipaId, tipo, dados = imagem }, ct));
+        return ResultadoRegisto.Sucesso(versao);
+    }
+
+    public async Task<ResultadoRegisto> ApagarEscudoAsync(int donoId, int equipaId, CancellationToken ct = default)
+    {
+        await using var con = await dados.OpenConnectionAsync(ct);
+        if (!await con.ExecuteScalarAsync<bool>(Cmd(sql["equipa_existe"], new { equipaId, donoId }, ct)))
+            return ResultadoRegisto.Falha(404, "Equipa não encontrada.");
+        await con.ExecuteAsync(Cmd(sql["escudo_apagar"], new { equipaId }, ct));
+        return ResultadoRegisto.Atualizado();
+    }
+
     // ------------------------- Jogadores -------------------------
 
     /// <summary>Plantel da equipa (null se a equipa não existir ou for de outra conta).</summary>

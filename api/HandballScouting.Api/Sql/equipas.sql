@@ -2,7 +2,8 @@
 SELECT e.id,
        e.nome,
        COUNT(j.id) AS jogadores,
-       (e.id = u.equipa_id) AS propria
+       (e.id = u.equipa_id) AS propria,
+       escudo_versao(e.id) AS escudo
 FROM equipas e
 JOIN utilizadores u ON u.id = e.dono_id
 LEFT JOIN jogadores j ON j.equipa_id = e.id

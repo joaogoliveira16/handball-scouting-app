@@ -32,6 +32,14 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
         return (await Consulta<JogoEmDireto>(con, "jogos_em_direto", new { minutos = JanelasEmDireto.Minutos }, ct)).ToList();
     }
 
+    /// <summary>A imagem do escudo de uma equipa (null se a equipa não tem escudo).</summary>
+    public async Task<EscudoImagem?> EscudoAsync(int equipaId, CancellationToken ct = default)
+    {
+        await using var con = await dados.OpenConnectionAsync(ct);
+        return await con.QuerySingleOrDefaultAsync<EscudoImagem>(
+            new CommandDefinition(sql["escudo_obter"], new { equipaId }, cancellationToken: ct));
+    }
+
     public async Task<JogoDetalhe?> JogoAsync(int jogoId, CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);
