@@ -136,6 +136,15 @@ public class CadastroService(NpgsqlDataSource dados, SqlLoader sql)
     }
 
     /// <summary>Substitui a convocatória do jogo (lista vazia = sem convocatória).</summary>
+    /// <summary>O dono mostra ou esconde o jogo na lista de jogos em direto da área de convidado.</summary>
+    public async Task<ResultadoRegisto> DefinirVisibilidadeAsync(int donoId, int jogoId, VisibilidadeRequest pedido, CancellationToken ct = default)
+    {
+        if (pedido.Visivel is not { } visivel) return ResultadoRegisto.Falha(400, "visivel é obrigatório (true ou false).");
+        await using var con = await dados.OpenConnectionAsync(ct);
+        var id = await con.QuerySingleOrDefaultAsync<int?>(Cmd(sql["definir_visibilidade"], new { jogoId, donoId, visivel }, ct));
+        return id is null ? ResultadoRegisto.Falha(404, "Jogo não encontrado.") : ResultadoRegisto.Atualizado();
+    }
+
     public async Task<ResultadoRegisto> DefinirConvocadosAsync(int donoId, int jogoId, ConvocatoriaRequest pedido, CancellationToken ct = default)
     {
         if (pedido.JogadorIds is null) return ResultadoRegisto.Falha(400, "jogadorIds é obrigatório.");

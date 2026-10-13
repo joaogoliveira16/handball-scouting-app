@@ -48,6 +48,14 @@ api.MapGet("/saude", async (NpgsqlDataSource dados) =>
 api.MapGet("/tipos-evento", async (EstatisticasService est, CancellationToken ct) =>
     Results.Ok(await est.TiposEventoAsync(ct)));
 
+// Área de convidado: os jogos que estão a ser registados agora (sem sessão e sem o código do link de partilha).
+// Só aparecem os que o dono não escondeu. O resultado muda a cada evento, por isso não se guarda em cache.
+api.MapGet("/convidado/jogos-em-direto", async (HttpContext http, EstatisticasService est, CancellationToken ct) =>
+{
+    http.Response.Headers.CacheControl = "no-store";
+    return Results.Ok(await est.JogosEmDiretoAsync(ct));
+});
+
 // ------------------------- Conta -------------------------
 // Entrar põe um cookie de sessão (HttpOnly). Quem se regista recebe um email com um link e só entra depois de o abrir.
 // Nada disto é guardado em cache.
@@ -123,8 +131,14 @@ conta.MapPost("/sair", async (HttpContext http, ContaService contas, Cancellatio
 
 var leitura = api.MapGroup("/jogos/{id:int}").ExigirAcessoAoJogo();
 
-leitura.MapGet("", async (int id, EstatisticasService est, CancellationToken ct) =>
-    await est.JogoAsync(id, ct) is { } jogo ? Results.Ok(jogo) : Results.NotFound(new { erro = "Jogo não encontrado." }));
+leitura.MapGet("", async (int id, HttpContext http, EstatisticasService est, AcessoService acesso, CancellationToken ct) =>
+{
+    if (await est.JogoAsync(id, ct) is not { } jogo) return Results.NotFound(new { erro = "Jogo não encontrado." });
+    // O código do link de partilha só vai para o dono: quem vê um jogo em direto sem link não fica com ele
+    var conta = await Autenticacao.ObterContaAsync(http, ct);
+    if (conta is null || !await acesso.EDonoAsync(id, conta.Id, ct)) jogo.Codigo = null;
+    return Results.Ok(jogo);
+});
 
 leitura.MapGet("/estatisticas", async (int id, EstatisticasService est, CancellationToken ct) =>
     await est.ObterAsync(id, ct) is { } estado ? Results.Ok(estado) : Results.NotFound(new { erro = "Jogo não encontrado." }));
@@ -245,6 +259,13 @@ protegido.MapPost("/jogos", async (NovoJogoRequest pedido, HttpContext http, Cad
 });
 
 // Convocatória: ids dos jogadores convocados (lista vazia = ainda sem convocatória)
+// Mostrar ou esconder o jogo na lista de jogos em direto da área de convidado
+protegido.MapPut("/jogos/{id:int}/visibilidade", async (int id, VisibilidadeRequest pedido, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
+{
+    var r = await cadastro.DefinirVisibilidadeAsync(http.ContaAtual().Id, id, pedido, ct);
+    return r.Ok ? Results.NoContent() : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
+});
+
 protegido.MapGet("/jogos/{id:int}/convocados", async (int id, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
     await cadastro.ConvocadosAsync(http.ContaAtual().Id, id, ct) is { } ids
         ? Results.Ok(new { jogadorIds = ids, maximoPorEquipa = CadastroValidador.MaxConvocados })

@@ -23,7 +23,27 @@ async function partilhar(jogo) {
   }
 }
 
+/** O dono mostra ou esconde o jogo na lista de jogos em direto da área de convidado. */
+async function mudarVisibilidade(jogo, caixa) {
+  const visivel = caixa.checked;
+  caixa.disabled = true;
+  try {
+    await enviar('PUT', `/api/jogos/${jogo.id}/visibilidade`, { visivel });
+    jogo.visivelConvidados = visivel;
+    avisar(visivel
+      ? 'Este jogo aparece na área de convidado enquanto estiver em direto.'
+      : 'Jogo escondido: só quem tem o link o vê.');
+  } catch (erro) {
+    caixa.checked = !visivel;
+    avisar(`Não foi possível mudar: ${erro.message}`, { erro: true });
+  } finally {
+    caixa.disabled = false;
+  }
+}
+
 function linhaJogo(jogo) {
+  const caixaVisivel = h('input', { type: 'checkbox', checked: jogo.visivelConvidados !== false });
+  caixaVisivel.addEventListener('change', () => mudarVisibilidade(jogo, caixaVisivel));
   const data = new Date(jogo.dataHora).toLocaleString('pt-PT', { dateStyle: 'medium', timeStyle: 'short' });
   return h('li', { class: 'jogo-linha' },
     h('div', { class: 'info' },
@@ -39,7 +59,11 @@ function linhaJogo(jogo) {
         onclick: () => partilhar(jogo),
       }, 'Copiar link'),
       h('a', { class: 'botao-link suave pequeno', href: `convocatoria.html?jogo=${jogo.id}` }, 'Convocatória'),
-      h('a', { class: 'botao-link suave pequeno', href: urlExcel(jogo.id), download: '' }, '⬇ Excel')));
+      h('a', { class: 'botao-link suave pequeno', href: urlExcel(jogo.id), download: '' }, '⬇ Excel')),
+    h('label', {
+      class: 'opcao-jogo',
+      title: 'Quem não tem conta vê este jogo na área de convidado enquanto estiver a ser registado, sem precisar do link',
+    }, caixaVisivel, 'Mostrar na área de convidado'));
 }
 
 /** Conta ainda sem jogos: mostra os três passos, a começar pelo que falta. */

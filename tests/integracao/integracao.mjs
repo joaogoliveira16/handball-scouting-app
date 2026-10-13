@@ -657,6 +657,93 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
 function lateralFora(j) { return j.lateralFora; }
 
 // ----------------------------------------------------------------------
+// O jogo do passo anterior acabou de receber eventos: está em direto. (O jogo 2 dos dados de exemplo é «de ontem».)
+// No fim o jogo fica escondido, para os passos de privacidade que se seguem.
+await passo('Jogos em direto: a área de convidado vê-os sem link', async () => {
+  if (!jogoNovo?.id) return ok(false, 'sem jogo do passo anterior');
+  const { id, casaId, foraId } = jogoNovo;
+  const doDono = (await http('GET', '/api/jogos')).json ?? [];
+  const codigoNovo = doDono.find((j) => j.id === id)?.codigo;
+  ok(doDono.length > 0 && doDono.every((j) => j.visivelConvidados === true), 'por omissão todos os jogos aparecem na área de convidado (visivelConvidados = true)');
+
+  // A lista é aberta e não se guarda em cache
+  const lista = await http('GET', '/api/convidado/jogos-em-direto', undefined, anonima);
+  ok(lista.status === 200 && Array.isArray(lista.json) && /no-store/.test(lista.cabecalhos.get('cache-control') ?? ''), 'a lista de jogos em direto abre-se sem sessão e não se guarda em cache', descricao(lista));
+  const meu = lista.json?.find((j) => j.id === id);
+  ok(!!meu, 'o jogo que acabou de receber eventos aparece em direto');
+  const est = (await http('GET', `/api/jogos/${id}/estatisticas`)).json;
+  ok(meu?.golosCasa === est?.equipas?.find((e) => e.equipaId === casaId)?.golos && meu?.golosFora === est?.equipas?.find((e) => e.equipaId === foraId)?.golos,
+    `mostra o resultado (${meu?.golosCasa}–${meu?.golosFora}), igual ao das estatísticas`);
+  ok(typeof meu?.casaNome === 'string' && typeof meu?.foraNome === 'string' && !Number.isNaN(Date.parse(meu?.ultimoEvento)), 'com os nomes das equipas e a hora do último evento');
+  ok(!!codigoNovo && !lista.texto.includes(codigoNovo) && !lista.json.some((j) => 'codigo' in j), 'sem o código do link de partilha');
+  ok(!lista.json?.some((j) => j.id === 2), 'o jogo 2 (de ontem) não aparece: já não está em direto');
+  ok(JSON.stringify(lista.json) === JSON.stringify((await http('GET', '/api/convidado/jogos-em-direto', undefined, segunda)).json), 'quem tem outra conta vê a mesma lista');
+
+  // Quem o abre pela lista (sem código) pode ver tudo o que o link deixa ver, mas não recebe o código
+  for (const [nome, sessao] of [['sem conta', anonima], ['com outra conta', segunda]]) {
+    const detalhe = await http('GET', `/api/jogos/${id}`, undefined, sessao);
+    ok(detalhe.status === 200 && detalhe.json?.jogadores?.length > 0 && (detalhe.json.codigo ?? null) === null, `${nome}: GET /api/jogos/{id} = 200, com jogadores e sem o código de partilha`, descricao(detalhe));
+    ok((await http('GET', `/api/jogos/${id}/estatisticas`, undefined, sessao)).status === 200, `${nome}: estatísticas em direto = 200`);
+    ok((await http('GET', `/api/jogos/${id}/estatisticas/eficacia?equipaId=${casaId}`, undefined, sessao)).status === 200, `${nome}: eficácia com filtros = 200`);
+    const excel = await bruto(`/api/jogos/${id}/exportar.xlsx`, sessao);
+    ok(excel.status === 200 && (await excel.arrayBuffer()).byteLength > 1000, `${nome}: pode exportar o Excel`, `HTTP ${excel.status}`);
+  }
+  ok((await http('GET', `/api/jogos/${id}`)).json?.codigo === codigoNovo, 'o dono continua a receber o código de partilha');
+  ok((await http('GET', `/api/jogos/${id}?c=${encodeURIComponent(codigoNovo)}`, undefined, anonima)).status === 200, 'e o link com código continua a servir');
+
+  // Só se pode ler: o resto continua a pedir conta, e só o dono mexe na visibilidade
+  const remate = { tipoEvento: 'REMATE', equipaId: casaId, jogadorId: jogoNovo.lateralCasa, guardaRedesId: jogoNovo.grFora, resultado: 'GOLO', situacao: 'POSICIONAL', x: 50, y: 25, parte: 1, segundoJogo: 900 };
+  ok((await http('POST', `/api/jogos/${id}/eventos`, remate, anonima)).status === 401, 'sem conta: registar eventos = 401');
+  ok((await http('POST', `/api/jogos/${id}/eventos`, remate, segunda)).status === 404, 'outra conta: registar eventos = 404');
+  ok((await http('GET', `/api/jogos/${id}/convocados`, undefined, anonima)).status === 401, 'sem conta: a convocatória continua fechada (401)');
+  ok((await http('PUT', `/api/jogos/${id}/visibilidade`, { visivel: false }, anonima)).status === 401, 'sem conta: esconder o jogo = 401');
+  ok((await http('PUT', `/api/jogos/${id}/visibilidade`, { visivel: false }, segunda)).status === 404, 'outra conta: esconder o jogo = 404');
+  ok((await http('PUT', '/api/jogos/99999/visibilidade', { visivel: false })).status === 404, 'esconder um jogo que não existe = 404');
+  ok((await http('PUT', `/api/jogos/${id}/visibilidade`, {})).status === 400, 'esconder sem dizer se é para mostrar ou esconder = 400');
+  ok((await http('PUT', `/api/jogos/${id}/visibilidade`, { visivel: 'sim' })).status === 400, 'esconder com um valor que não é verdadeiro/falso = 400');
+  ok((await http('GET', `/api/convidado/jogos-em-direto`, undefined, anonima)).json?.some((j) => j.id === id), 'nada disto o tirou da lista');
+
+  // Tempo real para quem entra sem link
+  const visitante = ligarHub(anonima);
+  const recebidos = [];
+  visitante.on('EstatisticasAtualizadas', (e) => recebidos.push(e));
+  await visitante.start();
+  const inicial = await visitante.invoke('EntrarNoJogo', id, null);
+  ok(inicial?.jogoId === id && inicial.equipas?.length === 2, 'hub: um jogo em direto abre-se sem código', JSON.stringify(inicial)?.slice(0, 100));
+  const golo = await http('POST', `/api/jogos/${id}/eventos`, remate);
+  ok(golo.status === 201 && await ate(() => recebidos.length >= 1), 'o convidado recebe a atualização em direto, sem código nem conta', descricao(golo));
+  await http('DELETE', `/api/jogos/${id}/eventos/${golo.json?.id}`);
+  await visitante.stop();
+
+  // O dono esconde o jogo: sai da lista e fecha-se a quem não tem o link
+  ok((await http('PUT', `/api/jogos/${id}/visibilidade`, { visivel: false })).status === 204, 'o dono esconde o jogo = 204');
+  ok((await http('GET', '/api/jogos')).json?.find((j) => j.id === id)?.visivelConvidados === false, 'a lista do dono mostra-o como escondido');
+  ok(!(await http('GET', '/api/convidado/jogos-em-direto', undefined, anonima)).json?.some((j) => j.id === id), 'escondido: já não está na lista de jogos em direto');
+  ok((await http('GET', `/api/jogos/${id}/estatisticas`, undefined, anonima)).status === 404, 'escondido: sem código volta a ser 404');
+  ok((await http('GET', `/api/jogos/${id}/exportar.xlsx`, undefined, anonima)).status === 404, 'escondido: o Excel sem código = 404');
+  const hubFechado = ligarHub(anonima);
+  await hubFechado.start();
+  ok(await hubRecusa(hubFechado, id, null), 'escondido: o hub recusa quem não traz o código');
+  ok((await hubFechado.invoke('EntrarNoJogo', id, codigoNovo))?.jogoId === id, 'escondido: mas quem tem o link continua a entrar');
+  await hubFechado.stop();
+  ok((await http('GET', `/api/jogos/${id}/estatisticas?c=${encodeURIComponent(codigoNovo)}`, undefined, anonima)).status === 200, 'escondido: o link de partilha continua a funcionar');
+
+  // Mostrar outra vez
+  ok((await http('PUT', `/api/jogos/${id}/visibilidade`, { visivel: true })).status === 204, 'o dono volta a mostrá-lo = 204');
+  ok((await http('GET', '/api/convidado/jogos-em-direto', undefined, anonima)).json?.some((j) => j.id === id), 'e volta à lista');
+  ok((await http('GET', `/api/jogos/${id}/estatisticas`, undefined, anonima)).status === 200, 'e volta a abrir-se sem código');
+
+  // Um jogo sem eventos não está em direto, mesmo visível (a lista só tem jogos que estão a ser registados)
+  const novo = await http('POST', '/api/jogos', { casaId, foraId });
+  ok(novo.status === 201, 'jogo novo, ainda sem eventos', descricao(novo));
+  ok(!(await http('GET', '/api/convidado/jogos-em-direto', undefined, anonima)).json?.some((j) => j.id === novo.json?.id), 'sem eventos o jogo não aparece em direto');
+  ok((await http('GET', `/api/jogos/${novo.json?.id}/estatisticas`, undefined, anonima)).status === 404, 'e sem código não se abre (404)');
+
+  // Fica escondido para os passos de privacidade que se seguem
+  ok((await http('PUT', `/api/jogos/${id}/visibilidade`, { visivel: false })).status === 204, 'o jogo fica escondido para os passos seguintes');
+});
+
+// ----------------------------------------------------------------------
 await passo('Cada conta só vê e altera o que é seu', async () => {
   if (!jogoNovo?.id) return ok(false, 'sem jogo do passo anterior');
   const dadosJogo2 = (await http('GET', '/api/jogos/2/estatisticas')).json;

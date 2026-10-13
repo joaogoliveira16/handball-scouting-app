@@ -1,8 +1,10 @@
--- Jogos de uma conta com o resultado (golos de cada equipa). "codigo" é o código do link de partilha.
+-- Jogos de uma conta com o resultado (golos de cada equipa). "codigo" é o código do link de partilha e
+-- "visivel_convidados" diz se o jogo pode aparecer na área de convidado quando está em direto.
 SELECT g.id,
        g.codigo,
        g.data_hora,
        g.local,
+       g.visivel_convidados,
        c.id   AS casa_id,
        c.nome AS casa_nome,
        f.id   AS fora_id,

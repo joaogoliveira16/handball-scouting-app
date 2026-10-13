@@ -17,10 +17,16 @@
 
   <main class="caixa-centro larga">
     <h1>Área de convidado</h1>
-    <p class="sub">Vê um jogo em direto, sem criar conta. Cola o link que o treinador te enviou.</p>
+    <p class="sub">Vê os jogos em direto, sem criar conta.</p>
+
+    <section id="direto" aria-labelledby="titulo-direto">
+      <h2 id="titulo-direto">Em direto agora</h2>
+      <p class="suave" id="estado-direto" role="status">A procurar jogos em direto…</p>
+      <ul class="lista-vistos lista-direto" id="lista-direto"></ul>
+    </section>
 
     <form id="form-link" class="cartao" novalidate>
-      <label>Link do jogo
+      <label>Tens o link de um jogo?
         <input id="link-jogo" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false"
                placeholder="Cola aqui o link do jogo" required>
       </label>
@@ -34,7 +40,7 @@
       <button class="botao suave pequeno" type="button" id="limpar-vistos">Limpar a lista</button>
     </section>
 
-    <p class="entrar-rodape">O link está em «Copiar link», na lista de jogos de quem o regista. Quem tem o link só pode ver o jogo: não consegue registar nem editar nada.</p>
+    <p class="entrar-rodape">Um jogo aparece aqui enquanto está a ser registado, a menos que o treinador o esconda. Se não o vês, ou se ainda não começou, pede-lhe o link (está em «Copiar link», na lista de jogos). Quem só vê um jogo não consegue registar nem editar nada.</p>
   </main>
 
   <script type="module" src="js/convidado.js"></script>

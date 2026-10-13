@@ -25,6 +25,13 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
         return (await Consulta<JogoLinha>(con, "jogos", new { donoId }, ct)).ToList();
     }
 
+    /// <summary>Os jogos que estão a ser registados agora e que o dono não escondeu (para a área de convidado).</summary>
+    public async Task<List<JogoEmDireto>> JogosEmDiretoAsync(CancellationToken ct = default)
+    {
+        await using var con = await dados.OpenConnectionAsync(ct);
+        return (await Consulta<JogoEmDireto>(con, "jogos_em_direto", new { minutos = JanelasEmDireto.ListaMinutos }, ct)).ToList();
+    }
+
     public async Task<JogoDetalhe?> JogoAsync(int jogoId, CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);

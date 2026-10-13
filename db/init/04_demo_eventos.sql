@@ -45,3 +45,6 @@ INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, guarda_
     (2, 1, 'REMATE',         3,   10,    'BLOQUEADO', 'POSICIONAL',    10, 15, 2, 2380),
     (2, 2, 'REMATE',        13,    2,    'GOLO',      'POSICIONAL',    50, 49, 2, 2410),
     (2, 1, 'REMATE',         8,   10,    'DEFESA',    'POSICIONAL',    50, 20, 2, 2440);
+
+-- O jogo 2 é de ontem: os eventos têm a hora desse jogo (e não a de agora), por isso não aparece como «em direto» na área de convidado.
+UPDATE eventos SET criado_em = now() - interval '1 day' + make_interval(secs => segundo_jogo) WHERE jogo_id = 2;

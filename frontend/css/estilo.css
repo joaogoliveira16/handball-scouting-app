@@ -571,17 +571,31 @@ table.tabela td.suave { color: var(--suave); }
 
 /* jogos que o convidado já abriu */
 .lista-vistos { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
-.visto {
+.visto, .jogo-direto {
   display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 4px;
   background: var(--superficie); border: 1px solid var(--linha); border-radius: var(--raio-controlo);
 }
-.visto-ligacao {
+.visto-ligacao, .jogo-direto-ligacao {
   flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px;
   border-radius: 8px; color: var(--tinta); text-decoration: none;
 }
-.visto-ligacao:hover { background: var(--realce); }
-.visto-equipas { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.visto small { color: var(--suave); font-weight: 500; }
+.visto-ligacao:hover, .jogo-direto-ligacao:hover { background: var(--realce); }
+.visto-equipas, .jogo-direto-equipas { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.visto small, .jogo-direto small { color: var(--suave); font-weight: 500; }
+/* jogos em direto na área de convidado */
+#direto { margin-bottom: 22px; }
+#direto h2 { margin-bottom: 10px; }
+#direto .suave { margin: 0 0 12px; color: var(--suave); }
+#direto .erro-suave { color: var(--perigo); }
+.jogo-direto { padding-right: 14px; }
+.jogo-direto-equipas::before {
+  content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%;
+  background: #22a559; animation: pulsar 2s ease-in-out infinite;
+}
+.jogo-direto-resultado { font: 700 1.7rem/1 var(--fonte-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* interruptor «Mostrar na área de convidado» na lista de jogos */
+.opcao-jogo { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; color: var(--suave); font-size: 0.95rem; cursor: pointer; width: fit-content; }
+.opcao-jogo input { width: 20px; height: 20px; margin: 0; }
 
 /* ---------- Dashboard sem acesso ---------- */
 .sem-acesso { grid-column: 1 / -1; width: 100%; max-width: 520px; margin: 12vh auto; padding: 0 20px; text-align: left; }

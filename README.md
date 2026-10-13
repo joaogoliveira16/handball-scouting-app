@@ -6,7 +6,7 @@ O adjunto, no banco e com um tablet, toca num mapa do campo para marcar **onde**
 
 Antes do jogo gerem-se as **equipas e os jogadores**, cria-se o **jogo** e escolhe-se a **convocatória** (até 16 jogadores por equipa). No fim (ou durante o jogo) exportam-se as **estatísticas para Excel**. A interface é clara e limpa, pensada para tablet e telemóvel.
 
-Cada pessoa cria a **sua conta** e só vê e edita as suas equipas, jogadores e jogos. A conta só fica ativa depois de **confirmares o email** (recebes um link). Quem quiser só ver um jogo em direto não precisa de conta: entra na **área de convidado** e cola o **link de partilha** do dashboard.
+Cada pessoa cria a **sua conta** e só vê e edita as suas equipas, jogadores e jogos. A conta só fica ativa depois de **confirmares o email** (recebes um link). Quem quiser só ver um jogo em direto não precisa de conta: entra na **área de convidado**, onde vê logo os **jogos em direto**, ou cola o **link de partilha** do dashboard.
 
 ## Como funciona
 
@@ -37,13 +37,14 @@ Abre **http://localhost:8080** e cria a tua conta (separador *Criar conta*). O e
 - **No tablet**: liga-o à mesma rede do computador e abre `http://<IP-do-computador>:8080`.
 - **Configuração** (porta, palavra-passe, email): copia `.env.example` para `.env`.
 - **Recomeçar do zero**: `docker compose down -v` apaga a base de dados; ao arrancar de novo os scripts de `db/init` voltam a correr.
-- **Já tinhas a app a correr de uma versão anterior?** Basta `git pull` e `docker compose up -d --build`. O serviço `migrar` atualiza sozinho a base de dados em cada arranque (convocatória, local da defesa na baliza, contas, confirmação do email e recuperação da palavra-passe; são scripts que se podem repetir sem problema) e **não apaga nada**. As contas que já existiam ficam logo confirmadas. Se ainda não havia nenhuma conta, a primeira que criares e confirmares fica com as equipas e os jogos que já existiam.
+- **Já tinhas a app a correr de uma versão anterior?** Basta `git pull` e `docker compose up -d --build`. O serviço `migrar` atualiza sozinho a base de dados em cada arranque (convocatória, local da defesa na baliza, contas, confirmação do email, recuperação da palavra-passe e jogos em direto; são scripts que se podem repetir sem problema) e **não apaga nada**. As contas que já existiam ficam logo confirmadas. Se ainda não havia nenhuma conta, a primeira que criares e confirmares fica com as equipas e os jogos que já existiam.
 
 ## Contas e partilha
 
 - **Criar conta**: nome, email e palavra-passe (8 a 128 caracteres). A seguir a app envia um **email com um link de confirmação** (vale 24 horas) e só se entra depois de o abrir. A página explica o que fazer e tem **Reenviar email** (com uma pausa de 30 segundos). **Entrar** e **Sair** estão na página de entrada e no menu do topo. A sessão dura 30 dias.
 - **Esqueci-me da palavra-passe**: na página de entrada, *Esqueci-me da palavra-passe* pede o email da conta e envia um **link para escolher outra** (vale 1 hora e só serve uma vez). A resposta é sempre a mesma exista a conta ou não, e pedir muitas vezes é travado como na confirmação (3 em 15 minutos por endereço). Ao escolher a palavra-passe nova **terminam todas as sessões** da conta (em todos os dispositivos), o bloqueio por tentativas falhadas desaparece e o email fica confirmado (o link chegou à caixa de correio da pessoa). A seguir entra-se com a palavra-passe nova.
-- **Área de convidado** (`convidado.html`, botão *Entrar como convidado* na página de entrada): para quem só quer ver o dashboard. Cola-se o link de partilha e abre o jogo em direto; os jogos já abertos ficam numa lista **neste dispositivo** (guardada no browser, com *Tirar* e *Limpar a lista*). Um convidado não consegue registar nem alterar nada e não vê equipas, jogadores nem outros jogos.
+- **Área de convidado** (`convidado.html`, botão *Entrar como convidado* na página de entrada): para quem só quer ver o dashboard. Em cima aparece a lista **Em direto** (equipas, resultado e há quanto tempo houve o último evento; atualiza sozinha a cada 15 segundos): um toque abre o dashboard do jogo, **sem link nem conta**. Também se pode colar um link de partilha, e os jogos abertos desse modo ficam numa lista **neste dispositivo** (guardada no browser, com *Tirar* e *Limpar a lista*). Um convidado não consegue registar nem alterar nada, não vê equipas nem jogadores e nunca recebe o código de partilha.
+- **Jogos em direto**: um jogo está *em direto* se o último evento foi registado há menos de **30 minutos** (um jogo ainda sem eventos não aparece). Quem abre um jogo em direto continua a vê-lo, mesmo que recarregue a página, durante **3 horas** depois do último evento (intervalo, fim do jogo). Os jogos de **todas as contas** aparecem na lista, a não ser que o dono desligue **Mostrar na área de convidado** na lista de jogos (vem ligado por omissão). Um jogo escondido continua a abrir-se com o link de partilha.
 - **Cada conta só vê o que é seu**: equipas, jogadores, jogos, convocatórias e eventos. O que é de outra conta aparece como "não encontrado". O nome de uma equipa só tem de ser único dentro da própria conta.
 - **Link de partilha**: na lista de jogos, *Copiar link* copia um endereço do tipo `.../dashboard.html?jogo=2&c=CÓDIGO`. Quem o abrir vê o dashboard **em direto** e pode exportar o Excel, **sem conta**. Não consegue registar nem alterar nada. Cada jogo tem o seu código secreto: trata o link como uma palavra-passe do jogo e só o envias a quem deve ver.
 - **Segurança**: a palavra-passe fica guardada só como hash (PBKDF2-SHA256, 600 000 iterações). Os links dos emails (confirmar e redefinir) levam um código aleatório de 256 bits de que só se guarda o SHA-256. Quem pede o email de confirmação várias vezes (3 em 15 minutos por endereço) é travado, e a resposta a esse pedido nunca revela se o email tem conta. O cookie da sessão é `HttpOnly` e `SameSite=Lax` (e `Secure` quando a app está atrás de HTTPS) e a base de dados só guarda o SHA-256 do seu código. Depois de 5 tentativas falhadas para o mesmo email há um bloqueio de 10 minutos.
@@ -164,13 +165,15 @@ As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas
 | POST | `/api/conta/entrar` | Inicia sessão: `{ "email", "palavraPasse" }` (401 se errado, 403 com `"codigo": "email_por_confirmar"` se falta confirmar o email, 429 depois de 5 falhas seguidas) |
 | POST | `/api/conta/sair` | Termina a sessão |
 | GET | `/api/conta` | A conta da sessão (401 sem sessão) |
-| GET | `/api/jogos/{id}` | Jogo e jogadores das duas equipas (com `convocado`) e o `codigo` do link de partilha *(dono ou `?c=`)* |
-| GET | `/api/jogos/{id}/estatisticas` | Estado completo (o mesmo que o dashboard recebe) *(dono ou `?c=`)* |
-| GET | `/api/jogos/{id}/estatisticas/eficacia` | Eficácia com filtros *(dono ou `?c=`)* |
-| GET | `/api/jogos/{id}/estatisticas/guarda-redes` | Defesas com filtros *(dono ou `?c=`)* |
-| GET | `/api/jogos/{id}/exportar.xlsx` | Estatísticas em Excel (`?equipaId=` para uma só equipa) *(dono ou `?c=`)* |
+| GET | `/api/jogos/{id}` | Jogo e jogadores das duas equipas (com `convocado`); o `codigo` do link de partilha só vem para o dono, para os outros é `null` *(dono, `?c=` ou jogo em direto)* |
+| GET | `/api/jogos/{id}/estatisticas` | Estado completo (o mesmo que o dashboard recebe) *(dono, `?c=` ou jogo em direto)* |
+| GET | `/api/jogos/{id}/estatisticas/eficacia` | Eficácia com filtros *(dono, `?c=` ou jogo em direto)* |
+| GET | `/api/jogos/{id}/estatisticas/guarda-redes` | Defesas com filtros *(dono, `?c=` ou jogo em direto)* |
+| GET | `/api/jogos/{id}/exportar.xlsx` | Estatísticas em Excel (`?equipaId=` para uma só equipa) *(dono, `?c=` ou jogo em direto)* |
 | WS | `/hub/jogo` | Hub SignalR: `EntrarNoJogo(jogoId, codigo)` (o código pode ser `null` para o dono) e mensagem `EstatisticasAtualizadas` |
-| GET | `/api/jogos` | Os jogos da conta, com resultado e `codigo` |
+| GET | `/api/convidado/jogos-em-direto` | Jogos em direto visíveis a convidados (aberta, sem `codigo`): `[{ id, dataHora, local, casaNome, foraNome, ultimoEvento, golosCasa, golosFora }]`, o mais recente primeiro, no máximo 50 |
+| GET | `/api/jogos` | Os jogos da conta, com resultado, `codigo` e `visivelConvidados` |
+| PUT | `/api/jogos/{id}/visibilidade` | Mostra ou esconde o jogo na área de convidado: `{ "visivel": true }` (204; 400 sem valor; 404 se não é da conta) |
 | POST | `/api/jogos` | Cria um jogo: `{ "casaId", "foraId", "local", "dataHora" }` (local e data opcionais) |
 | GET | `/api/jogos/{id}/convocados` | Ids dos jogadores convocados e máximo por equipa |
 | PUT | `/api/jogos/{id}/convocados` | Substitui a convocatória: `{ "jogadorIds": [1, 2, ...] }` (máx. 16 por equipa) |
@@ -229,6 +232,7 @@ psql -v ON_ERROR_STOP=1 -f db/tests/baliza.sql         # zonas e regras da baliz
 psql -v ON_ERROR_STOP=1 -f db/tests/contas.sql         # contas, dono dos dados, sessões e código de partilha
 psql -v ON_ERROR_STOP=1 -f db/tests/confirmacao.sql    # confirmação do email (códigos, validade, quem herda os dados de exemplo)
 psql -v ON_ERROR_STOP=1 -f db/tests/redefinir.sql      # recuperação da palavra-passe (código de uso único, validade, sessões)
+psql -v ON_ERROR_STOP=1 -f db/tests/em_direto.sql      # jogos em direto (janelas de tempo, jogo escondido, jogo sem eventos)
 python3 db/tests/validar_consultas.py                  # todas as consultas contra o esquema
 
 # Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR
@@ -237,9 +241,9 @@ python3 db/tests/validar_consultas.py                  # todas as consultas cont
 
 Há ainda testes que usam a **API verdadeira** e um browser (pasta `tests/`, ver `tests/README.md`):
 
-- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação e de recuperação da palavra-passe lidos na caixa de teste, sessões, isolamento entre contas, link de partilha, estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, atualizações em tempo real e descarga do Excel);
+- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação e de recuperação da palavra-passe lidos na caixa de teste, sessões, isolamento entre contas, link de partilha, jogos em direto para convidados (lista, acesso sem link, código escondido, jogo escondido pelo dono), estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, atualizações em tempo real e descarga do Excel);
 - `tests/integracao/verificar_excel.py`: abre os `.xlsx` descarregados e confere os números com os dados de exemplo;
-- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pelo link, reenviar o email, recuperar a palavra-passe pelo link, a área de convidado, sair e entrar, uma segunda conta que não vê os dados da primeira, o link de partilha aberto sem conta, criar equipas e jogadores, convocatória (incluindo ler a lista de uma foto com o leitor verdadeiro), registar remates no banco, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
+- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pelo link, reenviar o email, recuperar a palavra-passe pelo link, a área de convidado e a lista de jogos em direto (incluindo esconder um jogo), sair e entrar, uma segunda conta que não vê os dados da primeira, o link de partilha aberto sem conta, criar equipas e jogadores, convocatória (incluindo ler a lista de uma foto com o leitor verdadeiro), registar remates no banco, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
 
 O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada pull request:
 
@@ -254,6 +258,7 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 - O registo de contas é aberto (com confirmação do email). Se a app ficar acessível na internet, põe-na atrás de HTTPS (o cookie da sessão passa a `Secure` sozinho quando o proxy envia `X-Forwarded-Proto: https`).
 - A leitura de fotos é feita por OCR: lê bem texto impresso e prints, mas pode trocar letras, perder acentos ou juntar palavras, e a letra manuscrita raramente se lê. Há sempre uma lista para rever antes de confirmar. Num telemóvel antigo a leitura pode demorar alguns segundos.
 - Quem tem o link de partilha de um jogo vê-o em direto até o jogo ser apagado: não há botão para mudar o código.
+- Como o registo é aberto, os jogos em direto de **qualquer conta** aparecem na área de convidado. Quem não quiser mostrar um jogo desliga *Mostrar na área de convidado* antes de começar a registar (o jogo continua visível para quem tiver o link).
 - A lista de jogos da área de convidado fica só no browser de cada dispositivo (não acompanha o convidado para outro).
 - O estado completo é recalculado e enviado a cada evento. Para um jogo de andebol (algumas centenas de eventos) é muito rápido.
 
@@ -261,7 +266,7 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 
 ```
 api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
-db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email e recuperação da palavra-passe (correm por ordem)
+db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe e jogos em direto (correm por ordem)
 db/tests/              testes SQL
 frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard), JS, CSS e fontes; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
 tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)

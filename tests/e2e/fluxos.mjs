@@ -809,6 +809,90 @@ await passo('Dashboard: exportar para Excel', async () => {
   await p.close();
 });
 
+// ======================= Jogos em direto na área de convidado =======================
+await passo('Jogos em direto: o convidado vê-os sem link', async () => {
+  // Um jogo a ser registado agora: 2–1 para os Tigres (os eventos entram direto na base de dados, como se viessem do banco)
+  const [casa] = await q('INSERT INTO equipas (nome, dono_id) VALUES ($1, $2) RETURNING id', [`Tigres ${sufixo}`, donoId]);
+  const [fora] = await q('INSERT INTO equipas (nome, dono_id) VALUES ($1, $2) RETURNING id', [`Lobos ${sufixo}`, donoId]);
+  const [jogadorCasa] = await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1, 7, 'Marco Tigre', 'LE') RETURNING id", [casa.id]);
+  const [jogadorFora] = await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1, 9, 'Nuno Lobo', 'PD') RETURNING id", [fora.id]);
+  const [jogo] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, local) VALUES ($1, $2, $3, $4) RETURNING id, codigo', [casa.id, fora.id, donoId, 'Pavilhão dos Tigres']);
+  for (const [equipa, jogador, segundo] of [[casa.id, jogadorCasa.id, 100], [casa.id, jogadorCasa.id, 200], [fora.id, jogadorFora.id, 300]]) {
+    await q("INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, resultado, x, y, parte, segundo_jogo) VALUES ($1,$2,'REMATE',$3,'GOLO',50,30,1,$4)", [jogo.id, equipa, jogador, segundo]);
+  }
+  const linhaDoJogo = (page) => page.locator('#lista-direto .jogo-direto', { hasText: `Tigres ${sufixo}` });
+  const dashboardSemLink = `/dashboard.html?jogo=${jogo.id}`;
+
+  // O convidado (sem conta, sem link) vê o jogo na lista, com o resultado
+  const g = await pagina('/convidado.html', { contexto: ctxVisitante, tolerar: ['401'] });
+  await linhaDoJogo(g).waitFor();
+  const linha = linhaDoJogo(g);
+  ok((await linha.textContent()).includes(`Lobos ${sufixo}`) && (await linha.textContent()).includes('Pavilhão dos Tigres'), 'em direto: a lista mostra as duas equipas e o local');
+  ok((await texto(linha.locator('.jogo-direto-resultado'))) === '2–1', 'em direto: mostra o resultado (2–1)');
+  ok((await linha.locator('small').textContent()).includes('último evento agora mesmo'), 'em direto: diz há quanto tempo foi o último evento');
+  ok((await linha.locator('a').getAttribute('href')) === `dashboard.html?jogo=${jogo.id}`, 'em direto: a ligação abre o dashboard sem código');
+  ok(!(await g.content()).includes(jogo.codigo), 'em direto: a página não traz o código do link de partilha');
+  ok(await g.locator('#estado-direto').isHidden(), 'em direto: com jogos na lista não aparece o aviso de lista vazia');
+  ok((await g.locator('#form-link').isVisible()), 'em direto: o campo para colar um link continua disponível');
+  await captura(g, 'convidado-em-direto');
+  const lista = await (await ctxVisitante.request.get(`${servidor.url}/api/convidado/jogos-em-direto`)).json();
+  ok(lista.some((j) => j.id === jogo.id) && !JSON.stringify(lista).includes(jogo.codigo), 'em direto: a API não revela o código do link de partilha');
+
+  // Abre o dashboard a partir da lista: vê o jogo sem link e sem poder partilhar
+  await Promise.all([g.waitForURL(new RegExp(`dashboard\\.html\\?jogo=${jogo.id}$`)), linha.locator('a').click()]);
+  await g.waitForSelector('.placar');
+  ok(await esperarPor(async () => (await texto(g.locator('#golos-casa'))) === '2' && (await texto(g.locator('#golos-fora'))) === '1'), 'em direto: o dashboard abre-se sem link e mostra 2–1');
+  ok((await g.locator('.sem-acesso').count()) === 0 && (await g.locator('#partilhar').isHidden()), 'em direto: sem aviso de «sem acesso» e sem botão de partilha (o convidado não recebe o código)');
+  ok((await g.locator('#excel-jogo').getAttribute('href')) === `/api/jogos/${jogo.id}/exportar.xlsx`, 'em direto: o botão do Excel funciona sem código');
+  ok((await ctxVisitante.request.get(`${servidor.url}/api/jogos/${jogo.id}/exportar.xlsx`)).status() === 200, 'em direto: e o Excel descarrega-se sem link');
+  await g.close();
+
+  // A lista atualiza sozinha (aqui com o relógio do browser adiantado): se o dono esconder o jogo, deixa de aparecer
+  const g2 = await pagina('/convidado.html', { contexto: ctxVisitante, tolerar: ['401'], relogio: true });
+  await linhaDoJogo(g2).waitFor();
+  const meus = await pagina('/');
+  const linhaDono = meus.locator('.jogo-linha', { hasText: `Tigres ${sufixo}` });
+  const caixa = linhaDono.locator('.opcao-jogo input');
+  ok((await caixa.isChecked()) && (await linhaDono.locator('.opcao-jogo').textContent()).includes('Mostrar na área de convidado'), 'dono: cada jogo traz «Mostrar na área de convidado», ligado por omissão');
+  await captura(meus, 'jogos-visibilidade');
+  await caixa.uncheck();
+  ok(await esperarPor(async () => (await q('SELECT visivel_convidados FROM jogos WHERE id = $1', [jogo.id]))[0].visivel_convidados === false), 'dono: desligar guarda na base de dados que o jogo está escondido');
+  ok(await esperarPor(async () => (await texto(meus.locator('#aviso'))).includes('Jogoescondido')), 'dono: aparece o aviso «Jogo escondido»');
+  await g2.clock.fastForward(16000);
+  ok(await esperarPor(async () => (await linhaDoJogo(g2).count()) === 0), 'em direto: a lista atualiza sozinha e o jogo escondido desaparece');
+
+  // Escondido: sem link já não se abre; com o link continua
+  const fechado = await pagina(dashboardSemLink, { contexto: ctxVisitante, tolerar: ['401', '404'] });
+  ok(await esperarPor(async () => (await fechado.locator('.sem-acesso').count()) === 1), 'escondido: o dashboard sem link mostra «Este jogo não está disponível»');
+  ok((await fechado.locator('.sem-acesso').textContent()).includes('foi escondido') && (await fechado.locator('.sem-acesso a[href="convidado.html"]').count()) === 1, 'escondido: explica que pode estar escondido e leva à área de convidado');
+  await fechado.close();
+  const comLink = await pagina(`${dashboardSemLink}&c=${jogo.codigo}`, { contexto: ctxVisitante, tolerar: ['401'] });
+  ok(await esperarPor(async () => (await texto(comLink.locator('#golos-casa'))) === '2'), 'escondido: quem tem o link de partilha continua a ver o jogo');
+  await comLink.close();
+  await meus.reload({ waitUntil: 'networkidle' });
+  ok(!(await meus.locator('.jogo-linha', { hasText: `Tigres ${sufixo}` }).locator('.opcao-jogo input').isChecked()), 'dono: depois de recarregar o jogo continua escondido');
+
+  // Mostrar outra vez
+  await meus.locator('.jogo-linha', { hasText: `Tigres ${sufixo}` }).locator('.opcao-jogo input').check();
+  ok(await esperarPor(async () => (await q('SELECT visivel_convidados FROM jogos WHERE id = $1', [jogo.id]))[0].visivel_convidados === true), 'dono: voltar a ligar mostra o jogo outra vez');
+  await g2.clock.fastForward(16000);
+  ok(await esperarPor(async () => (await linhaDoJogo(g2).count()) === 1), 'em direto: e o jogo volta à lista');
+
+  // Passado algum tempo sem eventos deixa de estar «em direto», mas quem já o abriu ainda o consegue ver durante umas horas
+  await q("UPDATE eventos SET criado_em = now() - interval '45 minutes' WHERE jogo_id = $1", [jogo.id]);
+  await g2.clock.fastForward(16000);
+  ok(await esperarPor(async () => (await linhaDoJogo(g2).count()) === 0), 'em direto: 45 minutos sem eventos tiram o jogo da lista');
+  const aindaAberto = await pagina(dashboardSemLink, { contexto: ctxVisitante, tolerar: ['401'] });
+  ok(await esperarPor(async () => (await texto(aindaAberto.locator('#golos-casa'))) === '2') && (await aindaAberto.locator('.sem-acesso').count()) === 0, 'em direto: mas o dashboard ainda se abre sem link (recarregar, intervalos)');
+  await aindaAberto.close();
+  await q("UPDATE eventos SET criado_em = now() - interval '4 hours' WHERE jogo_id = $1", [jogo.id]);
+  const fechou = await pagina(dashboardSemLink, { contexto: ctxVisitante, tolerar: ['401', '404'] });
+  ok(await esperarPor(async () => (await fechou.locator('.sem-acesso').count()) === 1), 'em direto: passadas 4 horas só se abre com o link');
+  await fechou.close();
+  await g2.close();
+  await meus.close();
+});
+
 // ======================= Link de partilha =======================
 await passo('Link de partilha: copiar e ver sem conta', async () => {
   const [{ codigo }] = await q('SELECT codigo FROM jogos WHERE id = 2');
