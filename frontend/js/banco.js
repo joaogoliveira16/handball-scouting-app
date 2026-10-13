@@ -8,6 +8,7 @@ import { criarBaliza } from './baliza.js';
 import { ligar, TEXTO_ESTADO } from './tempo-real.js';
 import { exigirConta } from './conta.js';
 import { escudo } from './escudo.js';
+import { desenharFaixa } from './faixa-numerica.js';
 
 const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
 if (!jogoId) location.replace('./');
@@ -61,6 +62,7 @@ function alternarRelogio() {
   else relogio.iniciadoEm = Date.now();
   guardarRelogio();
   desenharRelogio();
+  sincronizarRelogio();
 }
 function alternarParte() {
   pausarRelogio();
@@ -72,6 +74,7 @@ function alternarParte() {
   }
   guardarRelogio();
   desenharRelogio();
+  sincronizarRelogio();
 }
 function ajustarRelogio() {
   const resposta = prompt('Minuto de jogo (0 a 60):', String(Math.floor(segundosDeJogo() / 60)));
@@ -83,11 +86,25 @@ function ajustarRelogio() {
   relogio.iniciadoEm = estavaAMarchar ? Date.now() : null;
   guardarRelogio();
   desenharRelogio();
+  sincronizarRelogio();
 }
 function desenharRelogio() {
   document.getElementById('tempo').textContent = formatarTempo(segundosDeJogo());
   document.getElementById('btn-relogio').textContent = relogio.iniciadoEm ? '⏸' : '▶';
   document.getElementById('btn-parte').textContent = `${relogio.parte}.ª parte`;
+  desenharNumerica();
+}
+
+/**
+ * Diz ao servidor em que segundo está o relógio e se anda (arrancar, parar, ajustar, mudar de parte e, enquanto
+ * corre, de 30 em 30 segundos). É assim que o dashboard e quem vê o link sabem quanto falta a cada 2 minutos.
+ * Se falhar (sem rede) não faz mal: o aviso seguinte volta a tentar e os eventos levam sempre o seu próprio segundo.
+ */
+function sincronizarRelogio() {
+  enviar('PUT', `/api/jogos/${jogoId}/relogio`, {
+    segundo: Math.min(segundosDeJogo(), 7200),
+    aCorrer: Boolean(relogio.iniciadoEm),
+  }).catch(() => { /* tenta no próximo aviso */ });
 }
 
 // ---------------------------------------------------------------------
@@ -132,6 +149,7 @@ function desenharTudo() {
   desenharGuardaRedes();
   desenharResultados();
   desenharOutros();
+  desenharNumerica();
   desenharUltimos();
   campo.pendente(estado.ponto);
   desenharDica();
@@ -227,11 +245,26 @@ function desenharResultados() {
   }, ROTULO_RESULTADO[r])));
 }
 
+// O 7×6 tem o seu próprio botão (liga/desliga) e não aparece como um evento qualquer
+const TIPOS_SETE_SEIS = ['SETE_SEIS_INICIO', 'SETE_SEIS_FIM'];
+const seteSeisAtivo = (equipaId) => Boolean(estado.estatisticas?.numerica?.seteSeis?.find((e) => e.equipaId === equipaId)?.ativo);
+
 function desenharOutros() {
-  const tipos = estado.tipos.filter((t) => !t.eRemate);
-  substituir(document.getElementById('outros'), tipos.map((t) => h('button', {
-    type: 'button', onclick: () => registarOutro(t),
-  }, t.nome)));
+  const tipos = estado.tipos.filter((t) => !t.eRemate && !TIPOS_SETE_SEIS.includes(t.codigo));
+  const ligado = seteSeisAtivo(equipaAtacante());
+  substituir(document.getElementById('outros'),
+    tipos.map((t) => h('button', { type: 'button', onclick: () => registarOutro(t) }, t.nome)),
+    h('button', {
+      type: 'button', id: 'btn-sete-seis', class: `alternar${ligado ? ' ativo' : ''}`, 'aria-pressed': String(ligado),
+      title: 'Marca quando a equipa que ataca troca o guarda-redes por um sétimo jogador de campo',
+      onclick: alternarSeteSeis,
+    }, ligado ? '7×6 ligado · desligar' : 'Ataque 7×6'));
+}
+
+/** Faixa por baixo do marcador: quem está em campo a menos e quanto falta a cada sanção, e quem ataca em 7×6. */
+function desenharNumerica() {
+  if (!estado.jogo) return;
+  desenharFaixa(document.getElementById('faixa-numerica'), estado.estatisticas?.numerica, estado.jogo, segundosDeJogo());
 }
 
 function descreverEvento(e) {
@@ -388,10 +421,30 @@ function registarOutro(tipo) {
     avisar('Escolhe o jogador que viu o vermelho.', { erro: true });
     return;
   }
+  // Os 2 minutos só se contam com o relógio a andar
+  const semRelogio = ['DOIS_MINUTOS', 'VERMELHO'].includes(tipo.codigo) && segundosDeJogo() === 0 ? ' · inicia o relógio para contar os 2 minutos' : '';
   registar({
     ...corpoBase(tipo.codigo),
     jogadorId: jogador?.id ?? null,
-  }, `${tipo.nome}${jogador ? ` · #${jogador.numero} ${jogador.nome}` : ''}${consequencia(tipo, jogador)}`);
+  }, `${tipo.nome}${jogador ? ` · #${jogador.numero} ${jogador.nome}` : ''}${consequencia(tipo, jogador)}${semRelogio}`);
+}
+
+/** Liga ou desliga o ataque 7×6 da equipa que está a atacar (não mexe no jogador nem no ponto escolhidos). */
+async function alternarSeteSeis() {
+  if (estado.aEnviar) return;
+  const equipaId = equipaAtacante();
+  const ligado = seteSeisAtivo(equipaId);
+  estado.aEnviar = true;
+  try {
+    await enviar('POST', `/api/jogos/${jogoId}/eventos`, { ...corpoBase(ligado ? 'SETE_SEIS_FIM' : 'SETE_SEIS_INICIO'), jogadorId: null });
+    avisar(ligado ? '7×6 desligado.' : 'Ataque 7×6 ligado.');
+    if (!estado.ligado) await atualizarPorHttp();
+  } catch (erro) {
+    avisar(`Não ficou registado: ${erro.message}`, { erro: true });
+  } finally {
+    estado.aEnviar = false;
+    desenharTudo();
+  }
 }
 
 async function apagarEvento(evento) {
@@ -439,6 +492,8 @@ function mostrarEstadoLigacao(codigo) {
 
 setInterval(desenharRelogio, 500);
 desenharRelogio();
+setInterval(() => { if (relogio.iniciadoEm) sincronizarRelogio(); }, 30000);
+if (relogio.iniciadoEm || relogio.acumuladoMs > 0) sincronizarRelogio(); // recarregou a página: volta a dizer ao servidor onde vai o relógio
 
 try {
   [estado.jogo, estado.tipos] = await Promise.all([

@@ -60,7 +60,7 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
         if (equipas.Count == 0) return null;
 
         // A mesma ligação não corre comandos em paralelo, por isso as consultas são sequenciais
-        return new EstatisticasJogo
+        var estatisticas = new EstatisticasJogo
         {
             JogoId = jogoId,
             AtualizadoEm = DateTimeOffset.UtcNow,
@@ -77,6 +77,21 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
             UltimosEventos = (await Consulta<EventoResumo>(con, "ultimos_eventos", new { jogoId, limite = 15 }, ct)).ToList(),
             Remates = (await Consulta<RemateMapa>(con, "remates_mapa", p, ct)).ToList()
         };
+
+        // Relógio: o que o tablet do banco avisou; sem aviso (jogos antigos), vale o último evento registado
+        var relogio = await con.QuerySingleOrDefaultAsync<RelogioJogo>(
+            new CommandDefinition(sql["relogio_obter"], p, cancellationToken: ct));
+        var ultimoEvento = await con.ExecuteScalarAsync<int>(
+            new CommandDefinition(sql["ultimo_segundo"], p, cancellationToken: ct));
+        estatisticas.Relogio = relogio ?? new RelogioJogo { Segundo = ultimoEvento };
+
+        estatisticas.Numerica = Numerica.Calcular(
+            equipas[0].EquipaId, equipas[1].EquipaId,
+            (await Consulta<SuspensaoJogo>(con, "suspensoes", p, ct)).ToList(),
+            (await Consulta<SeteSeisEvento>(con, "sete_seis", p, ct)).ToList(),
+            estatisticas.Remates, estatisticas.Relogio.Segundo,
+            relogioUsado: relogio is not null || ultimoEvento > 0);
+        return estatisticas;
     }
 
     /// <summary>Tudo o que o ficheiro Excel precisa (null se o jogo não existir).</summary>

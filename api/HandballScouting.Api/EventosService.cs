@@ -64,6 +64,35 @@ public class EventosService(NpgsqlDataSource dados, SqlLoader sql)
         return ResultadoRegisto.Sucesso(id);
     }
 
+    /// <summary>
+    /// Segundos a partir dos quais um aviso do tablet conta como um salto do relógio (e não só o aviso periódico
+    /// de que continua a andar). Dois segundos chegam para absorver o atraso da rede.
+    /// </summary>
+    public const int SaltoRelogioSegundos = 2;
+
+    /// <summary>O tablet do banco diz em que segundo está o relógio e se está a andar.</summary>
+    public async Task<ResultadoRelogio> GuardarRelogioAsync(int donoId, int jogoId, RelogioRequest req, CancellationToken ct = default)
+    {
+        if (req.Segundo is not (>= 0 and <= 7200) || req.ACorrer is null)
+            return ResultadoRelogio.Falha(400, "segundo (0 a 7200) e aCorrer são obrigatórios.");
+
+        await using var con = await dados.OpenConnectionAsync(ct);
+        var jogo = await con.QuerySingleOrDefaultAsync<JogoEquipas>(
+            new CommandDefinition(sql["jogo_equipas"], new { jogoId, donoId }, cancellationToken: ct));
+        if (jogo is null)
+            return ResultadoRelogio.Falha(404, "Jogo não encontrado.");
+
+        var anterior = await con.QuerySingleOrDefaultAsync<RelogioJogo>(
+            new CommandDefinition(sql["relogio_obter"], new { jogoId }, cancellationToken: ct));
+        var mudou = anterior is null
+                    || anterior.ACorrer != req.ACorrer
+                    || Math.Abs(anterior.Segundo - req.Segundo.Value) > SaltoRelogioSegundos;
+
+        await con.ExecuteAsync(new CommandDefinition(sql["relogio_guardar"],
+            new { jogoId, segundo = req.Segundo.Value, aCorrer = req.ACorrer.Value }, cancellationToken: ct));
+        return ResultadoRelogio.Guardado(mudou);
+    }
+
     public async Task<bool> ApagarAsync(int donoId, int jogoId, long eventoId, CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);

@@ -37,7 +37,7 @@ Abre **http://localhost:8080** e cria a tua conta (separador *Criar conta*). O e
 - **No tablet**: liga-o à mesma rede do computador e abre `http://<IP-do-computador>:8080`.
 - **Configuração** (porta, palavra-passe, email): copia `.env.example` para `.env`.
 - **Recomeçar do zero**: `docker compose down -v` apaga a base de dados; ao arrancar de novo os scripts de `db/init` voltam a correr.
-- **Já tinhas a app a correr de uma versão anterior?** Basta `git pull` e `docker compose up -d --build`. O serviço `migrar` atualiza sozinho a base de dados em cada arranque (convocatória, local da defesa na baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, uma equipa por conta, expulsões e escudos; são scripts que se podem repetir sem problema) e **não apaga nada**. As contas que já existiam ficam logo confirmadas. Se ainda não havia nenhuma conta, a primeira que criares e confirmares fica com as equipas e os jogos que já existiam.
+- **Já tinhas a app a correr de uma versão anterior?** Basta `git pull` e `docker compose up -d --build`. O serviço `migrar` atualiza sozinho a base de dados em cada arranque (convocatória, local da defesa na baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, uma equipa por conta, expulsões, escudos e superioridade numérica; são scripts que se podem repetir sem problema) e **não apaga nada**. As contas que já existiam ficam logo confirmadas. Se ainda não havia nenhuma conta, a primeira que criares e confirmares fica com as equipas e os jogos que já existiam.
 
 ## Contas e partilha
 
@@ -91,9 +91,11 @@ Ainda no banco:
 - **Outros eventos** (falta ofensiva, perda de bola, 2 minutos, vermelho direto, time-out) registam-se com um toque. Se tiveres um jogador escolhido, fica associado a ele.
 - **Expulsões**: ao **3.º «2 minutos»** do mesmo jogador, ou com um **vermelho direto** (que exige um jogador escolhido), o jogador está desqualificado: no banco o botão dele fica a cinzento com «Expulso» e já não se pode escolher (o motivo aparece ao passar o rato). Com 1 ou 2 «2 minutos» continua disponível e mostra um contador (`2′×1`, `2′×2`). Continua na grelha, e os remates e eventos que já tem ficam nas estatísticas. Se o registo foi engano, apaga o evento (`↶ Desfazer último` ou `✕`) e o jogador volta a poder jogar. Um «2 minutos» sem jogador escolhido não conta para ninguém (serve para um treinador ou oficial). Os guarda-redes não aparecem na grelha do banco, por isso as sanções são só para jogadores de campo.
 - **Relógio**: o tempo de jogo é guardado com cada evento (necessário para o parcial dos últimos minutos). Fica guardado no tablet, por isso recarregar a página não o perde. Usa `1.ª parte` para passar à 2.ª parte (aos 30:00) e `✎` para acertar o minuto.
+- **Superioridade numérica**: cada «2 minutos» e cada vermelho direto deixa a equipa com **menos um jogador de campo durante 2 minutos** (o 3.º «2 minutos» do mesmo jogador também). Por baixo do marcador aparece uma faixa com a situação (`6×5` e quem está em superioridade) e **a contagem decrescente de cada sanção** (`#7 1:12`); desaparece sozinha quando os 2 minutos acabam. Conta-se com o **relógio do banco**, por isso arranca-o (▶) ao início do jogo: com o relógio sempre a 00:00 o banco avisa e não inventa nada. Os 2 minutos não acabam com um golo e em campo ficam sempre pelo menos 4 jogadores (no máximo 2 a menos por equipa).
+- **Ataque 7×6**: o botão **Ataque 7×6** (junto aos outros eventos) liga e desliga o ataque sem guarda-redes da equipa que está a atacar (a escolhida em «Ataca: …»). Fica a faixa `7×6 · Equipa` enquanto estiver ligado. Os remates feitos nesse período contam à parte, e os do adversário contra a baliza vazia também.
 - **Desfazer**: `↶ Desfazer último` ou o `✕` ao lado de cada evento.
 
-**Dashboard** (`dashboard.html?jogo=ID`, com `&c=CÓDIGO` para quem só tem o link): placar, eficácia por equipa, parcial dos últimos 5 minutos (com aviso quando há uma diferença de 3 ou mais golos), mapa de remates com filtros, **defesas na baliza** (onde o guarda-redes adversário defendeu os remates da equipa escolhida, com a contagem por zona e a zona mais atacada), jogadores, zonas, guarda-redes, outros eventos, **sanções** (quem viu 2 minutos ou vermelho e quem está expulso) e últimos eventos.
+**Dashboard** (`dashboard.html?jogo=ID`, com `&c=CÓDIGO` para quem só tem o link): placar, eficácia por equipa, parcial dos últimos 5 minutos (com aviso quando há uma diferença de 3 ou mais golos), mapa de remates com filtros, **defesas na baliza** (onde o guarda-redes adversário defendeu os remates da equipa escolhida, com a contagem por zona e a zona mais atacada), jogadores, zonas, guarda-redes, outros eventos, **sanções** (quem viu 2 minutos ou vermelho e quem está expulso), **superioridade numérica** e últimos eventos. No topo do cabeçalho está o **relógio do jogo** (o do banco, em leitura) e, quando há alguém a menos ou um ataque 7×6, a faixa com a contagem decrescente dos 2 minutos. O quadro «Superioridade numérica» mostra, para a equipa escolhida, os remates, golos e eficácia em **superioridade, igualdade, inferioridade, ataque 7×6 e contra baliza vazia**, os golos sofridos na situação contrária («Sofr.») e o tempo passado em cada uma. Os 7 metros ficam de fora: é um castigo, não depende de quantos estão em campo.
 
 ## Exportar para Excel
 
@@ -190,6 +192,7 @@ As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas
 | DELETE | `/api/jogadores/{id}` | Apaga um jogador (409 se tiver eventos) |
 | POST | `/api/jogos/{id}/eventos` | Regista um evento |
 | DELETE | `/api/jogos/{id}/eventos/{eventoId}` | Apaga um evento |
+| PUT | `/api/jogos/{id}/relogio` | O banco diz em que segundo está o relógio: `{ "segundo": 0 a 7200, "aCorrer": true/false }` (204; 400 se faltar algum; 404 se o jogo não é da conta) |
 | GET | `/api/tipos-evento` | Tipos de evento disponíveis (aberta) |
 | GET | `/api/saude` | Estado da API (aberta) |
 
@@ -198,6 +201,8 @@ Numa defesa podes juntar `"balizaX"` e `"balizaY"` (0 a 100, os dois juntos) com
 Escudos: as listas de equipas e de jogos, o jogo (`GET /api/jogos/{id}`), o estado das estatísticas e a lista da área de convidado trazem a **versão** do escudo de cada equipa (`escudo` nas equipas, `casaEscudo` e `foraEscudo` nos jogos; `null` se não tem) e, na lista da área de convidado, também `casaId` e `foraId`. A versão são os milissegundos da última alteração e vai no endereço da imagem (`/api/equipas/ID/escudo?v=VERSÃO`): quando o escudo muda, o endereço muda e o browser vai buscar o novo. A imagem fica na tabela `escudos` (e não em pastas), por isso entra nas cópias de segurança da base de dados. Não se aceita SVG no servidor (pode trazer scripts): o browser converte-o em PNG antes de o enviar.
 
 Um evento `VERMELHO` (vermelho direto) exige `jogadorId`. O estado das estatísticas traz `sancoes`: um item por jogador com 2 minutos ou vermelho, `{ jogadorId, equipaId, numero, nome, doisMinutos, vermelhos, expulso }`, onde `expulso` é `true` com um vermelho ou 3 «2 minutos» (a regra está na vista `v_sancoes`). A API não impede de registar eventos a um jogador expulso (um engano corrige-se apagando o evento); quem os impede é o banco.
+
+Superioridade numérica: os eventos `SETE_SEIS_INICIO` e `SETE_SEIS_FIM` (da equipa, sem jogador nem coordenadas) marcam o ataque 7×6. O banco avisa o servidor do relógio com `PUT /api/jogos/{id}/relogio` ao arrancar, parar, ajustar ou mudar de parte e de 30 em 30 segundos enquanto corre; o servidor guarda o segundo e se anda (tabela `relogios_jogo`) e só envia aos dashboards os avisos que mudam alguma coisa (se o banco deixar de avisar, o relógio pára ao fim de 3 minutos). O estado das estatísticas traz `relogio` (`{ segundo, aCorrer }`; sem aviso do banco, o segundo do último evento) e `numerica`: `relogioUsado`, `duracaoSegundos` (120), `suspensoes` (cada 2 minutos ou vermelho com `eventoId`, `equipaId`, `jogadorId`, `jogadorNumero`, `tipo` e `segundoJogo`), `seteSeis` (por equipa: `ativo` e `desde`), `eficacia` (por equipa e situação: `remates`, `golos`) e `tempo` (segundos por equipa e situação). Quem calcula tudo isto é `api/HandballScouting.Api/Numerica.cs` (sem base de dados, com testes xUnit); as situações são `SUPERIORIDADE`, `IGUALDADE`, `INFERIORIDADE`, `SETE_SEIS` (a equipa ataca sem guarda-redes) e `BALIZA_VAZIA` (remata contra o 7×6 do adversário). Se o relógio nunca foi usado (todos os eventos a 00:00), `relogioUsado` é `false` e não há eficácia nem tempo.
 
 Exemplo de remate (precisa do cookie da sessão; aqui guardado com `-c`/`-b`):
 
@@ -219,7 +224,7 @@ As equipas, jogadores e jogos de `db/init/03_equipas_jogadores.sql` e `04_demo_e
 
 Por exemplo, contabilizar "passes errados". (O «Vermelho direto» foi acrescentado assim, em `db/init/12_expulsoes.sql`.) Os tipos vivem na tabela `tipos_evento`, por isso não é preciso mexer no código: o botão aparece sozinho no banco e a contagem aparece em "Outros eventos" no dashboard.
 
-1. Cria `db/init/14_passe_errado.sql`:
+1. Cria `db/init/15_passe_errado.sql`:
    ```sql
    INSERT INTO tipos_evento (codigo, nome, e_remate, ordem) VALUES ('PASSE_ERRADO', 'Passe errado', FALSE, 7)
    ON CONFLICT (codigo) DO NOTHING;
@@ -245,17 +250,18 @@ psql -v ON_ERROR_STOP=1 -f db/tests/em_direto.sql      # jogos abertos a convida
 psql -v ON_ERROR_STOP=1 -f db/tests/equipa_da_conta.sql # uma equipa por conta (criada com a conta, dados de exemplo, contas antigas)
 psql -v ON_ERROR_STOP=1 -f db/tests/expulsoes.sql      # sanções (3.º 2 minutos e vermelho direto expulsam, por jogo e por jogador)
 psql -v ON_ERROR_STOP=1 -f db/tests/escudos.sql        # escudos das equipas (versão, troca, limites, apagar com a equipa)
+psql -v ON_ERROR_STOP=1 -f db/tests/superioridade.sql  # tipos do 7×6 e relógio do jogo guardado no servidor
 python3 db/tests/validar_consultas.py                  # todas as consultas contra o esquema
 
-# Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR
+# Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR e a contagem dos 2 minutos
 (cd tests && npm run unidade)
 ```
 
 Há ainda testes que usam a **API verdadeira** e um browser (pasta `tests/`, ver `tests/README.md`):
 
-- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação e de recuperação da palavra-passe lidos na caixa de teste, sessões, a equipa da conta (pedida no registo, `propria` na lista de equipas), isolamento entre contas, link de partilha, jogos abertos a convidados durante 24 horas (lista aberta sem sessão, jogos sem eventos pela hora marcada, acesso sem link, código escondido, jogo escondido pelo dono), estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, sanções e expulsões (3.º 2 minutos, vermelho direto, apagar para corrigir), escudos (permissões, formatos, limite de 200 KB, cache, versão nas listas), atualizações em tempo real e descarga do Excel);
+- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação e de recuperação da palavra-passe lidos na caixa de teste, sessões, a equipa da conta (pedida no registo, `propria` na lista de equipas), isolamento entre contas, link de partilha, jogos abertos a convidados durante 24 horas (lista aberta sem sessão, jogos sem eventos pela hora marcada, acesso sem link, código escondido, jogo escondido pelo dono), estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, sanções e expulsões (3.º 2 minutos, vermelho direto, apagar para corrigir), superioridade numérica (relógio do banco no servidor, sanções, 7×6, eficácia e tempo por situação), escudos (permissões, formatos, limite de 200 KB, cache, versão nas listas), atualizações em tempo real e descarga do Excel);
 - `tests/integracao/verificar_excel.py`: abre os `.xlsx` descarregados e confere os números com os dados de exemplo;
-- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pelo link, reenviar o email, recuperar a palavra-passe pelo link, a página que só mostra a equipa da conta, criar um jogo escrevendo o adversário, a área de convidado e a lista de jogos das últimas 24 horas (incluindo esconder um jogo), sair e entrar, uma segunda conta que não vê os dados da primeira, o link de partilha aberto sem conta, juntar jogadores à equipa, convocatória (incluindo ler a lista de uma foto com o leitor verdadeiro), registar remates no banco, expulsar jogadores (3.º 2 minutos e vermelho direto) e ver o quadro de sanções, carregar, trocar e tirar o escudo da equipa (a imagem é reduzida no browser) e vê-lo no placar, nas listas e na área de convidado, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
+- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pelo link, reenviar o email, recuperar a palavra-passe pelo link, a página que só mostra a equipa da conta, criar um jogo escrevendo o adversário, a área de convidado e a lista de jogos das últimas 24 horas (incluindo esconder um jogo), sair e entrar, uma segunda conta que não vê os dados da primeira, o link de partilha aberto sem conta, juntar jogadores à equipa, convocatória (incluindo ler a lista de uma foto com o leitor verdadeiro), registar remates no banco, expulsar jogadores (3.º 2 minutos e vermelho direto) e ver o quadro de sanções, contar os 2 minutos com o relógio a andar (faixa 6×5, 7×6, relógio no dashboard) e ver a eficácia por situação, carregar, trocar e tirar o escudo da equipa (a imagem é reduzida no browser) e vê-lo no placar, nas listas e na área de convidado, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
 
 O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada pull request:
 
@@ -278,7 +284,7 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 
 ```
 api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
-db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões e escudos (correm por ordem)
+db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões, escudos e superioridade numérica (correm por ordem)
 db/tests/              testes SQL
 frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard), JS, CSS e fontes; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
 tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)

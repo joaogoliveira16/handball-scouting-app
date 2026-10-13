@@ -193,6 +193,11 @@ h3 { font: 600 1.05rem/1.2 var(--fonte); }
 .relogio button:hover, .topo .botao-topo:hover { background: rgba(255, 255, 255, 0.22); }
 .topo-jogo :focus-visible { outline-color: #fff; }
 
+/* Relógio do jogo no dashboard (é o do banco: só leitura) */
+.relogio-leitura { font: 700 1.9rem/1 var(--fonte-num); font-variant-numeric: tabular-nums; min-width: 4.6ch; text-align: center; }
+.relogio-leitura[hidden] { display: none; }
+.relogio-leitura.parado { opacity: 0.6; }
+
 .ligacao { font-size: 0.92rem; font-weight: 600; display: flex; align-items: center; gap: 8px; color: rgba(255, 255, 255, 0.78); }
 .ligacao::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #94a3b8; }
 .ligacao.ok::before { background: #4ade80; animation: pulsar 2s ease-in-out infinite; }
@@ -288,6 +293,23 @@ h3 { font: 600 1.05rem/1.2 var(--fonte); }
   border: 1px solid var(--linha-forte); background: var(--superficie); font-weight: 600;
 }
 .outros button:hover { background: var(--realce); }
+.outros button.alternar.ativo, .outros button.alternar.ativo:hover { background: var(--tinta); border-color: var(--tinta); color: #fff; }
+
+/* Superioridade numérica: faixa por baixo do marcador (banco) e no topo do dashboard */
+.faixa-numerica {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 8px 16px;
+  background: var(--alerta-fundo); border-bottom: 1px solid #ecc766; color: var(--alerta); font-weight: 600;
+}
+.faixa-numerica[hidden] { display: none; }
+.faixa-numerica .rotulo-numerica { font: 700 1.7rem/1 var(--fonte-num); color: var(--tinta); }
+.dash .faixa-numerica { border: 1px solid #ecc766; border-radius: var(--raio); padding: 12px 18px; }
+.chip-numerica {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 12px; border-radius: 999px;
+  background: var(--superficie); border: 1px solid var(--linha-forte); color: var(--tinta); font-variant-numeric: tabular-nums;
+}
+.chip-numerica b { font: 700 1.15rem var(--fonte-num); }
+.chip-numerica .ponto-equipa { margin-right: 2px; }
+.chip-numerica.sete-seis { background: var(--tinta); border-color: var(--tinta); color: #fff; }
 
 .titulo-com-acao { display: flex; align-items: center; justify-content: space-between; }
 .titulo-com-acao > span { flex: 1; }

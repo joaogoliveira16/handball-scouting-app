@@ -19,6 +19,9 @@ public record NovoEventoRequest(
     decimal? BalizaX = null, // 0 a 100: onde o guarda-redes defendeu (só em DEFESA), da esquerda para a direita de quem remata
     decimal? BalizaY = null); // 0 a 100: da trave (0) ao chão (100)
 
+/// <summary>Corpo do PUT /api/jogos/{id}/relogio: o tablet do banco diz em que segundo está o relógio e se está a andar.</summary>
+public record RelogioRequest(int? Segundo, bool? ACorrer);
+
 public record RegistoRequest(string? Nome, string? Email, string? PalavraPasse, string? Equipa = null);   // Equipa: a equipa da conta
 
 public record EntrarRequest(string? Email, string? PalavraPasse);
@@ -47,6 +50,13 @@ public record ResultadoRegisto(bool Ok, int Status, string? Erro, long? Id)
     public static ResultadoRegisto Sucesso(long id) => new(true, 201, null, id);
     public static ResultadoRegisto Atualizado() => new(true, 200, null, null);
     public static ResultadoRegisto Falha(int status, string erro) => new(false, status, erro, null);
+}
+
+/// <summary>Resultado de guardar o relógio: Mudou = arrancou, parou ou saltou (e não só um aviso periódico).</summary>
+public record ResultadoRelogio(bool Ok, int Status, string? Erro, bool Mudou)
+{
+    public static ResultadoRelogio Guardado(bool mudou) => new(true, 204, null, mudou);
+    public static ResultadoRelogio Falha(int status, string erro) => new(false, status, erro, false);
 }
 
 // ---------------------------------------------------------------------
@@ -322,6 +332,7 @@ public class RemateMapa
     public decimal? BalizaX { get; set; }
     public decimal? BalizaY { get; set; }
     public string? BalizaZona { get; set; }
+    public int SegundoJogo { get; set; }
 }
 
 /// <summary>Resultado das consultas com filtros (eficácia de remate)</summary>
@@ -363,4 +374,70 @@ public class EstatisticasJogo
     public List<SancaoJogador> Sancoes { get; set; } = new();
     public List<EventoResumo> UltimosEventos { get; set; } = new();
     public List<RemateMapa> Remates { get; set; } = new();
+    public RelogioJogo Relogio { get; set; } = new();
+    public NumericaJogo Numerica { get; set; } = new();
+}
+
+/// <summary>O relógio do jogo agora (o tablet do banco avisa o servidor quando o relógio arranca, pára ou é ajustado).</summary>
+public class RelogioJogo
+{
+    public int Segundo { get; set; }
+    public bool ACorrer { get; set; }
+}
+
+/// <summary>Um 2 minutos ou um vermelho direto: deixa a equipa com menos um jogador durante 2 minutos.</summary>
+public class SuspensaoJogo
+{
+    public long EventoId { get; set; }
+    public int EquipaId { get; set; }
+    public int? JogadorId { get; set; }
+    public short? JogadorNumero { get; set; }
+    public string Tipo { get; set; } = "";
+    public int SegundoJogo { get; set; }
+}
+
+/// <summary>Início ou fim de um ataque 7×6 (sete jogadores de campo, sem guarda-redes).</summary>
+public class SeteSeisEvento
+{
+    public long EventoId { get; set; }
+    public int EquipaId { get; set; }
+    public string Tipo { get; set; } = "";
+    public int SegundoJogo { get; set; }
+}
+
+/// <summary>Se a equipa está agora a atacar em 7×6 e desde que segundo.</summary>
+public class SeteSeisEquipa
+{
+    public int EquipaId { get; set; }
+    public bool Ativo { get; set; }
+    public int? Desde { get; set; }
+}
+
+/// <summary>Remates e golos de uma equipa numa situação numérica (ver Numerica.Situacoes).</summary>
+public class EficaciaNumerica
+{
+    public int EquipaId { get; set; }
+    public string Situacao { get; set; } = "";
+    public int Remates { get; set; }
+    public int Golos { get; set; }
+}
+
+/// <summary>Segundos que a equipa passou numa situação numérica (superioridade, inferioridade ou 7×6).</summary>
+public class TempoNumerico
+{
+    public int EquipaId { get; set; }
+    public string Situacao { get; set; } = "";
+    public int Segundos { get; set; }
+}
+
+/// <summary>Superioridade e inferioridade numérica do jogo (calculadas em Numerica.cs).</summary>
+public class NumericaJogo
+{
+    /// <summary>false se o relógio nunca foi usado: sem o segundo de cada evento não há como saber a situação.</summary>
+    public bool RelogioUsado { get; set; }
+    public int DuracaoSegundos { get; set; } = Numerica.DuracaoSegundos;
+    public List<SuspensaoJogo> Suspensoes { get; set; } = new();
+    public List<SeteSeisEquipa> SeteSeis { get; set; } = new();
+    public List<EficaciaNumerica> Eficacia { get; set; } = new();
+    public List<TempoNumerico> Tempo { get; set; } = new();
 }

@@ -922,6 +922,162 @@ await passo('Banco: o 3.º 2 minutos e o vermelho direto tiram o jogador do jogo
   await dash.close();
 });
 
+// ======================= Superioridade numérica =======================
+await passo('Superioridade: o banco conta os 2 minutos, marca o 7×6 e o dashboard acompanha o relógio', async () => {
+  const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  const banco = await pagina(`/banco.html?jogo=${jogoId}`, { relogio: true });
+  await banco.waitForSelector('.botao-jogador');
+  ok(await esperarPor(async () => (await banco.locator('#ligacao').getAttribute('class'))?.includes('ok')), 'superioridade: banco ligado ao hub');
+  const dash = await pagina(`/dashboard.html?jogo=${jogoId}`);
+  await dash.waitForSelector('.placar');
+
+  const relogioBd = async () => (await q('SELECT segundo, a_correr FROM relogios_jogo WHERE jogo_id = $1', [jogoId]))[0];
+  const faixaBanco = banco.locator('#faixa-numerica');
+  const faixaDash = dash.locator('#painel .faixa-numerica');
+  const restanteDe = async (faixa) => {
+    const [m, sec] = ((await faixa.locator('.chip-numerica:not(.sete-seis) b').first().textContent()) ?? '0:00').split(':').map(Number);
+    return m * 60 + sec;
+  };
+
+  ok(await faixaBanco.isHidden(), 'superioridade: sem sanções a faixa do banco está escondida');
+  ok((await banco.locator('#btn-sete-seis').count()) === 1 && (await texto(banco.locator('#btn-sete-seis'))) === 'Ataque7×6', 'superioridade: o banco tem o botão «Ataque 7×6»');
+  ok((await banco.locator('#outros button', { hasText: /início|fim/ }).count()) === 0, 'superioridade: o início e o fim do 7×6 não aparecem como eventos soltos');
+
+  // Arrancar o relógio avisa o servidor; passados 10 minutos o aviso periódico corrige o segundo
+  await banco.click('#btn-relogio');
+  ok(await esperarPor(async () => (await relogioBd())?.a_correr === true), 'superioridade: ao arrancar, o servidor fica a saber que o relógio anda');
+  await banco.clock.fastForward('10:00');
+  ok(await esperarPor(async () => ((await relogioBd())?.segundo ?? 0) >= 600), `superioridade: o aviso periódico põe o relógio do servidor nos 10 minutos (${(await relogioBd())?.segundo} s)`);
+
+  // 2 minutos ao minuto 10: o banco mostra 6×5 para o adversário e a contagem decrescente
+  const idA = await banco.locator('.botao-jogador').nth(0).getAttribute('data-jogador');
+  await banco.locator(`.botao-jogador[data-jogador="${idA}"]`).click();
+  await banco.locator('#outros button', { hasText: /^2 minutos$/ }).click();
+  ok(await esperarPor(async () => (await q("SELECT segundo_jogo FROM eventos WHERE jogo_id = $1 AND tipo_evento_codigo = 'DOIS_MINUTOS'", [jogoId]))[0]?.segundo_jogo >= 600),
+    'superioridade: o «2 minutos» ficou registado ao minuto 10');
+  await empurrar(banco, jogoId);
+  ok(await esperarPor(async () => await faixaBanco.isVisible()), 'superioridade: com um jogador a menos aparece a faixa no banco');
+  ok((await texto(faixaBanco.locator('.rotulo-numerica'))) === '6×5', 'superioridade: a casa joga com 5 e o adversário com 6 (6×5)');
+  ok(((await faixaBanco.textContent()) ?? '').includes('Superioridade · Leões do Sul'), 'superioridade: a faixa diz quem está em superioridade');
+  const inicio = await restanteDe(faixaBanco);
+  ok(inicio >= 115 && inicio <= 120, `superioridade: a contagem começa nos 2 minutos (${inicio} s)`);
+  ok((await faixaBanco.locator('.chip-numerica').first().textContent())?.startsWith('#'), 'superioridade: a contagem traz o número do jogador');
+  await captura(banco, 'banco-superioridade');
+
+  // O dashboard (outro ecrã) vê o relógio a andar e a mesma contagem
+  await empurrar(dash, jogoId);
+  ok(await esperarPor(async () => await dash.locator('#relogio-dash').isVisible()), 'superioridade: o dashboard mostra o relógio do jogo');
+  ok(/^10:[0-3]\d$/.test((await texto(dash.locator('#relogio-dash'))) ?? ''), `superioridade: o relógio do dashboard está nos 10 minutos (${await texto(dash.locator('#relogio-dash'))})`);
+  ok((await dash.locator('#relogio-dash.parado').count()) === 0, 'superioridade: com o relógio a andar não aparece como parado');
+  ok(await esperarPor(async () => await faixaDash.isVisible()) && (await texto(faixaDash.locator('.rotulo-numerica'))) === '6×5', 'superioridade: o dashboard mostra a faixa 6×5');
+  const noDash = await restanteDe(faixaDash);
+  ok(noDash >= 80 && noDash <= 120, `superioridade: o dashboard conta os 2 minutos a partir do relógio do servidor (${noDash} s)`);
+  await captura(dash, 'dashboard-superioridade');
+
+  // Passado 1 minuto de jogo faltam cerca de 60 segundos
+  await banco.clock.fastForward('01:00');
+  ok(await esperarPor(async () => { const r = await restanteDe(faixaBanco); return r >= 55 && r <= 61; }), `superioridade: ao fim de 1 minuto faltam cerca de 60 s (${await restanteDe(faixaBanco)} s)`);
+
+  // 7×6: liga e desliga sem mexer no jogador escolhido
+  await banco.locator(`.botao-jogador[data-jogador="${idA}"]`).click();
+  await banco.click('#btn-sete-seis');
+  ok(await esperarPor(async () => (await q("SELECT 1 FROM eventos WHERE jogo_id = $1 AND tipo_evento_codigo = 'SETE_SEIS_INICIO' AND jogador_id IS NULL", [jogoId])).length === 1), 'superioridade: o início do 7×6 ficou registado (da equipa, sem jogador)');
+  await empurrar(banco, jogoId);
+  ok(await esperarPor(async () => (await texto(banco.locator('#btn-sete-seis'))) === '7×6ligado·desligar'), 'superioridade: o botão passa a «7×6 ligado · desligar»');
+  ok((await banco.locator('#btn-sete-seis').getAttribute('aria-pressed')) === 'true', 'superioridade: o botão do 7×6 diz que está ligado');
+  ok(((await faixaBanco.locator('.chip-numerica.sete-seis').textContent()) ?? '').includes('7×6 · Águias do Norte'), 'superioridade: a faixa mostra quem ataca em 7×6');
+  ok((await banco.locator(`.botao-jogador[data-jogador="${idA}"].ativo`).count()) === 1, 'superioridade: ligar o 7×6 não tira o jogador escolhido');
+  await banco.click('#btn-sete-seis');
+  ok(await esperarPor(async () => (await q("SELECT 1 FROM eventos WHERE jogo_id = $1 AND tipo_evento_codigo = 'SETE_SEIS_FIM'", [jogoId])).length === 1), 'superioridade: o fim do 7×6 ficou registado');
+  await empurrar(banco, jogoId);
+  ok(await esperarPor(async () => (await texto(banco.locator('#btn-sete-seis'))) === 'Ataque7×6'), 'superioridade: desligado, o botão volta a «Ataque 7×6»');
+  ok((await faixaBanco.locator('.chip-numerica.sete-seis').count()) === 0, 'superioridade: sem 7×6 a faixa já não o mostra');
+
+  // Acabados os 2 minutos a faixa desaparece sozinha
+  await banco.clock.fastForward('01:10');
+  ok(await esperarPor(async () => await faixaBanco.isHidden()), 'superioridade: ao fim dos 2 minutos a faixa desaparece');
+
+  // O 7×6 não conta como «outro evento» no dashboard
+  await empurrar(dash, jogoId);
+  const outros = dash.locator('section.cartao', { has: dash.locator('h2', { hasText: 'Outros eventos' }) });
+  ok(await esperarPor(async () => (await outros.locator('tbody tr').count()) >= 1) && (await outros.textContent()).includes('2 minutos') && !(await outros.textContent()).includes('7×6'),
+    'superioridade: «Outros eventos» mostra os 2 minutos e não conta o início e o fim do 7×6');
+
+  // Parar o relógio: o dashboard mostra-o parado
+  await banco.click('#btn-relogio');
+  ok(await esperarPor(async () => (await relogioBd())?.a_correr === false), 'superioridade: ao parar, o servidor fica a saber que o relógio parou');
+  await empurrar(dash, jogoId);
+  ok(await esperarPor(async () => (await dash.locator('#relogio-dash.parado').count()) === 1), 'superioridade: o dashboard mostra o relógio parado');
+  await banco.close();
+  await dash.close();
+});
+
+await passo('Superioridade: a eficácia por situação (igualdade, superioridade, inferioridade, 7×6) no dashboard', async () => {
+  const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  const [{ id: jogCasa }] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [aguias.id]);
+  const [{ id: jogFora }] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [leoes.id]);
+  const evento = (tipo, equipa, jogador, segundo, resultado = null, situacao = 'POSICIONAL') => q(
+    `INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, resultado, situacao, x, y, parte, segundo_jogo)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [jogoId, equipa, tipo, jogador, resultado, situacao, resultado ? 50 : null, resultado ? 40 : null, segundo >= 1800 ? 2 : 1, segundo]);
+  // Casa com 2 minutos aos 10:00 (até 12:00); fora com vermelho aos 11:40 (até 13:40); ataque 7×6 do fora entre 15:00 e 15:50
+  await evento('REMATE', aguias.id, jogCasa, 300, 'GOLO');                         // igualdade
+  await evento('DOIS_MINUTOS', aguias.id, jogCasa, 600);
+  await evento('REMATE', leoes.id, jogFora, 650, 'GOLO');                          // fora em superioridade
+  await evento('REMATE', leoes.id, jogFora, 660, 'DEFESA');                        // fora em superioridade
+  await evento('VERMELHO', leoes.id, jogFora, 700);
+  await evento('REMATE', aguias.id, jogCasa, 710, 'FORA');                         // uma a menos de cada lado: igualdade
+  await evento('REMATE', aguias.id, jogCasa, 750, 'GOLO');                         // casa em superioridade
+  await evento('REMATE', aguias.id, jogCasa, 780, 'GOLO');                         // casa em superioridade
+  await evento('REMATE', aguias.id, jogCasa, 790, 'GOLO', 'SETE_METROS');          // os 7 metros ficam de fora
+  await evento('SETE_SEIS_INICIO', leoes.id, null, 900);
+  await evento('REMATE', aguias.id, jogCasa, 910, 'GOLO');                         // baliza vazia
+  await evento('REMATE', leoes.id, jogFora, 920, 'DEFESA');                        // fora em 7×6
+  await evento('SETE_SEIS_FIM', leoes.id, null, 950);
+  await q('INSERT INTO relogios_jogo (jogo_id, segundo, a_correr) VALUES ($1, 1000, FALSE)', [jogoId]);
+
+  const dash = await pagina(`/dashboard.html?jogo=${jogoId}`);
+  const cartaoNumerica = dash.locator('section.cartao', { has: dash.locator('h2', { hasText: 'Superioridade numérica' }) });
+  await cartaoNumerica.waitFor();
+  const linha = async (situacao) => (await cartaoNumerica.locator(`tr[data-situacao="${situacao}"] td`).allTextContents()).map((t) => t.trim()).slice(1);
+
+  ok((await cartaoNumerica.locator('h2').textContent()).includes('Águias do Norte'), 'eficácia numérica: o quadro é da equipa escolhida (a da casa)');
+  ok((await cartaoNumerica.locator('tbody tr').count()) === 5, 'eficácia numérica: cinco situações (superioridade, igualdade, inferioridade, 7×6, baliza vazia)');
+  // colunas: Rem., Golos, %, Sofr., Tempo
+  ok(JSON.stringify(await linha('SUPERIORIDADE')) === JSON.stringify(['2', '2', '100%', '0', '01:40']), `eficácia numérica: casa em superioridade 2 remates, 2 golos, 0 sofridos, 1:40 (${await linha('SUPERIORIDADE')})`);
+  ok(JSON.stringify(await linha('IGUALDADE')) === JSON.stringify(['2', '1', '50%', '0', '–']), `eficácia numérica: casa em igualdade 2 remates, 1 golo (${await linha('IGUALDADE')})`);
+  ok(JSON.stringify(await linha('INFERIORIDADE')) === JSON.stringify(['–', '–', '–', '1', '01:40']), `eficácia numérica: casa em inferioridade sem remates, 1 golo sofrido, 1:40 (${await linha('INFERIORIDADE')})`);
+  ok(JSON.stringify(await linha('SETE_SEIS')) === JSON.stringify(['–', '–', '–', '–', '–']), `eficácia numérica: a casa não atacou em 7×6 (${await linha('SETE_SEIS')})`);
+  ok(JSON.stringify(await linha('BALIZA_VAZIA')) === JSON.stringify(['1', '1', '100%', '0', '00:50']), `eficácia numérica: casa marcou na baliza vazia do adversário durante os 50 s do 7×6 dele (${await linha('BALIZA_VAZIA')})`);
+  ok(((await cartaoNumerica.textContent()) ?? '').includes('Sem os 7 metros'), 'eficácia numérica: o quadro avisa que os 7 metros ficam de fora');
+  ok(await dash.locator('#relogio-dash.parado').isVisible() && (await texto(dash.locator('#relogio-dash'))) === '16:40', 'eficácia numérica: o relógio parado do jogo está nos 16:40');
+  ok(await dash.locator('#painel .faixa-numerica').isHidden(), 'eficácia numérica: aos 16:40 já não há ninguém a menos nem 7×6: a faixa está escondida');
+  await captura(dash, 'dashboard-eficacia-numerica');
+
+  // A outra equipa: o espelho
+  await dash.click('.separador-abas button:has-text("Ver: Leões do Sul")');
+  await esperarPor(async () => (await cartaoNumerica.locator('h2').textContent()).includes('Leões do Sul'));
+  ok(JSON.stringify(await linha('SUPERIORIDADE')) === JSON.stringify(['2', '1', '50%', '0', '01:40']), `eficácia numérica: fora em superioridade 2 remates, 1 golo (${await linha('SUPERIORIDADE')})`);
+  ok(JSON.stringify(await linha('INFERIORIDADE')) === JSON.stringify(['–', '–', '–', '2', '01:40']), `eficácia numérica: fora em inferioridade sofreu 2 golos (${await linha('INFERIORIDADE')})`);
+  ok(JSON.stringify(await linha('SETE_SEIS')) === JSON.stringify(['1', '0', '0%', '1', '00:50']), `eficácia numérica: fora em 7×6 rematou uma vez, sofreu 1 golo na baliza vazia, 50 s (${await linha('SETE_SEIS')})`);
+  ok(JSON.stringify(await linha('BALIZA_VAZIA')) === JSON.stringify(['–', '–', '–', '–', '–']), `eficácia numérica: fora não rematou contra baliza vazia (${await linha('BALIZA_VAZIA')})`);
+  await dash.close();
+
+  // Sem relógio usado (tudo a 00:00) não se inventa nada
+  const [{ id: jogoSemRelogio }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  await q("INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, parte, segundo_jogo) VALUES ($1, $2, 'DOIS_MINUTOS', $3, 1, 0)", [jogoSemRelogio, aguias.id, jogCasa]);
+  const banco = await pagina(`/banco.html?jogo=${jogoSemRelogio}`);
+  await banco.waitForSelector('.botao-jogador');
+  ok(await banco.locator('#faixa-numerica').isHidden(), 'sem relógio: o banco não inventa uma superioridade com o relógio a 00:00');
+  await banco.close();
+  const semRelogio = await pagina(`/dashboard.html?jogo=${jogoSemRelogio}`);
+  const aviso = semRelogio.locator('section.cartao', { has: semRelogio.locator('h2', { hasText: 'Superioridade numérica' }) });
+  await aviso.waitFor();
+  ok((await aviso.textContent()).includes('relógio do banco não foi usado') && (await aviso.locator('table').count()) === 0, 'sem relógio: o dashboard explica porque não há eficácia por situação');
+  ok(await semRelogio.locator('#relogio-dash').isHidden(), 'sem relógio: o dashboard não mostra o relógio');
+  await semRelogio.close();
+});
+
 // ======================= Escudos das equipas =======================
 await passo('Escudos: carregar, trocar e tirar o escudo da equipa', async () => {
   const [{ equipa_id: propriaId }] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [donoId]);

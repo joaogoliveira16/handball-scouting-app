@@ -381,6 +381,7 @@ await passo('Saúde e dados de exemplo', async () => {
   const tipos = await http('GET', '/api/tipos-evento');
   ok(tipos.status === 200 && tipos.json?.some((t) => t.codigo === 'REMATE' && t.eRemate === true), 'GET /api/tipos-evento', descricao(tipos));
   ok(tipos.json?.some((t) => t.codigo === 'VERMELHO' && t.eRemate === false), 'GET /api/tipos-evento inclui o vermelho direto', descricao(tipos));
+  ok(['SETE_SEIS_INICIO', 'SETE_SEIS_FIM'].every((c) => tipos.json?.some((t) => t.codigo === c && t.eRemate === false)), 'GET /api/tipos-evento inclui o início e o fim do ataque 7×6', descricao(tipos));
 
   const detalhe = await http('GET', '/api/jogos/2');
   ok(detalhe.status === 200 && detalhe.json?.jogadores?.length === 16, 'GET /api/jogos/2 devolve os 16 jogadores', descricao(detalhe));
@@ -411,6 +412,17 @@ await passo('Estatísticas (GROUP BY / COUNT) sobre os dados de exemplo', async 
   ok(est.json?.outrosEventos?.length > 0, 'outros eventos (faltas, perdas...) presentes');
   ok(est.json?.sancoes?.length === 1 && est.json.sancoes[0].jogadorId === 14 && est.json.sancoes[0].doisMinutos === 1 && est.json.sancoes[0].vermelhos === 0 && est.json.sancoes[0].expulso === false,
     'sanções: o jogo de exemplo tem um jogador com um 2 minutos (ainda não expulso)', JSON.stringify(est.json?.sancoes));
+  const numericaExemplo = est.json?.numerica;
+  ok(numericaExemplo?.relogioUsado === true && numericaExemplo.duracaoSegundos === 120 && numericaExemplo.suspensoes?.length === 1
+    && numericaExemplo.suspensoes[0].jogadorId === 14 && numericaExemplo.suspensoes[0].tipo === 'DOIS_MINUTOS' && numericaExemplo.suspensoes[0].segundoJogo === 1900,
+  'superioridade: o jogo de exemplo traz o seu 2 minutos (aos 1900 s) e o relógio como usado', JSON.stringify(numericaExemplo?.suspensoes));
+  ok(numericaExemplo?.seteSeis?.length === 2 && numericaExemplo.seteSeis.every((e) => e.ativo === false && e.desde == null), 'superioridade: sem 7×6 registado as duas equipas estão em «não ativo»', JSON.stringify(numericaExemplo?.seteSeis));
+  ok(Array.isArray(numericaExemplo?.eficacia) && numericaExemplo.eficacia.length > 0
+    && numericaExemplo.eficacia.reduce((t, e) => t + e.remates, 0) <= 33
+    && numericaExemplo.eficacia.every((e) => ['SUPERIORIDADE', 'IGUALDADE', 'INFERIORIDADE', 'SETE_SEIS', 'BALIZA_VAZIA'].includes(e.situacao) && e.golos <= e.remates),
+  'superioridade: a eficácia por situação cobre os remates (sem os 7 metros)', JSON.stringify(numericaExemplo?.eficacia));
+  ok(est.json?.relogio?.aCorrer === false && est.json.relogio.segundo >= 1900, 'superioridade: sem relógio avisado pelo banco, o relógio é o do último evento e está parado', JSON.stringify(est.json?.relogio));
+  ok(est.json?.remates?.every((r) => Number.isInteger(r.segundoJogo)), 'superioridade: cada remate do mapa traz o segundo de jogo');
 
   // lateral esquerdo, linha de 9 m, segunda parte
   const e1 = await http('GET', '/api/jogos/2/estatisticas/eficacia?posicao=LE&distancia=LINHA_9M&parte=2');
@@ -704,6 +716,72 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
     ok((await http('DELETE', `/api/jogos/${id}/eventos/${eventoId}`)).status === 204, 'sanções: apagar o evento = 204');
   }
   ok((await http('GET', `/api/jogos/${id}/estatisticas`)).json?.sancoes?.length === 0, 'sanções: sem os eventos ninguém tem sanções');
+
+  // superioridade numérica: o relógio do banco chega ao servidor; os 2 minutos, o vermelho e o 7×6 entram na conta
+  const relogioDe = (corpo, sessao = principal, caminho = `/api/jogos/${id}/relogio`) => http('PUT', caminho, corpo, sessao);
+  ok((await relogioDe({ segundo: 600, aCorrer: true }, anonima)).status === 401, 'relógio: sem conta = 401');
+  ok((await relogioDe({ segundo: 600, aCorrer: true }, principal, '/api/jogos/99999/relogio')).status === 404, 'relógio: jogo que não existe = 404');
+  for (const [corpo, quando] of [[{ segundo: -1, aCorrer: true }, 'segundo negativo'], [{ segundo: 7201, aCorrer: true }, 'mais de 2 horas'],
+    [{ segundo: 10 }, 'sem aCorrer'], [{ aCorrer: true }, 'sem segundo'], [{}, 'corpo vazio']]) {
+    ok((await relogioDe(corpo)).status === 400, `relógio: ${quando} = 400`);
+  }
+
+  const mensagensAntes = recebidos.length;
+  const arranque = await relogioDe({ segundo: 600, aCorrer: true });
+  ok(arranque.status === 204, 'relógio: o banco arranca o relógio = 204', descricao(arranque));
+  ok(await ate(() => recebidos.length > mensagensAntes), 'relógio: arrancar chega ao dashboard (SignalR)');
+  const comRelogio = recebidos.at(-1);
+  ok(comRelogio.relogio?.aCorrer === true && comRelogio.relogio.segundo >= 600 && comRelogio.relogio.segundo < 660, 'relógio: o estado traz o relógio a andar a partir dos 600 s', JSON.stringify(comRelogio.relogio));
+  // o aviso periódico (o relógio continua a andar sem saltos) não incomoda os dashboards
+  const mensagensDepois = recebidos.length;
+  ok((await relogioDe({ segundo: 601, aCorrer: true })).status === 204, 'relógio: aviso periódico = 204');
+  await esperar(700);
+  ok(recebidos.length === mensagensDepois, 'relógio: o aviso periódico sem mudanças não gera atualizações');
+  const salto = await relogioDe({ segundo: 1000, aCorrer: false });
+  ok(salto.status === 204 && await ate(() => recebidos.length > mensagensDepois), 'relógio: parar e saltar para os 1000 s chega ao dashboard');
+  ok(recebidos.at(-1).relogio?.aCorrer === false && recebidos.at(-1).relogio.segundo === 1000, 'relógio: parado nos 1000 s', JSON.stringify(recebidos.at(-1).relogio));
+
+  // fora com 2 minutos aos 900 s: a casa remata em superioridade aos 930 s
+  const criados = [];
+  const registar = async (corpo) => { const r = await http('POST', `/api/jogos/${id}/eventos`, corpo); if (r.json?.id) criados.push(r.json.id); return r; };
+  ok((await registar({ tipoEvento: 'DOIS_MINUTOS', equipaId: equipaFora, jogadorId: jogadorFora, parte: 1, segundoJogo: 900 })).status === 201, 'superioridade: 2 minutos do adversário = 201');
+  ok((await registar({ ...remate, segundoJogo: 930, resultado: 'GOLO' })).status === 201, 'superioridade: remate da casa durante os 2 minutos = 201');
+  ok(await ate(() => recebidos.at(-1)?.numerica?.eficacia?.some((e) => e.equipaId === casaId && e.situacao === 'SUPERIORIDADE')), 'superioridade: o dashboard recebe a eficácia em superioridade');
+  let n = recebidos.at(-1).numerica;
+  const sup = n.eficacia.find((e) => e.equipaId === casaId && e.situacao === 'SUPERIORIDADE');
+  ok(sup.remates === 1 && sup.golos === 1, 'superioridade: a casa tem 1 remate e 1 golo em superioridade', JSON.stringify(n.eficacia));
+  const suspensao = n.suspensoes.find((x) => x.segundoJogo === 900);
+  ok(suspensao?.equipaId === equipaFora && suspensao.jogadorId === jogadorFora && suspensao.jogadorNumero > 0 && suspensao.tipo === 'DOIS_MINUTOS' && suspensao.eventoId > 0,
+    'superioridade: a sanção traz a equipa, o jogador, o número e o tipo', JSON.stringify(suspensao));
+  ok(n.tempo.find((t) => t.equipaId === casaId && t.situacao === 'SUPERIORIDADE')?.segundos === 100
+    && n.tempo.find((t) => t.equipaId === equipaFora && t.situacao === 'INFERIORIDADE')?.segundos === 100,
+  'superioridade: 100 s em superioridade para a casa e em inferioridade para o adversário (900 a 1000 s)', JSON.stringify(n.tempo));
+
+  // um vermelho direto também deixa a equipa 2 minutos a menos
+  ok((await registar({ tipoEvento: 'VERMELHO', equipaId: casaId, jogadorId: lateralCasa, parte: 1, segundoJogo: 940 })).status === 201, 'superioridade: vermelho direto = 201');
+  ok(await ate(() => recebidos.at(-1)?.numerica?.suspensoes?.some((x) => x.tipo === 'VERMELHO')), 'superioridade: o vermelho entra nas sanções');
+
+  // 7×6: início e fim da equipa de fora, sem jogador nem coordenadas
+  const inicio76 = await registar({ tipoEvento: 'SETE_SEIS_INICIO', equipaId: equipaFora, parte: 1, segundoJogo: 960 });
+  ok(inicio76.status === 201, 'superioridade: início do 7×6 = 201', descricao(inicio76));
+  ok(await ate(() => recebidos.at(-1)?.numerica?.seteSeis?.find((e) => e.equipaId === equipaFora)?.ativo === true), 'superioridade: o dashboard recebe o 7×6 ligado');
+  ok(recebidos.at(-1).numerica.seteSeis.find((e) => e.equipaId === equipaFora).desde === 960, 'superioridade: o 7×6 traz o segundo em que começou');
+  ok((await registar({ ...remate, segundoJogo: 970, resultado: 'GOLO' })).status === 201, 'superioridade: remate da casa durante o 7×6 do adversário = 201');
+  ok(await ate(() => recebidos.at(-1)?.numerica?.eficacia?.some((e) => e.equipaId === casaId && e.situacao === 'BALIZA_VAZIA')), 'superioridade: o remate contra a baliza vazia entra na conta');
+  ok((await registar({ ...remate, segundoJogo: 975, resultado: 'GOLO', situacao: 'SETE_METROS' })).status === 201, 'superioridade: 7 metros = 201');
+  const fim76 = await registar({ tipoEvento: 'SETE_SEIS_FIM', equipaId: equipaFora, parte: 1, segundoJogo: 990 });
+  ok(fim76.status === 201, 'superioridade: fim do 7×6 = 201', descricao(fim76));
+  ok(await ate(() => recebidos.at(-1)?.numerica?.seteSeis?.find((e) => e.equipaId === equipaFora)?.ativo === false), 'superioridade: o dashboard recebe o 7×6 desligado');
+  n = recebidos.at(-1).numerica;
+  ok(!n.eficacia.some((e) => e.situacao === 'BALIZA_VAZIA' && e.remates !== 1), 'superioridade: o 7 metros não conta (só o remate das 970 s está contra a baliza vazia)', JSON.stringify(n.eficacia));
+  ok(n.tempo.find((t) => t.equipaId === equipaFora && t.situacao === 'SETE_SEIS')?.segundos === 30, 'superioridade: o 7×6 durou 30 s (960 a 990 s)', JSON.stringify(n.tempo));
+  ok(recebidos.at(-1).outrosEventos.every((o) => !String(o.tipo).startsWith('SETE_SEIS')), 'superioridade: o 7×6 não conta em «outros eventos»');
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { tipoEvento: 'SETE_SEIS_INICIO', equipaId: casaId, parte: 1, segundoJogo: 1, x: 50, y: 50 })).status === 400, 'superioridade: o 7×6 não leva coordenadas = 400');
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { tipoEvento: 'SETE_SEIS_INICIO', equipaId: 999999, parte: 1, segundoJogo: 1 })).status === 400, 'superioridade: o 7×6 de uma equipa que não é do jogo = 400');
+
+  // limpar (deixa o jogo como estava) e confirmar que o relógio é do jogo
+  for (const eventoId of criados) ok((await http('DELETE', `/api/jogos/${id}/eventos/${eventoId}`)).status === 204, 'superioridade: apagar o evento = 204');
+  ok(await ate(() => recebidos.at(-1)?.numerica?.suspensoes?.length === 0), 'superioridade: sem os eventos já não há sanções');
 
   await ligacao.stop();
   ok(true, 'ligações fechadas');

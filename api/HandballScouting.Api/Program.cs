@@ -215,6 +215,20 @@ protegido.MapPost("/jogos/{id:int}/eventos", async (
     return Results.Created($"/api/jogos/{id}/eventos/{resultado.Id}", new { id = resultado.Id });
 });
 
+// O tablet do banco avisa quando o relógio arranca, pára ou é ajustado (e de 30 em 30 segundos enquanto corre).
+// Só os avisos que mudam alguma coisa vão para os dashboards.
+protegido.MapPut("/jogos/{id:int}/relogio", async (
+    int id, RelogioRequest pedido, HttpContext http,
+    EventosService eventos, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+{
+    var resultado = await eventos.GuardarRelogioAsync(http.ContaAtual().Id, id, pedido, ct);
+    if (!resultado.Ok)
+        return Results.Json(new { erro = resultado.Erro }, statusCode: resultado.Status);
+
+    if (resultado.Mudou) await EmitirEstadoAsync(id, est, hub);
+    return Results.NoContent();
+});
+
 protegido.MapDelete("/jogos/{id:int}/eventos/{eventoId:long}", async (
     int id, long eventoId, HttpContext http,
     EventosService eventos, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>

@@ -10,6 +10,8 @@ import { ligar, TEXTO_ESTADO } from './tempo-real.js';
 import { obterConta, mostrarMenu } from './conta.js';
 import { lembrarJogo } from './vistos.js';
 import { escudo } from './escudo.js';
+import { desenharFaixa } from './faixa-numerica.js';
+import { segundoAgora, SITUACOES_NUMERICAS, ROTULO_SITUACAO_NUMERICA } from './numerica.js';
 
 const parametros = new URLSearchParams(location.search);
 const jogoId = Number(parametros.get('jogo'));
@@ -21,6 +23,7 @@ const LIMIAR_PARCIAL = 3;
 
 const estado = {
   dados: null,
+  recebidoEm: 0,                        // quando chegou o estado (o relógio do jogo avança a partir daí)
   equipaId: null,                       // equipa mostrada no mapa e nas tabelas
   filtros: new Set(RESULTADOS),         // resultados visíveis no mapa
 };
@@ -225,6 +228,46 @@ function blocoSancoes() {
   return cartao('Sanções', tabela([['Jogador'], ['2 min', true], ['Vermelhos', true], ['']], linhas));
 }
 
+// Situação do adversário que é o "espelho" da minha: os golos que ele marca aí são os que eu sofro
+const ESPELHO_NUMERICO = {
+  SUPERIORIDADE: 'INFERIORIDADE', INFERIORIDADE: 'SUPERIORIDADE', IGUALDADE: 'IGUALDADE',
+  SETE_SEIS: 'BALIZA_VAZIA', BALIZA_VAZIA: 'SETE_SEIS',
+};
+
+/** Eficácia da equipa escolhida em superioridade, igualdade, inferioridade e nos ataques 7×6, com os golos sofridos e o tempo. */
+function blocoNumerica(selecionada) {
+  const n = estado.dados.numerica;
+  if (!n) return null;
+  const titulo = `Superioridade numérica · ${selecionada.nome}`;
+  if (!n.relogioUsado) {
+    return n.suspensoes.length
+      ? cartao(titulo, h('p', { class: 'vazio' }, 'Já houve 2 minutos ou vermelhos, mas o relógio do banco não foi usado: sem o minuto de cada evento não se sabe quando houve superioridade.'))
+      : null;
+  }
+  const adversaria = estado.dados.equipas.find((e) => e.equipaId !== selecionada.equipaId);
+  const eficacia = (equipa, situacao) => n.eficacia.find((e) => e.equipaId === equipa.equipaId && e.situacao === situacao);
+  const segundos = (equipa, situacao) => n.tempo.find((t) => t.equipaId === equipa.equipaId && t.situacao === situacao)?.segundos;
+  if (!n.suspensoes.length && !n.tempo.length && !n.eficacia.some((e) => e.situacao !== 'IGUALDADE')) return null;
+
+  const linhas = SITUACOES_NUMERICAS.map((situacao) => {
+    const meu = eficacia(selecionada, situacao);
+    const contra = eficacia(adversaria, ESPELHO_NUMERICO[situacao]);
+    // contra uma baliza vazia, o tempo é o que o adversário passou em 7×6; a igualdade não tem tempo próprio
+    const tempo = situacao === 'BALIZA_VAZIA' ? segundos(adversaria, 'SETE_SEIS') : situacao === 'IGUALDADE' ? null : segundos(selecionada, situacao);
+    return h('tr', { 'data-situacao': situacao },
+      h('td', {}, ROTULO_SITUACAO_NUMERICA[situacao]),
+      h('td', { class: 'num' }, meu?.remates ?? '–'),
+      h('td', { class: 'num' }, meu?.golos ?? '–'),
+      h('td', { class: 'num' }, meu ? percentagem((100 * meu.golos) / meu.remates) : '–'),
+      h('td', { class: 'num' }, meu || contra ? (contra?.golos ?? 0) : '–'),
+      h('td', { class: 'num' }, tempo ? formatarTempo(tempo) : '–'));
+  });
+  return cartao(titulo,
+    tabela([['Situação'], ['Rem.', true], ['Golos', true], ['%', true], ['Sofr.', true], ['Tempo', true]], linhas),
+    h('p', { class: 'vazio', style: 'font-size:0.85rem;margin:8px 0 0' },
+      'Superioridade: o adversário tem menos jogadores em campo (2 minutos ou vermelho). "Sofr." são os golos do adversário na situação contrária. Sem os 7 metros.'));
+}
+
 function blocoUltimosEventos() {
   const eventos = estado.dados.ultimosEventos.slice(0, 10);
   const lista = eventos.map((e) => {
@@ -278,7 +321,9 @@ function desenhar() {
       h('a', { class: 'botao-link suave pequeno', href: urlExcel(jogoId, null, codigo), download: '' }, '⬇ Excel · jogo completo')));
 
   const dados = estado.dados;
+  faixaNumerica = h('div', { class: 'faixa-numerica largo', hidden: true });
   substituir(painel,
+    faixaNumerica,
     blocoAlerta(),
     blocoEficacia(),
     blocoParcial(),
@@ -286,6 +331,7 @@ function desenhar() {
     blocoMapa(selecionada),
     blocoBaliza(selecionada),
     blocoJogadores(selecionada),
+    blocoNumerica(selecionada),
     blocoZonas('Por corredor', dados.porCorredor, ORDEM_CORREDOR, ROTULO_CORREDOR, selecionada),
     blocoZonas('Por distância', dados.porDistancia, ORDEM_DISTANCIA, ROTULO_DISTANCIA, selecionada),
     blocoPorParte(),
@@ -293,10 +339,32 @@ function desenhar() {
     blocoOutrosEventos(),
     blocoSancoes(),
     blocoUltimosEventos());
+  atualizarRelogio();
 }
+
+// ---------------------------------------------------------------------
+// Relógio do jogo e faixa de superioridade (avançam a cada segundo entre dois estados do servidor)
+// ---------------------------------------------------------------------
+let faixaNumerica = null;
+
+function atualizarRelogio() {
+  const el = document.getElementById('relogio-dash');
+  const dados = estado.dados;
+  if (!dados) return;
+  const segundo = segundoAgora(dados.relogio, estado.recebidoEm);
+  el.hidden = !dados.numerica?.relogioUsado;
+  el.textContent = formatarTempo(segundo);
+  el.classList.toggle('parado', !dados.relogio?.aCorrer);
+  if (faixaNumerica) {
+    const [casa, fora] = dados.equipas;
+    desenharFaixa(faixaNumerica, dados.numerica, { casaId: casa.equipaId, foraId: fora.equipaId, casaNome: casa.nome, foraNome: fora.nome }, segundo);
+  }
+}
+setInterval(atualizarRelogio, 500);
 
 function receber(dados) {
   estado.dados = dados;
+  estado.recebidoEm = Date.now();
   desenhar();
   lembrarComoConvidado(dados);
 }
