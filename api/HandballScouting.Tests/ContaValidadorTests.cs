@@ -4,8 +4,9 @@ namespace HandballScouting.Tests;
 
 public class ContaValidadorTests
 {
-    private static RegistoRequest Pedido(string? nome = "Ana Silva", string? email = "ana@exemplo.pt", string? palavraPasse = "palavra-passe-boa") =>
-        new(nome, email, palavraPasse);
+    private static RegistoRequest Pedido(
+        string? nome = "Ana Silva", string? email = "ana@exemplo.pt", string? palavraPasse = "palavra-passe-boa", string? equipa = "Águias do Norte") =>
+        new(nome, email, palavraPasse, equipa);
 
     [Fact]
     public void Registo_correto_e_valido()
@@ -19,6 +20,22 @@ public class ContaValidadorTests
     public void Nome_vazio_e_invalido(string nome)
     {
         Assert.Contains(ContaValidador.ValidarRegisto(Pedido(nome: nome)), e => e.Contains("nome"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("    ")]
+    public void A_equipa_da_conta_e_obrigatoria(string? equipa)
+    {
+        Assert.Contains(ContaValidador.ValidarRegisto(Pedido(equipa: equipa)), e => e.Contains("equipa"));
+    }
+
+    [Fact]
+    public void O_nome_da_equipa_tem_no_maximo_80_caracteres()
+    {
+        Assert.Contains(ContaValidador.ValidarRegisto(Pedido(equipa: new string('a', 81))), e => e.Contains("equipa") && e.Contains("80"));
+        Assert.Empty(ContaValidador.ValidarRegisto(Pedido(equipa: " " + new string('a', 80) + " ")));   // os espaços das pontas não contam
     }
 
     [Fact]
@@ -77,8 +94,8 @@ public class ContaValidadorTests
     [Fact]
     public void Varios_erros_aparecem_todos_de_uma_vez()
     {
-        var erros = ContaValidador.ValidarRegisto(new RegistoRequest("", "x", "1"));
-        Assert.True(erros.Count == 3, $"esperava 3 erros e houve {erros.Count}");
+        var erros = ContaValidador.ValidarRegisto(new RegistoRequest("", "x", "1", ""));
+        Assert.True(erros.Count == 4, $"esperava 4 erros e houve {erros.Count}");
     }
 
     [Theory]

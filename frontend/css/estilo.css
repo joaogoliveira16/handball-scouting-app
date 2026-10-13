@@ -582,13 +582,13 @@ table.tabela td.suave { color: var(--suave); }
 .visto-ligacao:hover, .jogo-direto-ligacao:hover { background: var(--realce); }
 .visto-equipas, .jogo-direto-equipas { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .visto small, .jogo-direto small { color: var(--suave); font-weight: 500; }
-/* jogos em direto na área de convidado */
+/* jogos das últimas 24 horas na área de convidado (o ponto verde só nos que estão a decorrer) */
 #direto { margin-bottom: 22px; }
 #direto h2 { margin-bottom: 10px; }
 #direto .suave { margin: 0 0 12px; color: var(--suave); }
 #direto .erro-suave { color: var(--perigo); }
 .jogo-direto { padding-right: 14px; }
-.jogo-direto-equipas::before {
+.jogo-direto.ao-vivo .jogo-direto-equipas::before {
   content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%;
   background: #22a559; animation: pulsar 2s ease-in-out infinite;
 }

@@ -48,7 +48,7 @@ api.MapGet("/saude", async (NpgsqlDataSource dados) =>
 api.MapGet("/tipos-evento", async (EstatisticasService est, CancellationToken ct) =>
     Results.Ok(await est.TiposEventoAsync(ct)));
 
-// Área de convidado: os jogos que estão a ser registados agora (sem sessão e sem o código do link de partilha).
+// Área de convidado: os jogos das últimas 24 horas (sem sessão e sem o código do link de partilha).
 // Só aparecem os que o dono não escondeu. O resultado muda a cada evento, por isso não se guarda em cache.
 api.MapGet("/convidado/jogos-em-direto", async (HttpContext http, EstatisticasService est, CancellationToken ct) =>
 {

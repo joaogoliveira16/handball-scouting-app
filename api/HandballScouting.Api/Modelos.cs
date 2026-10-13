@@ -19,7 +19,7 @@ public record NovoEventoRequest(
     decimal? BalizaX = null, // 0 a 100: onde o guarda-redes defendeu (só em DEFESA), da esquerda para a direita de quem remata
     decimal? BalizaY = null); // 0 a 100: da trave (0) ao chão (100)
 
-public record RegistoRequest(string? Nome, string? Email, string? PalavraPasse);
+public record RegistoRequest(string? Nome, string? Email, string? PalavraPasse, string? Equipa = null);   // Equipa: a equipa da conta
 
 public record EntrarRequest(string? Email, string? PalavraPasse);
 
@@ -39,7 +39,7 @@ public record NovoJogoRequest(int CasaId, int ForaId, string? Local, DateTimeOff
 
 public record ConvocatoriaRequest(List<int>? JogadorIds);
 
-/// <summary>Mostrar (true) ou esconder (false) o jogo na lista de jogos em direto da área de convidado.</summary>
+/// <summary>Mostrar (true) ou esconder (false) o jogo na lista de jogos da área de convidado.</summary>
 public record VisibilidadeRequest(bool? Visivel);
 
 public record ResultadoRegisto(bool Ok, int Status, string? Erro, long? Id)
@@ -103,6 +103,7 @@ public class EquipaLinha
     public int Id { get; set; }
     public string Nome { get; set; } = "";
     public long Jogadores { get; set; }
+    public bool Propria { get; set; }   // true = a equipa da conta; false = adversária
 }
 
 public class JogadorEquipa
@@ -157,7 +158,7 @@ public class JogoLinha
     public string Codigo { get; set; } = "";   // código do link de partilha do dashboard
     public DateTime DataHora { get; set; }
     public string? Local { get; set; }
-    public bool VisivelConvidados { get; set; } = true;   // pode aparecer na área de convidado quando está em direto
+    public bool VisivelConvidados { get; set; } = true;   // pode aparecer na área de convidado durante 24 horas
     public int CasaId { get; set; }
     public string CasaNome { get; set; } = "";
     public int ForaId { get; set; }
@@ -174,7 +175,7 @@ public class JogoEmDireto
     public string? Local { get; set; }
     public string CasaNome { get; set; } = "";
     public string ForaNome { get; set; } = "";
-    public DateTime UltimoEvento { get; set; }
+    public DateTime? UltimoEvento { get; set; }   // null = ainda sem eventos
     public long GolosCasa { get; set; }
     public long GolosFora { get; set; }
 }

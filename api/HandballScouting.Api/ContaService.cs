@@ -65,7 +65,7 @@ public class ContaService(
         int id;
         try
         {
-            id = await con.ExecuteScalarAsync<int>(Cmd(sql["registar_utilizador"], new { email, nome, hash }, ct));
+            id = await con.ExecuteScalarAsync<int>(Cmd(sql["registar_utilizador"], new { email, nome, hash, equipa = pedido.Equipa!.Trim() }, ct));
         }
         catch (PostgresException e) when (e.SqlState == ViolacaoUnicidade)
         {

@@ -28,6 +28,10 @@ public static partial class ContaValidador
         if (nome.Length == 0) erros.Add("o nome é obrigatório.");
         else if (nome.Length > 80) erros.Add("o nome tem no máximo 80 caracteres.");
 
+        var equipa = r.Equipa?.Trim() ?? "";
+        if (equipa.Length == 0) erros.Add("o nome da equipa é obrigatório.");
+        else if (equipa.Length > 80) erros.Add("o nome da equipa tem no máximo 80 caracteres.");
+
         var email = NormalizarEmail(r.Email);
         if (email.Length == 0) erros.Add("o email é obrigatório.");
         else if (email.Length > 160 || !PadraoEmail().IsMatch(email)) erros.Add("o email não é válido.");

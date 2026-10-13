@@ -6,11 +6,9 @@ namespace HandballScouting.Tests;
 public class EmDiretoTests
 {
     [Fact]
-    public void Quem_abre_um_jogo_em_direto_continua_a_ve_lo_depois_de_ele_sair_da_lista()
+    public void Um_jogo_fica_aberto_a_convidados_durante_24_horas()
     {
-        // senão quem recarregasse a página no intervalo de um jogo ficava sem acesso
-        Assert.True(JanelasEmDireto.AcessoMinutos > JanelasEmDireto.ListaMinutos);
-        Assert.True(JanelasEmDireto.ListaMinutos >= 15, "a lista tem de aguentar um intervalo");
+        Assert.Equal(24 * 60, JanelasEmDireto.Minutos);
     }
 
     [Fact]

@@ -28,14 +28,23 @@
     <details class="cartao novo-jogo" id="novo-jogo" hidden>
       <summary>Novo jogo</summary>
       <form id="form-jogo" class="formulario" novalidate>
-        <label>Equipa da casa <select id="casa" required></select></label>
-        <label>Equipa de fora <select id="fora" required></select></label>
+        <p class="largo" id="equipa-jogo"></p>
+        <label>A tua equipa joga
+          <select id="lado">
+            <option value="casa">em casa</option>
+            <option value="fora">fora</option>
+          </select>
+        </label>
+        <label>Adversário
+          <input id="adversario" list="adversarios" maxlength="80" placeholder="Nome da equipa adversária" autocomplete="off" required>
+          <datalist id="adversarios"></datalist>
+        </label>
         <label>Local <input id="local" maxlength="120" placeholder="Pavilhão…" autocomplete="off"></label>
         <label>Data e hora <input id="data-hora" type="datetime-local"></label>
         <p class="erro-formulario largo" id="erro-jogo" role="alert"></p>
         <div class="largo acoes-formulario">
           <button class="botao primario" type="submit" id="criar-jogo">Criar jogo e escolher convocados</button>
-          <a class="botao-link suave" href="equipas.html">Gerir equipas e jogadores</a>
+          <a class="botao-link suave" href="equipas.html">Plantel da minha equipa</a>
         </div>
       </form>
     </details>

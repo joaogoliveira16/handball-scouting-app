@@ -1,11 +1,11 @@
 namespace HandballScouting.Api;
 
-/// <summary>Durante quanto tempo, depois do último evento, um jogo conta como «em direto» para os convidados.</summary>
+/// <summary>Durante quanto tempo um jogo fica aberto a convidados (lista da área de convidado e acesso sem link).</summary>
 public static class JanelasEmDireto
 {
-    /// <summary>Um jogo aparece na lista «em direto» da área de convidado enquanto o último evento tiver menos disto.</summary>
-    public const int ListaMinutos = 30;
-
-    /// <summary>Quem abriu um jogo em direto pode continuar a vê-lo (recarregar, intervalos, o fim do jogo) durante este tempo.</summary>
-    public const int AcessoMinutos = 180;
+    /// <summary>
+    /// 24 horas, contadas a partir do último evento registado ou, se ainda não há eventos, da data e hora do jogo.
+    /// A lista e o acesso usam a mesma janela: um jogo que aparece na lista abre-se, e vice-versa.
+    /// </summary>
+    public const int Minutos = 24 * 60;
 }

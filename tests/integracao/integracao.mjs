@@ -105,6 +105,8 @@ let jogoNovo = null;   // { id, casaId, foraId, jogadores... } criado nos passos
 const emailPrincipal = `principal-${sufixo}@exemplo.pt`;
 const emailSegunda = `segunda-${sufixo}@exemplo.pt`;
 const SENHA = 'palavra-passe-123';
+const equipaPrincipal = `Principal FC ${sufixo}`;   // a equipa da conta principal (pedida no registo)
+const equipaSegunda = `Segunda FC ${sufixo}`;
 const URL_PUBLICO = process.env.URL_PUBLICO ?? 'http://localhost:8080';   // App__UrlPublico da API: vai nos links dos emails
 
 // ----------------------------------------------------------------------
@@ -129,13 +131,16 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
   // Registo com dados inválidos
   const invalidos = [
     ['sem campos', {}],
-    ['nome vazio', { nome: '  ', email: emailPrincipal, palavraPasse: SENHA }],
-    ['nome gigante', { nome: 'x'.repeat(81), email: emailPrincipal, palavraPasse: SENHA }],
-    ['email sem @', { nome: 'Ana', email: 'sem-arroba', palavraPasse: SENHA }],
-    ['email sem domínio', { nome: 'Ana', email: 'ana@', palavraPasse: SENHA }],
-    ['palavra-passe curta', { nome: 'Ana', email: emailPrincipal, palavraPasse: 'curta' }],
-    ['palavra-passe só com espaços', { nome: 'Ana', email: emailPrincipal, palavraPasse: ' '.repeat(10) }],
-    ['palavra-passe gigante', { nome: 'Ana', email: emailPrincipal, palavraPasse: 'x'.repeat(129) }],
+    ['nome vazio', { nome: '  ', equipa: 'Equipa', email: emailPrincipal, palavraPasse: SENHA }],
+    ['nome gigante', { nome: 'x'.repeat(81), equipa: 'Equipa', email: emailPrincipal, palavraPasse: SENHA }],
+    ['sem equipa', { nome: 'Ana', email: emailPrincipal, palavraPasse: SENHA }],
+    ['equipa vazia', { nome: 'Ana', equipa: '   ', email: emailPrincipal, palavraPasse: SENHA }],
+    ['equipa com nome gigante', { nome: 'Ana', equipa: 'x'.repeat(81), email: emailPrincipal, palavraPasse: SENHA }],
+    ['email sem @', { nome: 'Ana', equipa: 'Equipa', email: 'sem-arroba', palavraPasse: SENHA }],
+    ['email sem domínio', { nome: 'Ana', equipa: 'Equipa', email: 'ana@', palavraPasse: SENHA }],
+    ['palavra-passe curta', { nome: 'Ana', equipa: 'Equipa', email: emailPrincipal, palavraPasse: 'curta' }],
+    ['palavra-passe só com espaços', { nome: 'Ana', equipa: 'Equipa', email: emailPrincipal, palavraPasse: ' '.repeat(10) }],
+    ['palavra-passe gigante', { nome: 'Ana', equipa: 'Equipa', email: emailPrincipal, palavraPasse: 'x'.repeat(129) }],
   ];
   for (const [nome, corpo] of invalidos) {
     const r = await http('POST', '/api/conta/registar', corpo, new Sessao('inválida'));
@@ -143,7 +148,7 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
   }
 
   // Registo da conta principal (email com maiúsculas: fica guardado em minúsculas). Não inicia sessão: falta confirmar o email.
-  const registo = await http('POST', '/api/conta/registar', { nome: `  Principal ${sufixo} `, email: emailPrincipal.toUpperCase(), palavraPasse: SENHA }, principal);
+  const registo = await http('POST', '/api/conta/registar', { nome: `  Principal ${sufixo} `, equipa: `  ${equipaPrincipal} `, email: emailPrincipal.toUpperCase(), palavraPasse: SENHA }, principal);
   ok(registo.status === 201 && registo.json?.email === emailPrincipal && registo.json.emailEnviado === true,
     'registo da conta principal = 201 (email em minúsculas e email de confirmação enviado)', descricao(registo));
   ok(JSON.stringify(Object.keys(registo.json ?? {}).sort()) === '["email","emailEnviado"]', 'a resposta do registo não traz a palavra-passe nem o código da sessão', registo.texto);
@@ -170,7 +175,7 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
   ok((await http('GET', '/api/jogos', undefined, principal)).status === 401, 'e sem sessão não vê nada');
 
   // Registar outra vez o mesmo email, ainda por confirmar, diz para pedir outro email
-  const repetidoPorConfirmar = await http('POST', '/api/conta/registar', { nome: 'Outra', email: emailPrincipal, palavraPasse: 'outra-palavra-1' }, new Sessao('repetida'));
+  const repetidoPorConfirmar = await http('POST', '/api/conta/registar', { nome: 'Outra', equipa: 'Outra FC', email: emailPrincipal, palavraPasse: 'outra-palavra-1' }, new Sessao('repetida'));
   ok(repetidoPorConfirmar.status === 409 && repetidoPorConfirmar.json?.codigo === 'email_por_confirmar' && repetidoPorConfirmar.setCookie.length === 0,
     'registar o mesmo email antes de o confirmar = 409 com o código email_por_confirmar', descricao(repetidoPorConfirmar));
   ok((await mensagensPara(emailPrincipal)).length === 1, 'e esse registo não enviou outro email');
@@ -213,7 +218,7 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
     'cookie de sessão: HttpOnly, SameSite=Lax, com validade (sem Secure em HTTP simples)', galleta ?? 'sem cookie');
   ok(/^sessao=[0-9a-f]{64}$/.test(principal.cookie ?? ''), 'o código da sessão tem 32 bytes aleatórios (64 hexadecimais)', principal.cookie ?? '');
 
-  const repetido = await http('POST', '/api/conta/registar', { nome: 'Outra', email: emailPrincipal, palavraPasse: SENHA }, new Sessao('repetida'));
+  const repetido = await http('POST', '/api/conta/registar', { nome: 'Outra', equipa: 'Outra FC', email: emailPrincipal, palavraPasse: SENHA }, new Sessao('repetida'));
   ok(repetido.status === 409 && repetido.json?.codigo === undefined && repetido.setCookie.length === 0, 'registo com o mesmo email de uma conta confirmada = 409 (sem cookie, sem pedir confirmação)', descricao(repetido));
 
   // Sessão
@@ -226,6 +231,12 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
   const jogos = await http('GET', '/api/jogos');
   ok(jogos.status === 200 && jogos.json?.some((j) => j.id === 2),
     'a primeira conta ficou com os jogos de exemplo (se falhar: usa uma base de dados acabada de criar)', descricao(jogos));
+  const equipasPrincipal = await http('GET', '/api/equipas');
+  const propriaPrincipal = equipasPrincipal.json?.filter((e) => e.propria) ?? [];
+  ok(propriaPrincipal.length === 1 && propriaPrincipal[0].nome === equipaPrincipal && propriaPrincipal[0].jogadores === 0 && equipasPrincipal.json[0].propria === true,
+    'a conta tem uma só equipa sua (a do registo, sem espaços nas pontas), e vem primeiro na lista', descricao(equipasPrincipal));
+  ok(['Águias do Norte', 'Leões do Sul'].every((n) => equipasPrincipal.json?.some((e) => e.nome === n && e.propria === false)),
+    'as equipas de exemplo que a primeira conta herdou são adversárias (propria = false)');
 
   // Entrar: mesma mensagem para email desconhecido e para palavra-passe errada
   const tmp = new Sessao('temporária');
@@ -255,7 +266,7 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
   ok((await http('POST', '/api/conta/entrar', { email: emailPrincipal, palavraPasse: SENHA }, tmp)).status === 200, 'o bloqueio é só desse email: a conta principal continua a entrar');
 
   // Segunda conta: regista, confirma e entra; começa vazia
-  const registo2 = await http('POST', '/api/conta/registar', { nome: `Segunda ${sufixo}`, email: emailSegunda, palavraPasse: SENHA }, segunda);
+  const registo2 = await http('POST', '/api/conta/registar', { nome: `Segunda ${sufixo}`, equipa: equipaSegunda, email: emailSegunda, palavraPasse: SENHA }, segunda);
   ok(registo2.status === 201, 'registo da segunda conta = 201', descricao(registo2));
   ok((await http('POST', '/api/conta/confirmar-email', { token: await ultimoToken(emailSegunda) }, anonima)).status === 204, 'a segunda conta confirma o email');
   const entrou2 = await http('POST', '/api/conta/entrar', { email: emailSegunda, palavraPasse: SENHA }, segunda);
@@ -265,7 +276,8 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
   ok((await mensagensPara(emailSegunda)).length === 1, 'e não envia outro email a quem já confirmou');
   const equipasSegunda = await http('GET', '/api/equipas', undefined, segunda);
   const jogosSegunda = await http('GET', '/api/jogos', undefined, segunda);
-  ok(JSON.stringify(equipasSegunda.json) === '[]' && JSON.stringify(jogosSegunda.json) === '[]', 'a segunda conta começa sem equipas nem jogos (não herda os dados de exemplo)', `${equipasSegunda.texto} / ${jogosSegunda.texto}`);
+  ok(equipasSegunda.json?.length === 1 && equipasSegunda.json[0].nome === equipaSegunda && equipasSegunda.json[0].propria === true && JSON.stringify(jogosSegunda.json) === '[]',
+    'a segunda conta começa só com a sua equipa e sem jogos (não herda os dados de exemplo)', `${equipasSegunda.texto} / ${jogosSegunda.texto}`);
 });
 
 // ----------------------------------------------------------------------
@@ -284,7 +296,7 @@ await passo('Recuperação da palavra-passe', async () => {
   ok((await mensagensPara(`ninguem-${sufixo}@exemplo.pt`)).length === 0, 'e não envia nenhum email');
 
   // Uma conta confirmada com duas sessões abertas (dois aparelhos)
-  ok((await http('POST', '/api/conta/registar', { nome: `Recuperar ${sufixo}`, email, palavraPasse: SENHA }, anonima)).status === 201, 'conta para recuperar criada');
+  ok((await http('POST', '/api/conta/registar', { nome: `Recuperar ${sufixo}`, equipa: `Recuperar FC ${sufixo}`, email, palavraPasse: SENHA }, anonima)).status === 201, 'conta para recuperar criada');
   ok((await http('POST', '/api/conta/confirmar-email', { token: await ultimoToken(email) }, anonima)).status === 204, 'e confirmada');
   ok((await http('POST', '/api/conta/entrar', { email, palavraPasse: SENHA }, aparelho1)).status === 200
     && (await http('POST', '/api/conta/entrar', { email, palavraPasse: SENHA }, aparelho2)).status === 200, 'com a sessão aberta em dois aparelhos');
@@ -348,7 +360,7 @@ await passo('Recuperação da palavra-passe', async () => {
 
   // Quem nunca confirmou o email também recupera a palavra-passe, e o link confirma-lhe o email
   const emailU = `porconfirmar-${sufixo}@exemplo.pt`;
-  ok((await http('POST', '/api/conta/registar', { nome: 'Por Confirmar', email: emailU, palavraPasse: SENHA }, anonima)).status === 201, 'conta por confirmar criada');
+  ok((await http('POST', '/api/conta/registar', { nome: 'Por Confirmar', equipa: 'Por Confirmar FC', email: emailU, palavraPasse: SENHA }, anonima)).status === 201, 'conta por confirmar criada');
   ok((await http('POST', '/api/conta/entrar', { email: emailU, palavraPasse: SENHA }, anonima)).status === 403, 'ainda não entra (falta confirmar)');
   ok((await http('POST', '/api/conta/esqueci-palavra-passe', { email: emailU }, anonima)).status === 204, 'pede a recuperação = 204');
   const tokenU = await ultimoToken(emailU, 2, 'redefinir');
@@ -416,20 +428,21 @@ await passo('Estatísticas (GROUP BY / COUNT) sobre os dados de exemplo', async 
 
 // ----------------------------------------------------------------------
 await passo('Equipas e jogadores (cadastro)', async () => {
-  const nomeA = `Teste A ${sufixo}`;
-  const criada = await http('POST', '/api/equipas', { nome: nomeA });
-  ok(criada.status === 201 && criada.json?.id > 0, 'POST /api/equipas cria a equipa', descricao(criada));
-  const equipaA = criada.json?.id;
+  // A equipa da conta vem do registo; as outras equipas da conta são adversárias
+  const inicial = (await http('GET', '/api/equipas')).json ?? [];
+  const nomeA = equipaPrincipal;
+  const equipaA = inicial.find((e) => e.propria)?.id;
+  ok(equipaA > 0, 'a conta tem a sua equipa', JSON.stringify(inicial));
 
   const repetida = await http('POST', '/api/equipas', { nome: nomeA });
-  ok(repetida.status === 409, 'equipa com nome repetido = 409', descricao(repetida));
+  ok(repetida.status === 409, 'equipa com o nome da equipa da conta = 409', descricao(repetida));
   ok((await http('POST', '/api/equipas', { nome: '   ' })).status === 400, 'equipa sem nome = 400');
   ok((await http('POST', '/api/equipas', { nome: 'x'.repeat(81) })).status === 400, 'equipa com nome gigante = 400');
 
   const lista = await http('GET', '/api/equipas');
   const naLista = lista.json?.find((e) => e.id === equipaA);
-  ok(lista.status === 200 && naLista?.nome === nomeA && naLista.jogadores === 0, 'GET /api/equipas inclui a equipa com 0 jogadores', descricao(lista));
-  ok(lista.json?.find((e) => e.id === 1)?.jogadores === 8, 'as equipas de exemplo têm 8 jogadores cada');
+  ok(lista.status === 200 && naLista?.nome === nomeA && naLista.jogadores === 0 && naLista.propria === true, 'GET /api/equipas inclui a equipa da conta com 0 jogadores', descricao(lista));
+  ok(lista.json?.find((e) => e.id === 1)?.jogadores === 8 && lista.json.find((e) => e.id === 1).propria === false, 'as equipas de exemplo têm 8 jogadores cada e são adversárias');
 
   ok(JSON.stringify((await http('GET', `/api/equipas/${equipaA}/jogadores`)).json) === '[]', 'plantel novo vazio');
   ok((await http('GET', '/api/equipas/99999/jogadores')).status === 404, 'plantel de equipa inexistente = 404');
@@ -471,7 +484,12 @@ await passo('Equipas e jogadores (cadastro)', async () => {
   ok(doExemplo.find((j) => j.id === 4)?.eventos > 0, 'o plantel de exemplo mostra os eventos de cada jogador');
 
   // segunda equipa com guarda-redes e remateiro, para o jogo
-  const equipaB = (await http('POST', '/api/equipas', { nome: `Teste B ${sufixo}` })).json?.id;
+  const criadaB = await http('POST', '/api/equipas', { nome: `Teste B ${sufixo}` });
+  const equipaB = criadaB.json?.id;
+  ok(criadaB.status === 201, 'POST /api/equipas cria uma equipa adversária', descricao(criadaB));
+  const depoisDeB = (await http('GET', '/api/equipas')).json ?? [];
+  ok(depoisDeB.find((e) => e.id === equipaB)?.propria === false && depoisDeB.filter((e) => e.propria).map((e) => e.id).join() === String(equipaA),
+    'a nova equipa é adversária: a equipa da conta continua a ser a mesma e vem primeiro', JSON.stringify(depoisDeB.map((e) => [e.id, e.propria])));
   const grB = (await http('POST', `/api/equipas/${equipaB}/jogadores`, { numero: 12, nome: 'GR B', posicao: 'GR' })).json?.id;
   const lateralB = (await http('POST', `/api/equipas/${equipaB}/jogadores`, { numero: 7, nome: 'LE B', posicao: 'LE' })).json?.id;
   jogoNovo = { casaId: equipaA, foraId: equipaB, grCasa: j1.json?.id, lateralCasa: jogadorId, grFora: grB, lateralFora: lateralB };
@@ -657,9 +675,10 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
 function lateralFora(j) { return j.lateralFora; }
 
 // ----------------------------------------------------------------------
-// O jogo do passo anterior acabou de receber eventos: está em direto. (O jogo 2 dos dados de exemplo é «de ontem».)
-// No fim o jogo fica escondido, para os passos de privacidade que se seguem.
-await passo('Jogos em direto: a área de convidado vê-os sem link', async () => {
+// Um jogo está aberto a convidados durante 24 horas: a partir do último evento ou, sem eventos, da hora do jogo.
+// O jogo do passo anterior acabou de receber eventos. (Os jogos 1 e 2 dos dados de exemplo são de há 3 dias.)
+// No fim os jogos criados aqui ficam escondidos, para os passos de privacidade que se seguem.
+await passo('Jogos das últimas 24 horas: a área de convidado vê-os sem link', async () => {
   if (!jogoNovo?.id) return ok(false, 'sem jogo do passo anterior');
   const { id, casaId, foraId } = jogoNovo;
   const doDono = (await http('GET', '/api/jogos')).json ?? [];
@@ -668,7 +687,7 @@ await passo('Jogos em direto: a área de convidado vê-os sem link', async () =>
 
   // A lista é aberta e não se guarda em cache
   const lista = await http('GET', '/api/convidado/jogos-em-direto', undefined, anonima);
-  ok(lista.status === 200 && Array.isArray(lista.json) && /no-store/.test(lista.cabecalhos.get('cache-control') ?? ''), 'a lista de jogos em direto abre-se sem sessão e não se guarda em cache', descricao(lista));
+  ok(lista.status === 200 && Array.isArray(lista.json) && /no-store/.test(lista.cabecalhos.get('cache-control') ?? ''), 'a lista de jogos da área de convidado abre-se sem sessão e não se guarda em cache', descricao(lista));
   const meu = lista.json?.find((j) => j.id === id);
   ok(!!meu, 'o jogo que acabou de receber eventos aparece em direto');
   const est = (await http('GET', `/api/jogos/${id}/estatisticas`)).json;
@@ -676,7 +695,7 @@ await passo('Jogos em direto: a área de convidado vê-os sem link', async () =>
     `mostra o resultado (${meu?.golosCasa}–${meu?.golosFora}), igual ao das estatísticas`);
   ok(typeof meu?.casaNome === 'string' && typeof meu?.foraNome === 'string' && !Number.isNaN(Date.parse(meu?.ultimoEvento)), 'com os nomes das equipas e a hora do último evento');
   ok(!!codigoNovo && !lista.texto.includes(codigoNovo) && !lista.json.some((j) => 'codigo' in j), 'sem o código do link de partilha');
-  ok(!lista.json?.some((j) => j.id === 2), 'o jogo 2 (de ontem) não aparece: já não está em direto');
+  ok(!lista.json?.some((j) => j.id === 1 || j.id === 2), 'os jogos de exemplo (de há 3 dias) não aparecem: passaram as 24 horas');
   ok(JSON.stringify(lista.json) === JSON.stringify((await http('GET', '/api/convidado/jogos-em-direto', undefined, segunda)).json), 'quem tem outra conta vê a mesma lista');
 
   // Quem o abre pela lista (sem código) pode ver tudo o que o link deixa ver, mas não recebe o código
@@ -733,11 +752,36 @@ await passo('Jogos em direto: a área de convidado vê-os sem link', async () =>
   ok((await http('GET', '/api/convidado/jogos-em-direto', undefined, anonima)).json?.some((j) => j.id === id), 'e volta à lista');
   ok((await http('GET', `/api/jogos/${id}/estatisticas`, undefined, anonima)).status === 200, 'e volta a abrir-se sem código');
 
-  // Um jogo sem eventos não está em direto, mesmo visível (a lista só tem jogos que estão a ser registados)
-  const novo = await http('POST', '/api/jogos', { casaId, foraId });
-  ok(novo.status === 201, 'jogo novo, ainda sem eventos', descricao(novo));
-  ok(!(await http('GET', '/api/convidado/jogos-em-direto', undefined, anonima)).json?.some((j) => j.id === novo.json?.id), 'sem eventos o jogo não aparece em direto');
-  ok((await http('GET', `/api/jogos/${novo.json?.id}/estatisticas`, undefined, anonima)).status === 404, 'e sem código não se abre (404)');
+  // Sem eventos conta a hora do jogo: de 24 horas antes a 24 horas depois está aberto; fora disso só com o link
+  const hora = (horas) => new Date(Date.now() + horas * 3600 * 1000).toISOString();
+  const criarJogo = async (dataHora) => (await http('POST', '/api/jogos', { casaId, foraId, ...(dataHora ? { dataHora } : {}) })).json?.id;
+  const semHora = await criarJogo();          // sem data: usa a hora atual
+  const daquiA3h = await criarJogo(hora(3));
+  const ha20h = await criarJogo(hora(-20));
+  const daquiA2d = await criarJogo(hora(48));
+  const ha3d = await criarJogo(hora(-72));
+  const aberta = (await http('GET', '/api/convidado/jogos-em-direto', undefined, anonima)).json ?? [];
+  const novoNaLista = aberta.find((j) => j.id === semHora);
+  ok(!!novoNaLista && novoNaLista.ultimoEvento === null && novoNaLista.golosCasa === 0 && novoNaLista.golosFora === 0,
+    'um jogo novo, ainda sem eventos, aparece na lista (ultimoEvento = null, 0–0)', JSON.stringify(novoNaLista));
+  ok(aberta.some((j) => j.id === daquiA3h) && aberta.some((j) => j.id === ha20h), 'um jogo que começa daqui a 3 horas e um de há 20 horas também aparecem');
+  ok(!aberta.some((j) => j.id === daquiA2d) && !aberta.some((j) => j.id === ha3d), 'um jogo marcado para daqui a 2 dias e um de há 3 dias não aparecem');
+  ok(aberta.findIndex((j) => j.id === id) < aberta.findIndex((j) => j.id === semHora), 'os jogos com eventos vêm antes dos que ainda não começaram');
+  for (const [nome, jogo, esperado] of [['sem hora marcada', semHora, 200], ['daqui a 3 horas', daquiA3h, 200], ['de há 20 horas', ha20h, 200], ['daqui a 2 dias', daquiA2d, 404], ['de há 3 dias', ha3d, 404]]) {
+    const r = await http('GET', `/api/jogos/${jogo}/estatisticas`, undefined, anonima);
+    ok(r.status === esperado, `sem eventos, jogo ${nome}: abrir sem código = ${esperado}`, descricao(r));
+  }
+  ok((await http('GET', `/api/jogos/${semHora}`, undefined, anonima)).json?.codigo == null, 'e o código do link não é revelado');
+
+  // Escondido, sai da lista e fecha-se a quem não tem o link
+  for (const jogo of [semHora, daquiA3h, ha20h]) await http('PUT', `/api/jogos/${jogo}/visibilidade`, { visivel: false });
+  const depoisDeEsconder = (await http('GET', '/api/convidado/jogos-em-direto', undefined, anonima)).json ?? [];
+  ok(![semHora, daquiA3h, ha20h].some((jogo) => depoisDeEsconder.some((j) => j.id === jogo)), 'os jogos sem eventos escondidos pelo dono saem da lista');
+  ok((await http('GET', `/api/jogos/${semHora}/estatisticas`, undefined, anonima)).status === 404, 'e já não se abrem sem código (404)');
+  // o jogo da primeira parte do teste (criado sem eventos, em 'Novo jogo') também é visível por omissão: esconde-o
+  for (const j of (await http('GET', '/api/jogos')).json ?? []) {
+    if (j.id > 2 && j.id !== id && j.visivelConvidados) await http('PUT', `/api/jogos/${j.id}/visibilidade`, { visivel: false });
+  }
 
   // Fica escondido para os passos de privacidade que se seguem
   ok((await http('PUT', `/api/jogos/${id}/visibilidade`, { visivel: false })).status === 204, 'o jogo fica escondido para os passos seguintes');
@@ -767,7 +811,7 @@ await passo('Cada conta só vê e altera o que é seu', async () => {
     ok(r.status === 404, `conta alheia: ${metodo} ${caminho} = 404`, descricao(r));
   }
   const listas = [(await http('GET', '/api/equipas', undefined, segunda)).json, (await http('GET', '/api/jogos', undefined, segunda)).json];
-  ok(listas.every((l) => Array.isArray(l) && l.length === 0), 'conta alheia: as listas de equipas e jogos continuam vazias');
+  ok(listas[0]?.length === 1 && listas[0][0].nome === equipaSegunda && listas[1]?.length === 0, 'conta alheia: a lista de equipas só tem a sua e a de jogos continua vazia');
   const jogoComEquipaAlheia = await http('POST', '/api/jogos', { casaId: 1, foraId: 2 }, segunda);
   ok(jogoComEquipaAlheia.status === 400, 'criar um jogo com equipas de outra conta = 400', descricao(jogoComEquipaAlheia));
 
@@ -778,12 +822,14 @@ await passo('Cada conta só vê e altera o que é seu', async () => {
   ok((await http('GET', '/api/equipas/1/jogadores')).json?.find((j) => j.id === 4)?.nome === nome4, 'nem o plantel da equipa 1');
 
   // O mesmo nome de equipa pode existir em contas diferentes; dentro da mesma conta não
-  const a = await http('POST', '/api/equipas', { nome: 'Águias do Norte' }, segunda);
+  const a = await http('POST', '/api/equipas', { nome: 'Águias do Norte' }, segunda);   // adversária da segunda conta
   ok(a.status === 201, 'a segunda conta pode ter uma equipa com o mesmo nome da primeira', descricao(a));
   ok((await http('POST', '/api/equipas', { nome: 'Águias do Norte' }, segunda)).status === 409, 'mas não duas com o mesmo nome na mesma conta');
   const b = await http('POST', '/api/equipas', { nome: `Equipa B ${sufixo}` }, segunda);
   const meuJogo = await http('POST', '/api/jogos', { casaId: a.json?.id, foraId: b.json?.id }, segunda);
   ok(meuJogo.status === 201, 'a segunda conta cria o seu jogo', descricao(meuJogo));
+  // um jogo novo está aberto a convidados durante 24 horas (por omissão): esconde-o para testar o isolamento entre contas
+  ok((await http('PUT', `/api/jogos/${meuJogo.json?.id}/visibilidade`, { visivel: false }, segunda)).status === 204, 'a segunda conta esconde o jogo da área de convidado');
   ok((await http('POST', '/api/jogos', { casaId: a.json?.id, foraId: 1 }, principal)).status === 400, 'a conta principal não consegue juntar uma equipa da segunda a um jogo seu');
   ok((await http('GET', `/api/jogos/${meuJogo.json?.id}`, undefined, principal)).status === 404, 'o jogo da segunda conta "não existe" para a principal');
   ok((await http('GET', '/api/jogos', undefined, principal)).json?.every((j) => j.id !== meuJogo.json?.id), 'e não aparece na lista da principal');

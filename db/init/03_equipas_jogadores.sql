@@ -24,8 +24,8 @@ INSERT INTO jogadores (id, equipa_id, numero, nome, posicao_codigo) VALUES
     (16, 2, 20, 'Ricardo Faria',   'PV');
 
 INSERT INTO jogos (id, equipa_casa_id, equipa_fora_id, data_hora, local) VALUES
-    (1, 1, 2, now(), 'Pavilhão (jogo de teste, sem eventos)'),
-    (2, 1, 2, now() - interval '1 day', 'Demonstração (dados fictícios)');
+    (1, 1, 2, now() - interval '3 days', 'Pavilhão (jogo de teste, sem eventos)'),
+    (2, 1, 2, now() - interval '3 days', 'Demonstração (dados fictícios)');
 
 -- Como as linhas acima têm ids explícitos, acertar as sequências
 SELECT setval(pg_get_serial_sequence('equipas',   'id'), (SELECT MAX(id) FROM equipas));

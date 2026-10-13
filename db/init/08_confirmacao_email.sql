@@ -7,7 +7,7 @@
 --     As contas que já existiam quando este ficheiro correu pela primeira vez ficam confirmadas.
 --   * verificacoes_email: o link do email leva um código aleatório; aqui só fica o seu SHA-256 e a validade.
 --   * A primeira conta com o email confirmado fica com tudo o que ainda não tem dono (incluindo os dados
---     de exemplo). Assim um registo com um email errado, que nunca chega a ser confirmado, não leva nada.
+--     de exemplo, que passam a ser equipas adversárias da conta). Assim um registo com um email errado, que nunca chega a ser confirmado, não leva nada.
 
 DO $$
 BEGIN
@@ -50,6 +50,10 @@ BEGIN
         v_primeiro := NOT EXISTS (SELECT 1 FROM utilizadores WHERE email_verificado_em IS NOT NULL AND id <> p_id);
         UPDATE utilizadores SET email_verificado_em = now() WHERE id = p_id;
         IF v_primeiro THEN
+            -- o nome da equipa é único por conta: se a equipa que a conta criou ao registar-se tem o nome de uma
+            -- equipa de exemplo, esta passa a chamar-se «(exemplo)» antes de ser adotada
+            UPDATE equipas SET nome = nome || ' (exemplo)'
+            WHERE dono_id IS NULL AND nome IN (SELECT nome FROM equipas WHERE dono_id = p_id);
             UPDATE equipas SET dono_id = p_id WHERE dono_id IS NULL;
             UPDATE jogos   SET dono_id = p_id WHERE dono_id IS NULL;
         END IF;

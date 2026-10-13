@@ -29,7 +29,7 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
     public async Task<List<JogoEmDireto>> JogosEmDiretoAsync(CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);
-        return (await Consulta<JogoEmDireto>(con, "jogos_em_direto", new { minutos = JanelasEmDireto.ListaMinutos }, ct)).ToList();
+        return (await Consulta<JogoEmDireto>(con, "jogos_em_direto", new { minutos = JanelasEmDireto.Minutos }, ct)).ToList();
     }
 
     public async Task<JogoDetalhe?> JogoAsync(int jogoId, CancellationToken ct = default)

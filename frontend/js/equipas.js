@@ -1,4 +1,5 @@
-// Equipas e jogadores: criar equipas, adicionar, editar e apagar jogadores.
+// A equipa da conta e o seu plantel: adicionar, editar e apagar jogadores. Os adversários não se listam aqui:
+// criam-se ao criar o jogo e abrem-se a partir da convocatória (equipas.html?equipa=ID).
 import { h, substituir, avisar } from './dom.js';
 import { obter, enviar, POSICOES, ROTULO_POSICAO } from './api.js';
 import { exigirConta } from './conta.js';
@@ -6,13 +7,15 @@ import { exigirConta } from './conta.js';
 await exigirConta();
 
 const estado = {
-  equipas: [],
+  equipas: [],           // todas as equipas da conta; a da conta tem propria = true
   equipaId: null,
+  adversarioId: null,    // adversário aberto a partir da convocatória (só aparece na lista enquanto estiver aberto)
   jogadores: [],
   aEditar: null,   // jogador em edição (null = a adicionar um novo)
 };
 
 const listaEquipas = document.getElementById('equipas');
+const tituloEquipas = document.getElementById('titulo-equipas');
 const cartaoPlantel = document.getElementById('plantel');
 const formEquipa = document.getElementById('form-equipa');
 const nomeEquipa = document.getElementById('nome-equipa');
@@ -43,6 +46,9 @@ const zonaTabela = h('div', {});
 cartaoPlantel.replaceChildren(tituloPlantel, zonaTabela, formJogador);
 
 const equipaAtual = () => estado.equipas.find((e) => e.id === estado.equipaId) ?? null;
+const equipaDaConta = () => estado.equipas.find((e) => e.propria) ?? null;
+/** A lista só mostra a equipa da conta e, se vieste da convocatória, o adversário que abriste. */
+const equipasVisiveis = () => estado.equipas.filter((e) => e.propria || e.id === estado.adversarioId);
 
 function proximoNumeroLivre() {
   const usados = new Set(estado.jogadores.map((j) => j.numero));
@@ -67,12 +73,16 @@ function iniciarFormulario(jogador) {
 // Desenho
 // ---------------------------------------------------------------------
 function desenharEquipas() {
-  substituir(listaEquipas, estado.equipas.length
-    ? estado.equipas.map((e) => h('li', {}, h('button', {
+  const visiveis = equipasVisiveis();
+  const semEquipa = !equipaDaConta();
+  tituloEquipas.textContent = visiveis.length > 1 ? 'Equipas' : 'Equipa';
+  formEquipa.hidden = !semEquipa;   // só quem ainda não tem equipa a cria aqui
+  substituir(listaEquipas, visiveis.length
+    ? visiveis.map((e) => h('li', {}, h('button', {
       type: 'button', class: 'item-equipa', 'aria-current': e.id === estado.equipaId ? 'true' : 'false',
       onclick: () => selecionar(e.id),
-    }, h('span', {}, e.nome), h('small', {}, `${e.jogadores} jog.`))))
-    : h('li', { class: 'vazio' }, 'Ainda não tens equipas. Cria a primeira abaixo.'));
+    }, h('span', {}, e.nome, e.propria ? '' : ' (adversário)'), h('small', {}, `${e.jogadores} jog.`))))
+    : h('li', { class: 'vazio' }, 'Ainda não tens equipa. Cria a tua abaixo.'));
 }
 
 function desenharPlantel() {
@@ -82,7 +92,7 @@ function desenharPlantel() {
   tituloPlantel.textContent = equipa ? `Plantel · ${equipa.nome}` : 'Plantel';
 
   if (!equipa) {
-    substituir(zonaTabela, h('p', { class: 'vazio' }, 'Cria uma equipa para começar.'));
+    substituir(zonaTabela, h('p', { class: 'vazio' }, 'Cria a tua equipa para começar.'));
     return;
   }
   if (!estado.jogadores.length) {
@@ -113,7 +123,8 @@ function desenharPlantel() {
 // ---------------------------------------------------------------------
 async function carregarEquipas() {
   estado.equipas = await obter('/api/equipas');
-  if (!estado.equipas.some((e) => e.id === estado.equipaId)) estado.equipaId = estado.equipas[0]?.id ?? null;
+  if (!estado.equipas.some((e) => e.id === estado.adversarioId && !e.propria)) estado.adversarioId = null;
+  if (!equipasVisiveis().some((e) => e.id === estado.equipaId)) estado.equipaId = equipaDaConta()?.id ?? null;
   desenharEquipas();
 }
 
@@ -180,7 +191,7 @@ formEquipa.addEventListener('submit', async (evento) => {
   try {
     const criada = await enviar('POST', '/api/equipas', { nome });
     nomeEquipa.value = '';
-    avisar(`Equipa "${nome}" criada.`);
+    avisar(`A tua equipa "${nome}" está criada.`);
     await carregarEquipas();
     await selecionar(criada.id);
   } catch (erro) {
@@ -194,6 +205,7 @@ formEquipa.addEventListener('submit', async (evento) => {
 try {
   const pedida = Number(new URLSearchParams(location.search).get('equipa'));
   estado.equipaId = pedida || null;
+  estado.adversarioId = pedida || null;   // se for a da conta, carregarEquipas() larga-o
   await carregarEquipas();
   await carregarJogadores();
   iniciarFormulario(null);

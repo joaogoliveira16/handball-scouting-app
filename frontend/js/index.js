@@ -9,8 +9,10 @@ const contentor = document.getElementById('jogos');
 const tituloJogos = document.getElementById('titulo-jogos');
 const novoJogo = document.getElementById('novo-jogo');
 const formulario = document.getElementById('form-jogo');
-const selectCasa = document.getElementById('casa');
-const selectFora = document.getElementById('fora');
+const ladoJogo = document.getElementById('lado');
+const campoAdversario = document.getElementById('adversario');
+const listaAdversarios = document.getElementById('adversarios');
+const textoEquipa = document.getElementById('equipa-jogo');
 const erroJogo = document.getElementById('erro-jogo');
 const botaoCriar = document.getElementById('criar-jogo');
 
@@ -23,7 +25,7 @@ async function partilhar(jogo) {
   }
 }
 
-/** O dono mostra ou esconde o jogo na lista de jogos em direto da área de convidado. */
+/** O dono mostra ou esconde o jogo na lista de jogos da área de convidado. */
 async function mudarVisibilidade(jogo, caixa) {
   const visivel = caixa.checked;
   caixa.disabled = true;
@@ -31,7 +33,7 @@ async function mudarVisibilidade(jogo, caixa) {
     await enviar('PUT', `/api/jogos/${jogo.id}/visibilidade`, { visivel });
     jogo.visivelConvidados = visivel;
     avisar(visivel
-      ? 'Este jogo aparece na área de convidado enquanto estiver em direto.'
+      ? 'Este jogo aparece na área de convidado durante 24 horas.'
       : 'Jogo escondido: só quem tem o link o vê.');
   } catch (erro) {
     caixa.checked = !visivel;
@@ -62,23 +64,23 @@ function linhaJogo(jogo) {
       h('a', { class: 'botao-link suave pequeno', href: urlExcel(jogo.id), download: '' }, '⬇ Excel')),
     h('label', {
       class: 'opcao-jogo',
-      title: 'Quem não tem conta vê este jogo na área de convidado enquanto estiver a ser registado, sem precisar do link',
+      title: 'Quem não tem conta vê este jogo na área de convidado durante 24 horas, sem precisar do link',
     }, caixaVisivel, 'Mostrar na área de convidado'));
 }
 
 /** Conta ainda sem jogos: mostra os três passos, a começar pelo que falta. */
 function estadoVazio(equipas) {
-  const temEquipas = equipas.length >= 2;
+  const temEquipa = equipas.some((e) => e.propria);
   return h('section', { class: 'estado-vazio' },
     h('h2', {}, 'Ainda não tens jogos'),
     h('p', {}, 'Em três passos tens o primeiro jogo a ser registado.'),
     h('ol', { class: 'passos' },
-      h('li', {}, h('div', {}, h('strong', {}, 'Cria as equipas e os jogadores'), h('span', {}, 'Precisas de duas equipas, a tua e a adversária.'))),
-      h('li', {}, h('div', {}, h('strong', {}, 'Cria o jogo e escolhe os convocados'), h('span', {}, 'Até 16 jogadores por equipa.'))),
+      h('li', {}, h('div', {}, h('strong', {}, temEquipa ? 'Junta os jogadores da tua equipa' : 'Cria a tua equipa'), h('span', {}, 'O plantel fica guardado para todos os jogos.'))),
+      h('li', {}, h('div', {}, h('strong', {}, 'Cria o jogo e escolhe os convocados'), h('span', {}, 'Escreve o nome do adversário. Até 16 jogadores por equipa.'))),
       h('li', {}, h('div', {}, h('strong', {}, 'Regista no Banco'), h('span', {}, 'Copia o link do dashboard e envia ao treinador: vê tudo em direto, sem conta.')))),
-    temEquipas
-      ? h('button', { type: 'button', class: 'botao primario', onclick: () => { novoJogo.open = true; selectCasa.focus(); } }, 'Criar o primeiro jogo')
-      : h('a', { class: 'botao-link primario', href: 'equipas.html' }, 'Criar equipas e jogadores'));
+    temEquipa
+      ? h('button', { type: 'button', class: 'botao primario', onclick: () => { novoJogo.open = true; campoAdversario.focus(); } }, 'Criar o primeiro jogo')
+      : h('a', { class: 'botao-link primario', href: 'equipas.html' }, 'Criar a minha equipa'));
 }
 
 async function carregarJogos(equipas) {
@@ -105,24 +107,43 @@ async function carregarEquipas() {
 }
 
 function prepararFormulario(equipas) {
-  // Com menos de duas equipas ainda não dá para criar um jogo: o estado vazio leva à página das equipas
-  novoJogo.hidden = equipas.length < 2 && !erroJogo.textContent;
-  if (equipas.length < 2) return;
+  // O jogo é sempre da equipa da conta contra um adversário: sem equipa da conta não há jogo para criar
+  const minha = equipas.find((e) => e.propria);
+  novoJogo.hidden = !minha && !erroJogo.textContent;
+  if (!minha) return;
 
-  const opcoes = () => equipas.map((e) => h('option', { value: e.id }, e.nome));
-  substituir(selectCasa, opcoes());
-  substituir(selectFora, opcoes());
-  selectFora.selectedIndex = 1;
+  textoEquipa.replaceChildren('A tua equipa: ', h('strong', {}, minha.nome));
+  // os adversários que já usaste aparecem como sugestão (assim o plantel deles é reaproveitado)
+  substituir(listaAdversarios, equipas.filter((e) => !e.propria).map((e) => h('option', { value: e.nome })));
+}
+
+const mesmoNome = (a, b) => a.trim().toLocaleLowerCase('pt-PT') === b.trim().toLocaleLowerCase('pt-PT');
+
+/** O adversário é uma equipa da conta: reaproveita a que já existe com esse nome ou cria-a agora. */
+async function equipaAdversaria(nome, equipas) {
+  const existente = equipas.find((e) => !e.propria && mesmoNome(e.nome, nome));
+  if (existente) return existente.id;
+  try {
+    return (await enviar('POST', '/api/equipas', { nome })).id;
+  } catch (erro) {
+    // pode já existir com outras maiúsculas ou ter sido criada noutro separador: volta a procurar
+    const atuais = await obter('/api/equipas');
+    const igual = atuais.find((e) => !e.propria && mesmoNome(e.nome, nome));
+    if (igual) return igual.id;
+    throw erro;
+  }
 }
 
 formulario.addEventListener('submit', async (evento) => {
   evento.preventDefault();
   erroJogo.textContent = '';
 
-  const casaId = Number(selectCasa.value);
-  const foraId = Number(selectFora.value);
-  if (!casaId || !foraId) { erroJogo.textContent = 'Escolhe as duas equipas.'; return; }
-  if (casaId === foraId) { erroJogo.textContent = 'A equipa da casa e a de fora têm de ser diferentes.'; return; }
+  const minha = equipasDaConta.find((e) => e.propria);
+  const adversario = campoAdversario.value.trim();
+  if (!minha) { erroJogo.textContent = 'Cria primeiro a tua equipa.'; return; }
+  if (!adversario) { erroJogo.textContent = 'Escreve o nome do adversário.'; return; }
+  if (adversario.length > 80) { erroJogo.textContent = 'O nome do adversário pode ter no máximo 80 caracteres.'; return; }
+  if (mesmoNome(adversario, minha.nome)) { erroJogo.textContent = 'O adversário tem de ser outra equipa.'; return; }
 
   let dataHora = null;
   const escolhida = document.getElementById('data-hora').value;
@@ -134,8 +155,11 @@ formulario.addEventListener('submit', async (evento) => {
 
   botaoCriar.disabled = true;
   try {
+    const adversarioId = await equipaAdversaria(adversario, equipasDaConta);
+    const emCasa = ladoJogo.value === 'casa';
     const criado = await enviar('POST', '/api/jogos', {
-      casaId, foraId, local: document.getElementById('local').value.trim() || null, dataHora,
+      casaId: emCasa ? minha.id : adversarioId, foraId: emCasa ? adversarioId : minha.id,
+      local: document.getElementById('local').value.trim() || null, dataHora,
     });
     location.assign(`convocatoria.html?jogo=${criado.id}`);
   } catch (erro) {
@@ -144,6 +168,6 @@ formulario.addEventListener('submit', async (evento) => {
   }
 });
 
-const equipas = await carregarEquipas();
-prepararFormulario(equipas);
-await carregarJogos(equipas);
+const equipasDaConta = await carregarEquipas();
+prepararFormulario(equipasDaConta);
+await carregarJogos(equipasDaConta);

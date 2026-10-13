@@ -227,16 +227,21 @@ ligarFormulario(formRegisto, {
   erroId: 'erro-registo', botaoId: 'botao-registo', reenviarId: 'reenviar-registo', emailId: 'registo-email', enviarPara: '/api/conta/registar',
   validar: () => {
     const nome = valor('registo-nome').trim();
+    const equipa = valor('registo-equipa').trim();
     const email = valor('registo-email').trim();
     const senha = valor('registo-senha');
     if (!nome) return 'Escreve o teu nome.';
     if (nome.length > 80) return 'O nome pode ter no máximo 80 caracteres.';
+    if (!equipa) return 'Escreve o nome da tua equipa.';
+    if (equipa.length > 80) return 'O nome da equipa pode ter no máximo 80 caracteres.';
     if (!REGEX_EMAIL.test(email)) return 'Escreve um email válido.';
     if (senha.length < 8) return 'A palavra-passe tem de ter pelo menos 8 caracteres.';
     if (!senha.trim()) return 'A palavra-passe não pode ter só espaços.';
     return null;
   },
-  corpo: () => ({ nome: valor('registo-nome').trim(), email: valor('registo-email').trim(), palavraPasse: valor('registo-senha') }),
+  corpo: () => ({
+    nome: valor('registo-nome').trim(), equipa: valor('registo-equipa').trim(), email: valor('registo-email').trim(), palavraPasse: valor('registo-senha'),
+  }),
   aoSucesso: (resposta) => {
     document.getElementById('botao-registo').disabled = false;
     formRegisto.reset();

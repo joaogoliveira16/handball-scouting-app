@@ -303,7 +303,7 @@ function mostrarSemAcesso(conta) {
       h('h1', {}, 'Este jogo não está disponível'),
       h('p', {}, conta
         ? 'O jogo não existe ou não é teu. Se recebeste um link, pede um novo a quem o partilhou.'
-        : 'O jogo já não está em direto, foi escondido ou o link está incompleto. Vê os jogos em direto ou pede um link novo a quem o partilhou. Se o jogo é teu, entra na tua conta.'),
+        : 'O jogo foi escondido, já passaram mais de 24 horas ou o link está incompleto. Vê os jogos de hoje ou pede um link novo a quem o partilhou. Se o jogo é teu, entra na tua conta.'),
       conta
         ? h('a', { class: 'botao-link primario', href: './' }, 'Ver os meus jogos')
         : h('div', { class: 'acoes-formulario' },

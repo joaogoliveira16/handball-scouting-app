@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Atualização de uma base de dados que já tinha contas (criada só com os scripts 01 a 07):
-# as contas que já existiam ficam com o email confirmado, as novas nascem por confirmar e repetir os scripts não muda nada.
+# as contas que já existiam ficam com o email confirmado e com a primeira equipa como equipa da conta, as novas nascem
+# por confirmar e repetir os scripts não muda nada.
 #   PGHOST=localhost PGUSER=scouting PGPASSWORD=scouting bash db/tests/atualizacao.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -12,6 +13,11 @@ export PGDATABASE=$BASE
 
 for f in db/init/0[1-7]_*.sql; do psql -X -v ON_ERROR_STOP=1 -q -f "$f" >/dev/null; done
 psql -X -v ON_ERROR_STOP=1 -q -c "SELECT registar_utilizador('antiga@exemplo.pt', 'Antiga', 'hash')" >/dev/null
+# a conta antiga já tinha duas equipas (antes de existir «a equipa da conta»)
+psql -X -v ON_ERROR_STOP=1 -q >/dev/null <<'SQL'
+INSERT INTO equipas (nome, dono_id) SELECT 'Equipa da antiga', id FROM utilizadores WHERE email = 'antiga@exemplo.pt';
+INSERT INTO equipas (nome, dono_id) SELECT 'Adversária da antiga', id FROM utilizadores WHERE email = 'antiga@exemplo.pt';
+SQL
 
 # É o que o serviço "migrar" do docker compose faz em cada arranque: corre outra vez os scripts 05 em diante
 for volta in 1 2; do
@@ -28,6 +34,10 @@ BEGIN
         'a conta que já existia devia ficar com o email confirmado';
     ASSERT (SELECT email_verificado_em IS NULL FROM utilizadores WHERE email = 'nova@exemplo.pt'),
         'a conta criada depois da atualização devia ficar por confirmar (e continuar assim depois de repetir os scripts)';
+    ASSERT (SELECT e.nome FROM utilizadores u JOIN equipas e ON e.id = u.equipa_id WHERE u.email = 'antiga@exemplo.pt') = 'Equipa da antiga',
+        'a conta que já existia devia ficar com a primeira equipa que tinha como equipa da conta';
+    ASSERT (SELECT equipa_id IS NULL FROM utilizadores WHERE email = 'nova@exemplo.pt'),
+        'a conta criada sem equipa (versão anterior) fica sem equipa da conta, mesmo depois de repetir os scripts';
     ASSERT (SELECT COUNT(*) > 0 AND bool_and(visivel_convidados) FROM jogos),
         'os jogos que já existiam devem ficar visíveis na área de convidado (podem ser escondidos pelo dono)';
 END

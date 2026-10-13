@@ -110,19 +110,20 @@ async function passo(nome, funcao) {
 }
 
 const sufixo = Date.now().toString(36).slice(-5);
-const nomeDragoes = `Dragões ${sufixo}`;
 const [aguias] = await q("SELECT id FROM equipas WHERE nome = 'Águias do Norte'");
 const [leoes] = await q("SELECT id FROM equipas WHERE nome = 'Leões do Sul'");
 
 // ======================= Contas =======================
 const emailPrincipal = `principal-${sufixo}@exemplo.pt`;
 const nomePrincipal = `Principal ${sufixo}`;
+const equipaPrincipal = `Principal FC ${sufixo}`;   // a equipa da conta principal, pedida ao criar a conta
 const SENHA = 'palavra-passe-123';
 let donoId; // id da conta principal (dona dos dados de exemplo)
 
-async function registarPelaPagina(p, { nome, email, senha }) {
+async function registarPelaPagina(p, { nome, equipa = `${nome} FC`, email, senha }) {
   await p.click('#aba-registo');
   await p.fill('#registo-nome', nome);
+  await p.fill('#registo-equipa', equipa);
   await p.fill('#registo-email', email);
   await p.fill('#registo-senha', senha);
   await p.click('#botao-registo');
@@ -151,7 +152,10 @@ await passo('Contas: criar conta, confirmar o email, sair e entrar', async () =>
   await captura(p, 'registo');
 
   // Validações antes de enviar
-  await p.fill('#registo-nome', nomePrincipal); await p.fill('#registo-email', 'sem-arroba'); await p.fill('#registo-senha', SENHA);
+  await p.fill('#registo-nome', nomePrincipal); await p.fill('#registo-email', emailPrincipal); await p.fill('#registo-senha', SENHA);
+  await p.click('#botao-registo');
+  ok((await p.locator('#erro-registo').textContent()).includes('nome da tua equipa'), 'registo: sem o nome da equipa é recusado com mensagem');
+  await p.fill('#registo-equipa', equipaPrincipal); await p.fill('#registo-email', 'sem-arroba');
   await p.click('#botao-registo');
   ok((await p.locator('#erro-registo').textContent()).includes('email válido'), 'registo: email inválido recusado com mensagem');
   await p.fill('#registo-email', emailPrincipal); await p.fill('#registo-senha', 'curta');
@@ -174,7 +178,10 @@ await passo('Contas: criar conta, confirmar o email, sair e entrar', async () =>
   const [pendente] = await q('SELECT id, nome, email_verificado_em FROM utilizadores WHERE email = $1', [emailPrincipal]);
   donoId = pendente?.id;
   ok(pendente && pendente.nome === nomePrincipal && pendente.email_verificado_em === null, 'base de dados: a conta nova fica por confirmar');
-  ok((await q('SELECT 1 FROM equipas WHERE dono_id IS NOT NULL')).length === 0, 'e ainda não adotou as equipas de exemplo');
+  ok((await q('SELECT 1 FROM equipas WHERE dono_id IS NULL')).length === 2 && (await q('SELECT 1 FROM equipas WHERE dono_id = $1', [donoId])).length === 1,
+    'e ainda não adotou as equipas de exemplo: só tem a equipa que indicou ao registar-se');
+  const [equipaDaConta] = await q('SELECT e.nome FROM utilizadores u JOIN equipas e ON e.id = u.equipa_id WHERE u.id = $1', [donoId]);
+  ok(equipaDaConta?.nome === equipaPrincipal, 'base de dados: essa é a equipa da conta');
   await captura(p, 'confirmar-email');
 
   // O email chegou à caixa de correio de teste
@@ -292,7 +299,7 @@ await passo('Contas: criar conta, confirmar o email, sair e entrar', async () =>
   // Registar o mesmo email antes de o confirmar pede outro email; depois de confirmado é «já existe»
   const ctxNovo = await novoContexto();
   const outro = await pagina('/entrar.html?modo=registo', { contexto: ctxNovo, tolerar: ['401'] });
-  await outro.fill('#registo-nome', 'Outra pessoa'); await outro.fill('#registo-email', emailPrincipal); await outro.fill('#registo-senha', 'outra-palavra-1');
+  await outro.fill('#registo-nome', 'Outra pessoa'); await outro.fill('#registo-equipa', 'Outra FC'); await outro.fill('#registo-email', emailPrincipal); await outro.fill('#registo-senha', 'outra-palavra-1');
   await outro.click('#botao-registo');
   await outro.waitForFunction(() => document.getElementById('erro-registo').textContent.length > 0);
   ok((await outro.locator('#erro-registo').textContent()).includes('Já existe uma conta com esse email') && (await outro.locator('#reenviar-registo').isHidden()),
@@ -315,7 +322,7 @@ await passo('Recuperar a palavra-passe', async () => {
   const confirmacao = await abrirLinkDoEmail(email, { contexto: ctxR });
   await confirmacao.v.close();
   const [{ id: contaId }] = await q('SELECT id FROM utilizadores WHERE email = $1', [email]);
-  ok((await q('SELECT 1 FROM equipas WHERE dono_id = $1', [contaId])).length === 0, 'recuperar: esta conta não é a primeira confirmada (não herda dados de exemplo)');
+  ok((await q('SELECT 1 FROM equipas WHERE dono_id = $1', [contaId])).length === 1, 'recuperar: esta conta não é a primeira confirmada (não herda dados de exemplo: só tem a sua equipa)');
 
   // «Esqueci a palavra-passe» leva o email escrito para o ecrã de recuperação
   p = await pagina('/entrar.html', { contexto: ctxR, tolerar: ['401', '400'] });
@@ -408,20 +415,14 @@ await passo('Recuperar a palavra-passe', async () => {
 // ======================= Equipas e jogadores =======================
 await passo('Equipas e jogadores', async () => {
   const p = await pagina('/equipas.html');
-  ok((await p.locator('.item-equipa').count()) >= 2, 'equipas: lista as equipas existentes');
-  await captura(p, 'equipas');
-
-  await p.fill('#nome-equipa', nomeDragoes);
-  await p.click('#form-equipa button[type=submit]');
-  await p.waitForSelector(`.item-equipa[aria-current="true"]:has-text("${nomeDragoes}")`);
-  ok(true, 'equipas: cria equipa e seleciona-a');
-  ok((await p.locator('#form-equipa .erro-formulario').textContent()) === '', 'equipas: sem erro depois de criar');
+  // Só aparece a equipa da conta: as equipas de exemplo que a conta herdou são adversárias e não se listam
+  ok((await p.locator('.item-equipa').count()) === 1 && (await p.locator('.item-equipa').first().textContent()).includes(equipaPrincipal),
+    'equipas: só aparece a equipa da conta (as de exemplo, adversárias, não se listam)');
+  ok(await p.locator('.item-equipa[aria-current="true"]').count() === 1 && (await p.locator('#plantel h2').first().textContent()) === `Plantel · ${equipaPrincipal}`, 'equipas: a equipa da conta vem selecionada');
+  ok(await p.locator('#form-equipa').isHidden(), 'equipas: quem já tem equipa não vê o formulário para criar outra');
+  ok((await p.locator('h1').textContent()) === 'A tua equipa', 'equipas: o título diz «A tua equipa»');
   ok((await p.locator('#plantel .vazio').count()) === 1, 'equipas: o plantel novo está vazio');
-
-  await p.fill('#nome-equipa', nomeDragoes);
-  await p.click('#form-equipa button[type=submit]');
-  await p.waitForFunction(() => document.getElementById('erro-equipa').textContent.includes('Já existe'));
-  ok(true, 'equipas: nome repetido mostra o erro da API');
+  await captura(p, 'equipas');
 
   ok((await p.inputValue('#numero')) === '1', 'jogadores: número sugerido = 1');
   await p.fill('#nome', 'Rui Lopes'); await p.selectOption('#posicao', 'GR');
@@ -436,7 +437,7 @@ await passo('Equipas e jogadores', async () => {
   await p.waitForFunction(() => document.querySelectorAll('table.tabela tbody tr').length === 3);
   ok(true, 'jogadores: 3 jogadores adicionados');
   ok(await esperarPor(async () => ((await p.locator('.item-equipa[aria-current="true"] small').textContent()) ?? '').includes('3')), 'equipas: contador de jogadores atualizado (3)');
-  ok((await q('SELECT count(*)::int AS n FROM jogadores WHERE equipa_id = (SELECT id FROM equipas WHERE nome = $1)', [nomeDragoes]))[0].n === 3, 'jogadores: gravados na base de dados');
+  ok((await q('SELECT count(*)::int AS n FROM jogadores WHERE equipa_id = (SELECT id FROM equipas WHERE nome = $1)', [equipaPrincipal]))[0].n === 3, 'jogadores: gravados na base de dados');
 
   await p.fill('#numero', '2'); await p.fill('#nome', 'Duplicado');
   await p.click('.formulario-jogador button[type=submit]');
@@ -458,11 +459,26 @@ await passo('Equipas e jogadores', async () => {
   await p.waitForFunction(() => document.querySelectorAll('table.tabela tbody tr').length === 2);
   ok(true, 'jogadores: apagar um jogador sem eventos');
 
-  await p.locator('.item-equipa', { hasText: 'Águias do Norte' }).click();
-  await p.waitForSelector('tbody tr:has-text("Rui Mesquita")');
-  ok((await p.locator('tbody tr .botao.perigo:disabled').count()) === 8, 'jogadores: com eventos, o botão apagar está desativado');
-  ok((await p.evaluate(() => location.search)) === `?equipa=${aguias.id}`, 'equipas: o URL guarda a equipa escolhida');
+  ok((await p.evaluate(() => location.search)) === '', 'equipas: sem escolher outra equipa o URL não muda');
   await p.close();
+
+  // Um adversário abre-se a partir da convocatória (equipas.html?equipa=ID) e fica na lista enquanto a página estiver aberta
+  const adv = await pagina(`/equipas.html?equipa=${aguias.id}`);
+  await adv.waitForSelector('tbody tr:has-text("Rui Mesquita")');
+  ok((await adv.locator('.item-equipa').count()) === 2 && (await adv.locator('.item-equipa[aria-current="true"]').textContent()).includes('Águias do Norte (adversário)'),
+    'equipas: um adversário aberto pelo URL aparece ao lado da equipa da conta, marcado como adversário');
+  ok((await adv.locator('tbody tr .botao.perigo:disabled').count()) === 8, 'jogadores: com eventos, o botão apagar está desativado');
+  ok((await adv.evaluate(() => location.search)) === `?equipa=${aguias.id}`, 'equipas: o URL guarda a equipa escolhida');
+  await adv.locator('.item-equipa', { hasText: equipaPrincipal }).click();
+  await adv.waitForSelector('tbody tr:has-text("Rui Lopes")');
+  ok((await adv.locator('.item-equipa').count()) === 2, 'equipas: o adversário continua na lista depois de voltar à equipa da conta');
+  await adv.close();
+
+  // Uma equipa de outra conta não se abre: fica só a equipa da conta
+  const alheia = await pagina('/equipas.html?equipa=999999');
+  await alheia.waitForSelector('#plantel h2');
+  ok((await alheia.locator('.item-equipa').count()) === 1 && (await alheia.locator('#plantel h2').first().textContent()) === `Plantel · ${equipaPrincipal}`, 'equipas: um id que não é da conta mostra a equipa da conta');
+  await alheia.close();
 });
 
 // ======================= Novo jogo =======================
@@ -474,17 +490,26 @@ await passo('Novo jogo', async () => {
   ok((await p.locator('a[href^="/api/jogos/2/exportar.xlsx"]').count()) === 1, 'jogos: link de Excel em cada jogo');
   await captura(p, 'jogos');
   await p.click('summary');
-  await p.selectOption('#casa', { label: nomeDragoes });
-  await p.selectOption('#fora', { label: nomeDragoes });
+  ok((await p.locator('#equipa-jogo').textContent()).includes(equipaPrincipal) && (await p.locator('#casa, #fora').count()) === 0,
+    'jogos: o formulário mostra a equipa da conta e não pede a equipa da casa e a de fora');
+  const sugestoes = await p.locator('#adversarios option').evaluateAll((o) => o.map((x) => x.value));
+  ok(sugestoes.includes('Águias do Norte') && sugestoes.includes('Leões do Sul') && !sugestoes.includes(equipaPrincipal), 'jogos: os adversários que já existem aparecem como sugestão (a equipa da conta não)');
   await p.click('#criar-jogo');
-  ok((await p.locator('#erro-jogo').textContent()).includes('diferentes'), 'jogos: a mesma equipa nos dois lados é recusada');
-  await p.selectOption('#fora', { label: 'Águias do Norte' });
+  ok((await p.locator('#erro-jogo').textContent()).includes('nome do adversário'), 'jogos: sem adversário é recusado');
+  await p.fill('#adversario', equipaPrincipal.toUpperCase());
+  await p.click('#criar-jogo');
+  ok((await p.locator('#erro-jogo').textContent()).includes('outra equipa'), 'jogos: a própria equipa como adversária é recusada (mesmo com outras maiúsculas)');
+  await p.fill('#adversario', 'águias do norte');   // reaproveita a equipa que já existe, sem criar outra
+  ok((await p.inputValue('#lado')) === 'casa', 'jogos: por omissão a equipa da conta joga em casa');
   await p.fill('#local', 'Pavilhão Central');
   await p.fill('#data-hora', '2026-11-20T18:30');
   await Promise.all([p.waitForURL(/convocatoria\.html\?jogo=\d+/), p.click('#criar-jogo')]);
   novoJogoId = Number(new URL(p.url()).searchParams.get('jogo'));
   const [jogo] = await q('SELECT * FROM jogos WHERE id = $1', [novoJogoId]);
   ok(jogo?.local === 'Pavilhão Central', 'jogos: novo jogo criado com o local');
+  const [propria] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [donoId]);
+  ok(jogo?.equipa_casa_id === propria.equipa_id && jogo?.equipa_fora_id === aguias.id, 'jogos: a equipa da conta joga em casa contra a «Águias do Norte» que já existia');
+  ok((await q("SELECT count(*)::int AS n FROM equipas WHERE lower(nome) = 'águias do norte' AND dono_id = $1", [donoId]))[0].n === 1, 'jogos: o adversário foi reaproveitado (não nasceu outra equipa com o mesmo nome)');
   ok(jogo && new Date(jogo.data_hora).toISOString() === '2026-11-20T18:30:00.000Z', 'jogos: data e hora enviadas (o browser do teste está em UTC)');
   await p.close();
 });
@@ -810,7 +835,7 @@ await passo('Dashboard: exportar para Excel', async () => {
 });
 
 // ======================= Jogos em direto na área de convidado =======================
-await passo('Jogos em direto: o convidado vê-os sem link', async () => {
+await passo('Jogos das últimas 24 horas: o convidado vê-os sem link', async () => {
   // Um jogo a ser registado agora: 2–1 para os Tigres (os eventos entram direto na base de dados, como se viessem do banco)
   const [casa] = await q('INSERT INTO equipas (nome, dono_id) VALUES ($1, $2) RETURNING id', [`Tigres ${sufixo}`, donoId]);
   const [fora] = await q('INSERT INTO equipas (nome, dono_id) VALUES ($1, $2) RETURNING id', [`Lobos ${sufixo}`, donoId]);
@@ -830,6 +855,7 @@ await passo('Jogos em direto: o convidado vê-os sem link', async () => {
   ok((await linha.textContent()).includes(`Lobos ${sufixo}`) && (await linha.textContent()).includes('Pavilhão dos Tigres'), 'em direto: a lista mostra as duas equipas e o local');
   ok((await texto(linha.locator('.jogo-direto-resultado'))) === '2–1', 'em direto: mostra o resultado (2–1)');
   ok((await linha.locator('small').textContent()).includes('último evento agora mesmo'), 'em direto: diz há quanto tempo foi o último evento');
+  ok(await linha.evaluate((el) => el.classList.contains('ao-vivo')), 'em direto: com um evento agora o jogo leva o ponto verde de «a decorrer»');
   ok((await linha.locator('a').getAttribute('href')) === `dashboard.html?jogo=${jogo.id}`, 'em direto: a ligação abre o dashboard sem código');
   ok(!(await g.content()).includes(jogo.codigo), 'em direto: a página não traz o código do link de partilha');
   ok(await g.locator('#estado-direto').isHidden(), 'em direto: com jogos na lista não aparece o aviso de lista vazia');
@@ -878,19 +904,48 @@ await passo('Jogos em direto: o convidado vê-os sem link', async () => {
   await g2.clock.fastForward(16000);
   ok(await esperarPor(async () => (await linhaDoJogo(g2).count()) === 1), 'em direto: e o jogo volta à lista');
 
-  // Passado algum tempo sem eventos deixa de estar «em direto», mas quem já o abriu ainda o consegue ver durante umas horas
-  await q("UPDATE eventos SET criado_em = now() - interval '45 minutes' WHERE jogo_id = $1", [jogo.id]);
+  // Durante 24 horas o jogo continua na lista e abre-se sem link (já sem o ponto verde); passadas as 24 horas só com o link
+  await q("UPDATE eventos SET criado_em = now() - interval '23 hours' WHERE jogo_id = $1", [jogo.id]);
   await g2.clock.fastForward(16000);
-  ok(await esperarPor(async () => (await linhaDoJogo(g2).count()) === 0), 'em direto: 45 minutos sem eventos tiram o jogo da lista');
+  ok(await esperarPor(async () => (await linhaDoJogo(g2).locator('small').textContent().catch(() => '')).includes('último evento há 23 horas')), 'em direto: 23 horas depois o jogo continua na lista («último evento há 23 horas»)');
+  ok(!(await linhaDoJogo(g2).evaluate((el) => el.classList.contains('ao-vivo'))), 'em direto: e já sem o ponto verde');
   const aindaAberto = await pagina(dashboardSemLink, { contexto: ctxVisitante, tolerar: ['401'] });
-  ok(await esperarPor(async () => (await texto(aindaAberto.locator('#golos-casa'))) === '2') && (await aindaAberto.locator('.sem-acesso').count()) === 0, 'em direto: mas o dashboard ainda se abre sem link (recarregar, intervalos)');
+  ok(await esperarPor(async () => (await texto(aindaAberto.locator('#golos-casa'))) === '2') && (await aindaAberto.locator('.sem-acesso').count()) === 0, 'em direto: o dashboard ainda se abre sem link ao fim de 23 horas');
   await aindaAberto.close();
-  await q("UPDATE eventos SET criado_em = now() - interval '4 hours' WHERE jogo_id = $1", [jogo.id]);
+  await q("UPDATE eventos SET criado_em = now() - interval '25 hours' WHERE jogo_id = $1", [jogo.id]);
+  await g2.clock.fastForward(16000);
+  ok(await esperarPor(async () => (await linhaDoJogo(g2).count()) === 0), 'em direto: passadas 24 horas o jogo sai da lista');
   const fechou = await pagina(dashboardSemLink, { contexto: ctxVisitante, tolerar: ['401', '404'] });
-  ok(await esperarPor(async () => (await fechou.locator('.sem-acesso').count()) === 1), 'em direto: passadas 4 horas só se abre com o link');
+  ok(await esperarPor(async () => (await fechou.locator('.sem-acesso').count()) === 1), 'em direto: e sem o link já não se abre');
+  ok((await fechou.locator('.sem-acesso').textContent()).includes('24 horas'), 'em direto: o aviso explica que passaram 24 horas');
   await fechou.close();
+  const comLink25 = await pagina(`${dashboardSemLink}&c=${jogo.codigo}`, { contexto: ctxVisitante, tolerar: ['401'] });
+  ok(await esperarPor(async () => (await texto(comLink25.locator('#golos-casa'))) === '2'), 'em direto: com o link de partilha continua a abrir');
+  await comLink25.close();
+
+  // Sem eventos conta a hora do jogo: um jogo que já devia ter começado e um que começa daqui a 3 horas aparecem; um de daqui a 2 dias não
+  const novoJogoSemEventos = async (minutos, local) => (await q(
+    "INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, local, data_hora) VALUES ($1, $2, $3, $4, now() + make_interval(mins => $5::int)) RETURNING id", [casa.id, fora.id, donoId, local, minutos]))[0].id;
+  const semEventos = await novoJogoSemEventos(-10, 'Pavilhão Sem Eventos');
+  const emBreve = await novoJogoSemEventos(180, 'Pavilhão Daqui a 3 Horas');
+  const emDoisDias = await novoJogoSemEventos(2880, 'Pavilhão Daqui a 2 Dias');
+  const g3 = await pagina('/convidado.html', { contexto: ctxVisitante, tolerar: ['401'] });
+  const porLocal = (local) => g3.locator('#lista-direto .jogo-direto', { hasText: local });
+  await porLocal('Pavilhão Sem Eventos').waitFor();
+  ok((await porLocal('Pavilhão Sem Eventos').locator('small').textContent()).includes('ainda sem eventos') && (await texto(porLocal('Pavilhão Sem Eventos').locator('.jogo-direto-resultado'))) === '0–0',
+    'sem eventos: o jogo aparece na lista como «ainda sem eventos» (0–0)');
+  ok((await porLocal('Pavilhão Daqui a 3 Horas').locator('small').textContent()).includes('começa às'), 'sem eventos: um jogo que começa daqui a 3 horas diz a que horas começa');
+  ok((await porLocal('Pavilhão Daqui a 2 Dias').count()) === 0, 'sem eventos: um jogo marcado para daqui a 2 dias ainda não aparece');
+  ok(!(await porLocal('Pavilhão Sem Eventos').evaluate((el) => el.classList.contains('ao-vivo'))), 'sem eventos: e não leva o ponto verde');
+  await captura(g3, 'convidado-24-horas');
+  for (const [nome, id, esperado] of [['sem eventos', semEventos, 200], ['daqui a 3 horas', emBreve, 200], ['daqui a 2 dias', emDoisDias, 404]]) {
+    ok((await ctxVisitante.request.get(`${servidor.url}/api/jogos/${id}/estatisticas`)).status() === esperado, `sem eventos (${nome}): abrir sem link = ${esperado}`);
+  }
+  await g3.close();
+  await q('DELETE FROM jogos WHERE id = ANY($1)', [[semEventos, emBreve, emDoisDias]]);   // não ficam a aparecer nos passos seguintes
   await g2.close();
   await meus.close();
+  // os eventos ficam com 25 horas: este jogo já não aparece nos passos seguintes
 });
 
 // ======================= Link de partilha =======================
@@ -1014,7 +1069,7 @@ await passo('Segunda conta: começa vazia e não vê os dados da primeira', asyn
 
   let p = await pagina('/', { contexto: ctxB, tolerar: ['401'], rapida: true });
   await p.waitForURL(/entrar\.html/);
-  await registarPelaPagina(p, { nome: 'Bruno', email: emailB, senha: 'outra-palavra-1' });
+  await registarPelaPagina(p, { nome: 'Bruno', equipa: nomeEquipaB, email: emailB, senha: 'outra-palavra-1' });
   await p.waitForSelector('#painel-confirmar:not([hidden])');
   ok((await ctxB.cookies()).every((c) => c.name !== 'sessao'), 'segunda conta: depois de registar ainda não tem sessão');
   const { v: linkB } = await abrirLinkDoEmail(emailB, { contexto: ctxB });
@@ -1026,39 +1081,36 @@ await passo('Segunda conta: começa vazia e não vê os dados da primeira', asyn
   await p.waitForSelector('.estado-vazio');
   const [b] = await q('SELECT id FROM utilizadores WHERE email = $1', [emailB]);
   ok(b?.id && b.id !== donoId, 'segunda conta: criada (conta diferente da primeira)');
-  ok((await q('SELECT 1 FROM equipas WHERE dono_id = $1', [b.id])).length === 0 && (await q('SELECT 1 FROM jogos WHERE dono_id = $1', [b.id])).length === 0, 'segunda conta: não herda os dados de exemplo (só a primeira conta confirmada herda)');
-  ok(await p.locator('#novo-jogo').isHidden(), 'segunda conta: sem equipas não há "Novo jogo"');
-  ok((await p.locator('.estado-vazio .passos li').count()) === 3 && (await p.locator('.estado-vazio a[href="equipas.html"]').count()) === 1, 'segunda conta: lista vazia mostra os 3 primeiros passos e leva às equipas');
+  const equipasB = await q('SELECT e.nome, (e.id = u.equipa_id) AS propria FROM equipas e JOIN utilizadores u ON u.id = e.dono_id WHERE e.dono_id = $1', [b.id]);
+  ok(equipasB.length === 1 && equipasB[0].nome === nomeEquipaB && equipasB[0].propria && (await q('SELECT 1 FROM jogos WHERE dono_id = $1', [b.id])).length === 0,
+    'segunda conta: só tem a equipa que indicou ao criar a conta e nenhum jogo (não herda os dados de exemplo; só a primeira conta confirmada herda)');
+  ok(await p.locator('#novo-jogo').isVisible(), 'segunda conta: com equipa já aparece «Novo jogo»');
+  ok((await p.locator('.estado-vazio .passos li').count()) === 3 && (await p.locator('.estado-vazio button').count()) === 1, 'segunda conta: lista vazia mostra os 3 primeiros passos e «Criar o primeiro jogo»');
   ok((await p.locator('.jogo-linha').count()) === 0, 'segunda conta: não vê os jogos da primeira');
   await captura(p, 'conta-nova-vazia');
 
-  // Equipas: a mesma designação que a primeira conta tem pode existir aqui
-  await Promise.all([p.waitForURL(/equipas\.html/), p.click('.estado-vazio a[href="equipas.html"]')]);
-  await p.waitForSelector('#form-equipa');
-  ok((await p.locator('.item-equipa').count()) === 0, 'segunda conta: não vê as equipas da primeira');
-  for (const nome of ['Águias do Norte', nomeEquipaB]) {
-    await p.fill('#nome-equipa', nome);
-    await p.click('#form-equipa button[type=submit]');
-    await p.waitForSelector(`.item-equipa[aria-current="true"]:has-text("${nome}")`);
-  }
-  ok((await p.locator('.item-equipa').count()) === 2, 'segunda conta: duas equipas criadas (uma com o mesmo nome de uma equipa da primeira conta)');
-  ok((await q('SELECT 1 FROM equipas WHERE dono_id = $1', [b.id])).length === 2 && (await q("SELECT 1 FROM equipas WHERE nome = 'Águias do Norte'")).length === 2, 'base de dados: duas equipas "Águias do Norte", cada uma do seu dono');
-  await p.fill('#nome-equipa', nomeEquipaB);
-  await p.click('#form-equipa button[type=submit]');
-  await p.waitForFunction(() => document.getElementById('erro-equipa').textContent.includes('Já existe'));
-  ok(true, 'segunda conta: o nome repetido na mesma conta continua recusado');
-
-  // Criar o seu primeiro jogo
+  // Equipas: só vê a sua; nenhuma das da primeira conta (nem a de exemplo «Águias do Norte»)
   await p.close();
+  p = await pagina('/equipas.html', { contexto: ctxB });
+  ok((await p.locator('.item-equipa').count()) === 1 && (await p.locator('.item-equipa').textContent()).includes(nomeEquipaB) && await p.locator('#form-equipa').isHidden(),
+    'segunda conta: na página das equipas só vê a sua equipa e não pode criar outra');
+  ok((await p.locator('.item-equipa', { hasText: equipaPrincipal }).count()) === 0, 'segunda conta: não vê as equipas da primeira');
+  await p.close();
+
+  // Criar o seu primeiro jogo: o adversário escreve-se (aqui com o nome de uma equipa da primeira conta e a jogar fora)
   p = await pagina('/', { contexto: ctxB });
-  ok(await p.locator('#novo-jogo').isVisible(), 'segunda conta: com duas equipas aparece "Novo jogo"');
   await p.click('.estado-vazio button');
   ok(await p.locator('#novo-jogo').evaluate((d) => d.open), 'segunda conta: "Criar o primeiro jogo" abre o formulário');
-  await p.selectOption('#casa', { label: nomeEquipaB });
-  await p.selectOption('#fora', { label: 'Águias do Norte' });
+  ok((await p.locator('#adversarios option').count()) === 0, 'segunda conta: ainda não tem adversários para sugerir (não vê os da primeira)');
+  await p.selectOption('#lado', 'fora');
+  await p.fill('#adversario', 'Águias do Norte');
   await Promise.all([p.waitForURL(/convocatoria\.html\?jogo=\d+/), p.click('#criar-jogo')]);
   const jogoB = Number(new URL(p.url()).searchParams.get('jogo'));
-  ok((await q('SELECT dono_id FROM jogos WHERE id = $1', [jogoB]))[0]?.dono_id === b.id, 'segunda conta: o jogo novo fica na segunda conta');
+  const [jogoDaB] = await q('SELECT * FROM jogos WHERE id = $1', [jogoB]);
+  const [equipaDaB] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [b.id]);
+  ok(jogoDaB?.dono_id === b.id && jogoDaB.equipa_fora_id === equipaDaB.equipa_id, 'segunda conta: o jogo novo fica na segunda conta, com a sua equipa a jogar fora');
+  ok((await q("SELECT 1 FROM equipas WHERE nome = 'Águias do Norte'")).length === 2 && (await q('SELECT 1 FROM equipas WHERE dono_id = $1', [b.id])).length === 2,
+    'base de dados: duas equipas «Águias do Norte», cada uma do seu dono (a da segunda conta nasceu como adversária)');
   await p.close();
 
   p = await pagina('/', { contexto: ctxB });
@@ -1085,7 +1137,8 @@ await passo('Segunda conta: começa vazia e não vê os dados da primeira', asyn
   ok(await comLink.locator('#voltar').isVisible(), 'segunda conta: com sessão o dashboard mostra a seta para os seus jogos');
   await comLink.close();
 
-  // E a primeira conta não vê nada da segunda
+  // E a primeira conta não vê nada da segunda (um jogo novo está aberto a convidados durante 24 horas: a segunda conta esconde-o)
+  await q('UPDATE jogos SET visivel_convidados = FALSE WHERE id = $1', [jogoB]);
   const alheio = await pagina(`/convocatoria.html?jogo=${jogoB}`, { tolerar: ['404'] });
   ok(await esperarPor(async () => ((await alheio.locator('#conteudo .vazio').first().textContent().catch(() => '')) ?? '').includes('Jogo não encontrado')), 'primeira conta: o jogo da segunda conta "não existe"');
   await alheio.close();

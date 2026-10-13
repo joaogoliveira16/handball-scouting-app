@@ -15,7 +15,7 @@ public class AcessoService(NpgsqlDataSource dados, SqlLoader sql)
         // um código vazio nunca corresponde a nenhum jogo
         return await con.ExecuteScalarAsync<bool>(new CommandDefinition(sql["jogo_acessivel"], new
         {
-            jogoId, utilizadorId, codigo = string.IsNullOrWhiteSpace(codigo) ? null : codigo, minutosAberto = JanelasEmDireto.AcessoMinutos
+            jogoId, utilizadorId, codigo = string.IsNullOrWhiteSpace(codigo) ? null : codigo, minutosAberto = JanelasEmDireto.Minutos
         }, cancellationToken: ct));
     }
 

@@ -18,19 +18,19 @@
   </header>
 
   <main class="pagina">
-    <h1>Equipas e jogadores</h1>
-    <p class="sub">Cria equipas e junta jogadores ao plantel. Os convocados de cada jogo escolhem-se na página <strong>Convocatória</strong> do jogo.</p>
+    <h1>A tua equipa</h1>
+    <p class="sub">Junta os jogadores ao plantel da tua equipa. O adversário indica-se ao criar o jogo e os convocados de cada jogo escolhem-se na página <strong>Convocatória</strong>.</p>
 
     <div class="duas-colunas">
       <aside class="cartao">
-        <h2>Equipas</h2>
+        <h2 id="titulo-equipas">Equipa</h2>
         <ul class="lista-equipas" id="equipas"></ul>
-        <form id="form-equipa" class="formulario" novalidate>
-          <label class="largo">Nova equipa
+        <form id="form-equipa" class="formulario" novalidate hidden>
+          <label class="largo">Nome da tua equipa
             <input id="nome-equipa" maxlength="80" placeholder="Nome da equipa" autocomplete="off" required>
           </label>
           <p class="erro-formulario largo" id="erro-equipa" role="alert"></p>
-          <button class="botao primario largo" type="submit">＋ Adicionar equipa</button>
+          <button class="botao primario largo" type="submit">Criar a minha equipa</button>
         </form>
       </aside>
 
