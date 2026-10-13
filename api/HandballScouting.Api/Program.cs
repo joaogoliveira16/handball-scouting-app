@@ -211,8 +211,11 @@ protegido.MapPost("/jogos/{id:int}/eventos", async (
     if (!resultado.Ok)
         return Results.Json(new { erro = resultado.Erro }, statusCode: resultado.Status);
 
+    // Também num reenvio: se o aviso da primeira vez falhou, os dashboards ficam atualizados à segunda
     await EmitirEstadoAsync(id, est, hub);
-    return Results.Created($"/api/jogos/{id}/eventos/{resultado.Id}", new { id = resultado.Id });
+    return resultado.Repetido
+        ? Results.Ok(new { id = resultado.Id, repetido = true })
+        : Results.Created($"/api/jogos/{id}/eventos/{resultado.Id}", new { id = resultado.Id });
 });
 
 // O tablet do banco avisa quando o relógio arranca, pára ou é ajustado (e de 30 em 30 segundos enquanto corre).

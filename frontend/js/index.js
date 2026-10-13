@@ -3,8 +3,12 @@ import { h, substituir, avisar, copiarTexto } from './dom.js';
 import { obter, enviar, urlExcel, urlPartilha } from './api.js';
 import { exigirConta } from './conta.js';
 import { escudo } from './escudo.js';
+import { criarFila, criarEnvio } from './fila.js';
+import { registarOffline, jogosGuardados } from './offline.js';
 
-await exigirConta();
+registarOffline();
+// Sem rede a conta não responde: não deixa a lista presa à espera
+await Promise.race([exigirConta(), new Promise((resolve) => setTimeout(resolve, 6000))]);
 
 const contentor = document.getElementById('jogos');
 const tituloJogos = document.getElementById('titulo-jogos');
@@ -16,6 +20,27 @@ const listaAdversarios = document.getElementById('adversarios');
 const textoEquipa = document.getElementById('equipa-jogo');
 const erroJogo = document.getElementById('erro-jogo');
 const botaoCriar = document.getElementById('criar-jogo');
+const avisoFila = document.getElementById('fila-pendente');
+
+// Eventos do banco que ficaram por enviar (a rede caiu e o banco foi fechado antes de voltar): seguem daqui
+const fila = criarFila();
+const envio = criarEnvio({
+  fila,
+  enviar: (item) => enviar('POST', `/api/jogos/${item.jogoId}/eventos`, item.corpo),
+  aoRejeitar: (item, erro) => avisar(`Um evento não foi aceite pelo servidor e foi descartado: ${erro.message}`, { erro: true, duracao: 8000 }),
+  aoTerminar: (resultado) => {
+    desenharFila();
+    if (resultado?.enviados) carregarJogos(equipasDaConta);   // os placares mudaram
+  },
+});
+
+function desenharFila() {
+  const n = fila.contar();
+  avisoFila.hidden = n === 0;
+  avisoFila.textContent = n === 1
+    ? '⏳ 1 evento do banco por enviar. Segue sozinho quando houver rede.'
+    : `⏳ ${n} eventos do banco por enviar. Seguem sozinhos quando houver rede.`;
+}
 
 async function partilhar(jogo) {
   const link = urlPartilha(jogo.id, jogo.codigo);
@@ -94,7 +119,20 @@ async function carregarJogos(equipas) {
       ? h('ul', { class: 'lista-jogos' }, jogos.map(linhaJogo))
       : estadoVazio(equipas));
   } catch (erro) {
-    substituir(contentor, h('p', { class: 'vazio' }, `Não foi possível carregar os jogos: ${erro.message}`));
+    const guardados = erro.status == null ? jogosGuardados() : [];
+    if (guardados.length === 0) {
+      substituir(contentor, h('p', { class: 'vazio' }, `Não foi possível carregar os jogos: ${erro.message}`));
+      return;
+    }
+    // Sem rede: os jogos que este tablet já abriu no banco continuam a abrir
+    tituloJogos.hidden = false;
+    substituir(contentor,
+      h('p', { class: 'vazio' }, 'Sem rede. Estes jogos abrem no banco com os dados guardados neste tablet:'),
+      h('ul', { class: 'lista-jogos' }, guardados.map((jogo) => h('li', { class: 'jogo-linha' },
+        h('div', { class: 'info' }, h('div', { class: 'equipas' },
+          h('span', { class: 'equipa-nome' }, jogo.casaNome), h('span', { class: 'contra' }, 'vs'),
+          h('span', { class: 'equipa-nome' }, jogo.foraNome))),
+        h('div', { class: 'acoes-jogo' }, h('a', { class: 'botao-link primario pequeno', href: `banco.html?jogo=${jogo.id}` }, 'Banco'))))));
   }
 }
 
@@ -174,3 +212,8 @@ formulario.addEventListener('submit', async (evento) => {
 const equipasDaConta = await carregarEquipas();
 prepararFormulario(equipasDaConta);
 await carregarJogos(equipasDaConta);
+
+desenharFila();
+if (fila.contar() > 0) envio.tentar();
+window.addEventListener('online', () => { if (fila.contar() > 0) envio.tentar(); });
+setInterval(() => { if (fila.contar() > 0) envio.tentar(); }, 15000);

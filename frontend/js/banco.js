@@ -9,18 +9,32 @@ import { ligar, TEXTO_ESTADO } from './tempo-real.js';
 import { exigirConta } from './conta.js';
 import { escudo } from './escudo.js';
 import { desenharFaixa } from './faixa-numerica.js';
+import { criarFila, criarEnvio } from './fila.js';
+import { aplicarPendentes, resumoParaGuardar } from './otimista.js';
+import { registarOffline, chaveCacheBanco } from './offline.js';
 
 const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
 if (!jogoId) location.replace('./');
 
-await exigirConta();
+registarOffline();
+const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Sem rede (ou com a rede a arrastar-se) a conta não chega: não prende a página, o banco abre na mesma. */
+await Promise.race([exigirConta(), esperar(6000)]);
 
 const PONTO_SETE_METROS = { x: 50, y: 35 }; // marca de 7 m
+
+// Eventos por enviar: cada toque no banco entra aqui (fica guardado no tablet) e segue para o servidor por ordem,
+// logo que há rede. O banco mostra-os desde o primeiro instante (ver otimista.js).
+const fila = criarFila();
+const CONFIRMADO_ATE_CHEGAR_MS = 8000;
 
 const estado = {
   jogo: null,
   tipos: [],
-  estatisticas: null,
+  estatisticasServidor: null,  // o que o servidor mandou
+  estatisticas: null,          // o que o banco mostra: o do servidor + os eventos ainda por enviar
+  confirmados: [],             // enviados há pouco, ainda não nas estatísticas do servidor (para não "desaparecerem" do placar)
+  codigoLigacao: 'espera',
   lado: 'casa',          // equipa que ataca: 'casa' | 'fora'
   jogadorId: null,
   ponto: null,           // { x, y } do clique no mapa
@@ -151,6 +165,7 @@ function desenharTudo() {
   desenharOutros();
   desenharNumerica();
   desenharUltimos();
+  desenharPendentes();
   campo.pendente(estado.ponto);
   desenharDica();
 }
@@ -270,14 +285,15 @@ function desenharNumerica() {
 function descreverEvento(e) {
   const quem = e.jogadorNumero != null ? `#${e.jogadorNumero} ${e.jogadorNome}` : '';
   const lado = e.equipaId === estado.jogo.casaId ? 'casa' : 'fora';
-  return h('li', {},
+  return h('li', { class: e.pendente ? 'pendente' : '', 'data-pendente': e.pendente ? 'sim' : null },
     h('span', { class: 'hora' }, `${e.parte}.ª ${formatarTempo(e.segundoJogo)}`),
     h('span', { class: 'texto' },
       h('span', { class: `ponto-equipa ${lado}` }),
       e.resultado
         ? [h('span', { class: 'etiqueta', 'data-resultado': e.resultado }, ROTULO_RESULTADO[e.resultado]), ' ', quem,
           e.balizaZona ? h('span', { class: 'zona-baliza' }, ` · ${ROTULO_ZONA_BALIZA[e.balizaZona]}`) : null]
-        : [h('span', { class: 'etiqueta neutra' }, e.tipoNome), ' ', quem]),
+        : [h('span', { class: 'etiqueta neutra' }, e.tipoNome), ' ', quem],
+      e.pendente ? h('span', { class: 'etiqueta por-enviar', title: 'Ainda não chegou ao servidor: segue sozinho quando houver rede' }, '⏳ por enviar') : null),
     h('button', { type: 'button', class: 'apagar', title: 'Apagar este evento', onclick: () => apagarEvento(e) }, '✕'));
 }
 
@@ -349,22 +365,26 @@ function corpoBase(tipoEvento) {
   };
 }
 
-async function registar(corpo, mensagem) {
-  estado.aEnviar = true;
-  desenharResultados();
-  try {
-    await enviar('POST', `/api/jogos/${jogoId}/eventos`, corpo);
-    avisar(mensagem);
+// Depois de registar, os botões ficam um instante parados: um toque duplo não regista duas vezes
+const BLOQUEIO_MS = 250;
+
+/**
+ * Regista um evento: fica guardado no tablet e aparece logo no banco; o envio ao servidor não bloqueia nada
+ * (sem rede, espera e segue sozinho quando ela voltar). `limpar` desfaz a escolha de mapa, jogador e situação.
+ */
+function registar(corpo, mensagem, { limpar = true } = {}) {
+  fila.adicionar(jogoId, corpo);
+  if (limpar) {
     estado.jogadorId = null;
     estado.ponto = null;
     estado.situacao = 'POSICIONAL';
-    if (!estado.ligado) await atualizarPorHttp(); // sem WebSocket, vai buscar o estado
-  } catch (erro) {
-    avisar(`Não ficou registado: ${erro.message}`, { erro: true });
-  } finally {
-    estado.aEnviar = false;
-    desenharTudo();
   }
+  estado.aEnviar = true;
+  setTimeout(() => { estado.aEnviar = false; desenharResultados(); }, BLOQUEIO_MS);
+  avisar(`${mensagem}${navigator.onLine ? '' : ' · sem rede: guardado no tablet'}`);
+  recalcular();
+  desenharTudo();
+  envio.tentar();
 }
 
 async function registarRemate(resultado) {
@@ -430,21 +450,11 @@ function registarOutro(tipo) {
 }
 
 /** Liga ou desliga o ataque 7×6 da equipa que está a atacar (não mexe no jogador nem no ponto escolhidos). */
-async function alternarSeteSeis() {
+function alternarSeteSeis() {
   if (estado.aEnviar) return;
-  const equipaId = equipaAtacante();
-  const ligado = seteSeisAtivo(equipaId);
-  estado.aEnviar = true;
-  try {
-    await enviar('POST', `/api/jogos/${jogoId}/eventos`, { ...corpoBase(ligado ? 'SETE_SEIS_FIM' : 'SETE_SEIS_INICIO'), jogadorId: null });
-    avisar(ligado ? '7×6 desligado.' : 'Ataque 7×6 ligado.');
-    if (!estado.ligado) await atualizarPorHttp();
-  } catch (erro) {
-    avisar(`Não ficou registado: ${erro.message}`, { erro: true });
-  } finally {
-    estado.aEnviar = false;
-    desenharTudo();
-  }
+  const ligado = seteSeisAtivo(equipaAtacante());
+  registar({ ...corpoBase(ligado ? 'SETE_SEIS_FIM' : 'SETE_SEIS_INICIO'), jogadorId: null },
+    ligado ? '7×6 desligado.' : 'Ataque 7×6 ligado.', { limpar: false });
 }
 
 async function apagarEvento(evento) {
@@ -452,17 +462,48 @@ async function apagarEvento(evento) {
     ? `${ROTULO_RESULTADO[evento.resultado]} de #${evento.jogadorNumero}`
     : evento.tipoNome;
   if (!confirm(`Apagar "${descricao}" (${formatarTempo(evento.segundoJogo)})?`)) return;
+
+  // Ainda por enviar: basta tirá-lo da fila, o servidor nunca o chegou a ver
+  if (evento.pendente) {
+    if (fila.remover(evento.clienteId)) {
+      recalcular();
+      desenharTudo();
+      avisar('Evento apagado (ainda não tinha sido enviado).');
+    } else {
+      avisar('Este evento acabou de ser enviado: tenta apagar outra vez daqui a pouco.', { erro: true });
+    }
+    return;
+  }
   try {
     await enviar('DELETE', `/api/jogos/${jogoId}/eventos/${evento.id}`);
+    // Se acabou de ser enviado também está nos «confirmados»: sem isto voltava a aparecer como se ainda estivesse por enviar
+    if (evento.clienteId) {
+      estado.confirmados = estado.confirmados.filter((c) => c.item.clienteId !== evento.clienteId);
+      recalcular();
+      desenharTudo();
+    }
     avisar('Evento apagado.');
     if (!estado.ligado) await atualizarPorHttp();
   } catch (erro) {
-    avisar(`Não foi possível apagar: ${erro.message}`, { erro: true });
+    avisar(erro.status == null
+      ? 'Sem ligação ao servidor: só dá para apagar os eventos que ainda estão por enviar.'
+      : `Não foi possível apagar: ${erro.message}`, { erro: true });
   }
 }
 
+/** Estatísticas que o banco mostra: as do servidor mais os eventos que ainda não chegaram lá. */
+function recalcular() {
+  if (!estado.jogo) return;
+  const agora = Date.now();
+  estado.confirmados = estado.confirmados.filter((c) => c.ate > agora);
+  const pendentes = [...estado.confirmados.map((c) => c.item), ...fila.doJogo(jogoId)];
+  estado.estatisticas = aplicarPendentes(estado.estatisticasServidor, pendentes, { jogo: estado.jogo, tipos: estado.tipos });
+}
+
 function receberEstatisticas(estatisticas) {
-  estado.estatisticas = estatisticas;
+  estado.estatisticasServidor = estatisticas;
+  guardarCache();
+  recalcular();
   // Se o jogador escolhido acabou de ser expulso (aqui ou noutro tablet), deixa de estar escolhido
   if (estado.jogadorId && sancaoDe(estado.jogadorId)?.expulso) estado.jogadorId = null;
   desenharTudo();
@@ -470,6 +511,52 @@ function receberEstatisticas(estatisticas) {
 
 async function atualizarPorHttp() {
   receberEstatisticas(await obter(`/api/jogos/${jogoId}/estatisticas`));
+}
+
+// ---------------------------------------------------------------------
+// Sem rede: o jogo, os tipos e as últimas estatísticas ficam guardados no tablet para abrir o banco sem ligação
+// ---------------------------------------------------------------------
+const CHAVE_CACHE = chaveCacheBanco(jogoId);
+
+function guardarCache() {
+  if (!estado.jogo) return;
+  try {
+    localStorage.setItem(CHAVE_CACHE, JSON.stringify({
+      jogo: estado.jogo, tipos: estado.tipos, estatisticas: resumoParaGuardar(estado.estatisticasServidor),
+    }));
+  } catch { /* sem armazenamento: o banco só não abre sem rede */ }
+}
+
+function lerCache() {
+  try {
+    const guardado = JSON.parse(localStorage.getItem(CHAVE_CACHE));
+    return guardado?.jogo && guardado.tipos ? guardado : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Um pedido que não responde em tempo útil conta como falta de rede (a rede de um pavilhão arrasta-se). */
+function comTempoLimite(promessa, ms = 6000) {
+  return Promise.race([promessa, esperar(ms).then(() => { throw new Error('O servidor não respondeu.'); })]);
+}
+
+async function carregarJogo() {
+  try {
+    [estado.jogo, estado.tipos] = await Promise.all([
+      comTempoLimite(obter(`/api/jogos/${jogoId}`)),
+      comTempoLimite(obter('/api/tipos-evento')),
+    ]);
+    guardarCache();
+  } catch (erro) {
+    // Só a falta de rede é desculpa para usar o que está guardado; um erro do servidor (jogo apagado...) não
+    const guardado = erro.status == null ? lerCache() : null;
+    if (!guardado) throw erro;
+    estado.jogo = guardado.jogo;
+    estado.tipos = guardado.tipos;
+    estado.estatisticasServidor = guardado.estatisticas;
+    avisar('Sem rede: o banco abriu com os dados guardados neste tablet. O que registares fica guardado e segue quando houver rede.', { duracao: 8000 });
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -483,26 +570,65 @@ document.getElementById('btn-desfazer').addEventListener('click', () => {
   if (ultimo) apagarEvento(ultimo);
 });
 
-function mostrarEstadoLigacao(codigo) {
-  estado.ligado = codigo === 'ligado';
+function desenharLigacao() {
+  const semRede = !navigator.onLine;
+  const codigo = semRede ? 'erro' : estado.codigoLigacao;
   const el = document.getElementById('ligacao');
   el.className = `ligacao ${codigo === 'ligado' ? 'ok' : codigo}`;
-  el.textContent = TEXTO_ESTADO[codigo];
+  el.textContent = semRede ? 'sem rede' : TEXTO_ESTADO[codigo];
 }
+
+function desenharPendentes() {
+  const n = fila.doJogo(jogoId).length;
+  const el = document.getElementById('pendentes');
+  el.hidden = n === 0;
+  el.textContent = `⏳ ${n} por enviar`;
+  el.classList.toggle('a-enviar', envio.aCorrer && navigator.onLine);
+}
+
+function mostrarEstadoLigacao(codigo) {
+  estado.ligado = codigo === 'ligado';
+  estado.codigoLigacao = codigo;
+  desenharLigacao();
+  if (estado.ligado) envio.tentar();   // voltou a ligação: envia o que ficou à espera
+}
+
+const envio = criarEnvio({
+  fila,
+  enviar: (item) => enviar('POST', `/api/jogos/${item.jogoId}/eventos`, item.corpo),
+  aoEnviar: (item) => {
+    // Já está no servidor, mas as estatísticas dele ainda podem não o trazer: continua a contar até chegarem
+    if (item.jogoId === jogoId) estado.confirmados.push({ item, ate: Date.now() + CONFIRMADO_ATE_CHEGAR_MS });
+  },
+  aoRejeitar: (item, erro) => {
+    avisar(`Um evento não foi aceite pelo servidor e foi descartado: ${erro.message}`, { erro: true, duracao: 8000 });
+  },
+  aoTerminar: async (resultado) => {
+    recalcular();
+    desenharTudo();
+    if (resultado?.enviados && !estado.ligado) {
+      try { await atualizarPorHttp(); } catch { /* sem rede outra vez: a próxima tentativa trata disto */ }
+    }
+  },
+});
+
+window.addEventListener('online', () => { desenharLigacao(); envio.tentar(); });
+window.addEventListener('offline', () => { desenharLigacao(); desenharPendentes(); });
 
 setInterval(desenharRelogio, 500);
 desenharRelogio();
 setInterval(() => { if (relogio.iniciadoEm) sincronizarRelogio(); }, 30000);
+setInterval(() => { if (fila.contar() > 0) envio.tentar(); }, 15000);   // rede de segurança: a fila nunca fica esquecida
 if (relogio.iniciadoEm || relogio.acumuladoMs > 0) sincronizarRelogio(); // recarregou a página: volta a dizer ao servidor onde vai o relógio
 
 try {
-  [estado.jogo, estado.tipos] = await Promise.all([
-    obter(`/api/jogos/${jogoId}`),
-    obter('/api/tipos-evento'),
-  ]);
+  await carregarJogo();
   document.title = `${estado.jogo.casaNome} vs ${estado.jogo.foraNome} · Banco`;
+  recalcular();
   desenharTudo();
+  desenharLigacao();
   ligar(jogoId, null, receberEstatisticas, mostrarEstadoLigacao);
+  if (fila.contar() > 0) envio.tentar();   // abriu o banco com eventos de antes por enviar
 } catch (erro) {
   substituir(document.querySelector('main'),
     h('p', { class: 'vazio' }, `Não foi possível carregar o jogo: ${erro.message}`),

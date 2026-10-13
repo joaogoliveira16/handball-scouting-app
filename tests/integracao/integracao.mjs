@@ -826,6 +826,94 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
   ok(true, 'ligações fechadas');
 });
 
+// ----------------------------------------------------------------------
+// Sem rede no pavilhão: o banco guarda os eventos no tablet e envia-os quando a rede volta. Cada evento leva um
+// identificador gerado no tablet (clienteId); se o envio se repetir (a resposta perdeu-se) o servidor não regista outra vez.
+await passo('Sem rede: eventos com clienteId não se registam duas vezes', async () => {
+  if (!jogoNovo?.id) return ok(false, 'sem jogo do passo anterior');
+  const { id, casaId, lateralCasa, grFora } = jogoNovo;
+  const remate = { tipoEvento: 'REMATE', equipaId: casaId, jogadorId: lateralCasa, guardaRedesId: grFora, resultado: 'GOLO', situacao: 'POSICIONAL', x: 40, y: 30, parte: 1, segundoJogo: 330 };
+  const criados = [];
+
+  const recebidos = [];
+  const ligacao = ligarHub(principal);
+  ligacao.on('EstatisticasAtualizadas', (estado) => recebidos.push(estado));
+  await ligacao.start();
+  await ligacao.invoke('EntrarNoJogo', id, null);
+
+  const ultimos = async () => (await http('GET', `/api/jogos/${id}/estatisticas`)).json.ultimosEventos;
+  const doCliente = async (clienteId) => (await ultimos()).filter((e) => e.clienteId === clienteId);
+
+  // O 1.º envio regista o evento com a hora a que o adjunto o registou (5 minutos atrás, por exemplo)
+  const clienteId = crypto.randomUUID();
+  const ocorridoEm = new Date(Date.now() - 5 * 60 * 1000);
+  const corpo = { ...remate, clienteId, ocorridoEm: ocorridoEm.toISOString() };
+  const primeiro = await http('POST', `/api/jogos/${id}/eventos`, corpo);
+  ok(primeiro.status === 201 && primeiro.json?.id > 0 && primeiro.json.repetido !== true, 'clienteId: o 1.º envio regista o evento = 201', descricao(primeiro));
+  criados.push(primeiro.json?.id);
+  const registado = (await doCliente(clienteId))[0];
+  ok(registado?.id === primeiro.json.id, 'clienteId: os últimos eventos trazem o clienteId do banco', JSON.stringify(registado));
+  ok(registado && Math.abs(new Date(registado.criadoEm) - ocorridoEm) < 1000, `clienteId: o evento fica com a hora do tablet (ocorridoEm), não a do envio (${registado?.criadoEm})`);
+
+  // O mesmo envio outra vez: 200 com o mesmo id, sem evento novo; o dashboard recebe o estado na mesma
+  const antes = recebidos.length;
+  const repetido = await http('POST', `/api/jogos/${id}/eventos`, corpo);
+  ok(repetido.status === 200 && repetido.json?.repetido === true && repetido.json.id === primeiro.json.id, 'clienteId: reenviar o mesmo evento = 200 «repetido» com o mesmo id', descricao(repetido));
+  ok((await doCliente(clienteId)).length === 1, 'clienteId: continua a existir um só evento');
+  ok(await ate(() => recebidos.length > antes), 'clienteId: o reenvio também atualiza o dashboard (o primeiro aviso pode ter-se perdido)');
+  const golosAntes = recebidos.at(-1).equipas.find((e) => e.equipaId === casaId).golos;
+  await http('POST', `/api/jogos/${id}/eventos`, corpo);
+  await esperar(300);
+  ok(recebidos.at(-1).equipas.find((e) => e.equipaId === casaId).golos === golosAntes, 'clienteId: reenviar mais vezes não muda o placar');
+
+  // O identificador é que manda: o mesmo clienteId com outro conteúdo também não regista nada
+  const outroConteudo = await http('POST', `/api/jogos/${id}/eventos`, { ...corpo, resultado: 'DEFESA', x: 20, y: 60 });
+  ok(outroConteudo.status === 200 && outroConteudo.json?.repetido === true && outroConteudo.json.id === primeiro.json.id, 'clienteId: o mesmo identificador com outro conteúdo também é repetido');
+  ok((await doCliente(clienteId))[0].resultado === 'GOLO', 'clienteId: o evento original não é alterado pelo reenvio');
+
+  // Outro identificador é outro evento
+  const segundoCliente = crypto.randomUUID();
+  const segundo = await http('POST', `/api/jogos/${id}/eventos`, { ...remate, clienteId: segundoCliente });
+  ok(segundo.status === 201 && segundo.json.id !== primeiro.json.id, 'clienteId: outro identificador = outro evento = 201', descricao(segundo));
+  criados.push(segundo.json?.id);
+
+  // Clientes sem identificador (outras versões) continuam a funcionar e cada envio é um evento
+  const semA = await http('POST', `/api/jogos/${id}/eventos`, remate);
+  const semB = await http('POST', `/api/jogos/${id}/eventos`, remate);
+  ok(semA.status === 201 && semB.status === 201 && semA.json.id !== semB.json.id, 'sem clienteId: cada envio regista um evento (como antes)', descricao(semB));
+  criados.push(semA.json?.id, semB.json?.id);
+  ok((await ultimos()).find((e) => e.id === semA.json.id)?.clienteId == null, 'sem clienteId: o evento fica sem identificador');
+
+  // Identificador inválido
+  const zeros = await http('POST', `/api/jogos/${id}/eventos`, { ...remate, clienteId: '00000000-0000-0000-0000-000000000000' });
+  ok(zeros.status === 400 && zeros.texto.includes('clienteId'), 'clienteId: o identificador de zeros = 400', descricao(zeros));
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { ...remate, clienteId: 'isto-nao-e-um-uuid' })).status === 400, 'clienteId: texto que não é um UUID = 400');
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { ...remate, ocorridoEm: 'ontem' })).status === 400, 'ocorridoEm: texto que não é uma data = 400');
+
+  // O relógio do tablet não é de confiança: nunca no futuro, e um evento muito antigo leva a hora do envio
+  const noFuturo = await http('POST', `/api/jogos/${id}/eventos`, { ...remate, clienteId: crypto.randomUUID(), ocorridoEm: new Date(Date.now() + 3600 * 1000).toISOString() });
+  const muitoAntigo = await http('POST', `/api/jogos/${id}/eventos`, { ...remate, clienteId: crypto.randomUUID(), ocorridoEm: new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString() });
+  criados.push(noFuturo.json?.id, muitoAntigo.json?.id);
+  const hora = async (eventoId) => new Date((await ultimos()).find((e) => e.id === eventoId)?.criadoEm).getTime();
+  ok(Math.abs((await hora(noFuturo.json.id)) - Date.now()) < 10000, 'ocorridoEm: um tablet adiantado não regista eventos no futuro');
+  ok(Math.abs((await hora(muitoAntigo.json.id)) - Date.now()) < 10000, 'ocorridoEm: um evento com mais de 12 horas leva a hora do envio');
+
+  // Dois envios ao mesmo tempo do mesmo evento (a lista de jogos e o banco abertos juntos): um só evento
+  const simultaneo = { ...remate, clienteId: crypto.randomUUID() };
+  const respostas = await Promise.all(Array.from({ length: 4 }, () => http('POST', `/api/jogos/${id}/eventos`, simultaneo)));
+  ok(respostas.every((r) => r.status === 201 || r.status === 200), 'clienteId: envios simultâneos do mesmo evento não dão erro', respostas.map((r) => r.status).join(','));
+  ok(respostas.filter((r) => r.status === 201).length === 1 && new Set(respostas.map((r) => r.json?.id)).size === 1, 'clienteId: envios simultâneos criam um só evento (um 201, os outros «repetido»)', respostas.map((r) => `${r.status}:${r.json?.id}`).join(' '));
+  criados.push(respostas[0].json?.id);
+  ok((await doCliente(simultaneo.clienteId)).length === 1, 'clienteId: só existe um evento depois dos envios simultâneos');
+
+  // Sem sessão não se regista nada, com ou sem clienteId
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { ...corpo, clienteId: crypto.randomUUID() }, anonima)).status === 401, 'clienteId: sem sessão = 401');
+
+  for (const eventoId of criados.filter(Boolean)) await http('DELETE', `/api/jogos/${id}/eventos/${eventoId}`);
+  ok((await ultimos()).every((e) => !criados.includes(e.id)), 'clienteId: eventos de teste apagados');
+  await ligacao.stop();
+});
+
 function lateralFora(j) { return j.lateralFora; }
 
 // ----------------------------------------------------------------------

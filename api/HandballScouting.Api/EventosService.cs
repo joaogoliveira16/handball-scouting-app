@@ -44,7 +44,7 @@ public class EventosService(NpgsqlDataSource dados, SqlLoader sql)
                 return ResultadoRegisto.Falha(400, "guardaRedesId tem de ser o guarda-redes da equipa adversária.");
         }
 
-        var id = await con.ExecuteScalarAsync<long>(new CommandDefinition(sql["inserir_evento"], new
+        var id = await con.ExecuteScalarAsync<long?>(new CommandDefinition(sql["inserir_evento"], new
         {
             jogoId,
             equipaId = req.EquipaId,
@@ -58,10 +58,17 @@ public class EventosService(NpgsqlDataSource dados, SqlLoader sql)
             parte = req.Parte,
             segundoJogo = req.SegundoJogo,
             balizaX = req.BalizaX,
-            balizaY = req.BalizaY
+            balizaY = req.BalizaY,
+            clienteId = req.ClienteId,
+            criadoEm = InstanteEvento.Calcular(req.OcorridoEm, DateTimeOffset.UtcNow)
         }, cancellationToken: ct));
+        if (id is long novo)
+            return ResultadoRegisto.Sucesso(novo);
 
-        return ResultadoRegisto.Sucesso(id);
+        // Sem linha devolvida: este clienteId já foi registado (o tablet repetiu o envio porque a resposta se perdeu)
+        var existente = await con.ExecuteScalarAsync<long>(new CommandDefinition(sql["evento_por_cliente"],
+            new { jogoId, clienteId = req.ClienteId }, cancellationToken: ct));
+        return ResultadoRegisto.JaRegistado(existente);
     }
 
     /// <summary>

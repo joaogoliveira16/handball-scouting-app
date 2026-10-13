@@ -6,6 +6,8 @@
   <meta name="theme-color" content="#0e1b33">
   <title>Banco · Scouting de Andebol</title>
   <link rel="stylesheet" href="css/estilo.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 </head>
 <body>
   <header class="topo topo-jogo">
@@ -25,6 +27,7 @@
       <button id="btn-relogio" type="button" title="Iniciar / pausar o relógio">▶</button>
       <button id="btn-ajustar" type="button" title="Ajustar o minuto de jogo">✎</button>
     </div>
+    <span class="pendentes" id="pendentes" role="status" hidden title="Eventos guardados neste tablet que ainda não chegaram ao servidor: seguem sozinhos quando houver rede"></span>
     <span class="ligacao" id="ligacao">a ligar…</span>
   </header>
 

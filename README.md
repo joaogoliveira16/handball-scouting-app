@@ -94,6 +94,7 @@ Ainda no banco:
 - **Superioridade numérica**: cada «2 minutos» e cada vermelho direto deixa a equipa com **menos um jogador de campo durante 2 minutos** (o 3.º «2 minutos» do mesmo jogador também). Por baixo do marcador aparece uma faixa com a situação (`6×5` e quem está em superioridade) e **a contagem decrescente de cada sanção** (`#7 1:12`); desaparece sozinha quando os 2 minutos acabam. Conta-se com o **relógio do banco**, por isso arranca-o (▶) ao início do jogo: com o relógio sempre a 00:00 o banco avisa e não inventa nada. Os 2 minutos não acabam com um golo e em campo ficam sempre pelo menos 4 jogadores (no máximo 2 a menos por equipa).
 - **Ataque 7×6**: o botão **Ataque 7×6** (junto aos outros eventos) liga e desliga o ataque sem guarda-redes da equipa que está a atacar (a escolhida em «Ataca: …»). Fica a faixa `7×6 · Equipa` enquanto estiver ligado. Os remates feitos nesse período contam à parte, e os do adversário contra a baliza vazia também.
 - **Desfazer**: `↶ Desfazer último` ou o `✕` ao lado de cada evento.
+- **Sem rede**: se a rede cair, continua a registar. Os eventos ficam guardados no tablet (`⏳ N por enviar` no cabeçalho) e seguem sozinhos quando ela voltar. Ver [Sem rede no pavilhão](#sem-rede-no-pavilhão).
 
 **Dashboard** (`dashboard.html?jogo=ID`, com `&c=CÓDIGO` para quem só tem o link): o **treinador-assistente** (só para o dono do jogo, ver abaixo), placar, eficácia por equipa, parcial dos últimos 5 minutos, mapa de remates com filtros, **defesas na baliza** (onde o guarda-redes adversário defendeu os remates da equipa escolhida, com a contagem por zona e a zona mais atacada), jogadores, zonas, guarda-redes, outros eventos, **sanções** (quem viu 2 minutos ou vermelho e quem está expulso), **superioridade numérica** e últimos eventos. No topo do cabeçalho está o **relógio do jogo** (o do banco, em leitura) e, quando há alguém a menos ou um ataque 7×6, a faixa com a contagem decrescente dos 2 minutos. O quadro «Superioridade numérica» mostra, para a equipa escolhida, os remates, golos e eficácia em **superioridade, igualdade, inferioridade, ataque 7×6 e contra baliza vazia**, os golos sofridos na situação contrária («Sofr.») e o tempo passado em cada uma. Os 7 metros ficam de fora: é um castigo, não depende de quantos estão em campo.
 
@@ -115,6 +116,20 @@ No topo do dashboard do **dono do jogo** há um painel com os time-outs de cada 
 | **Perdas de bola** | 6 perdas ou mais e 4 a mais do que o adversário | a equipa |
 
 Os **time-outs** seguem as regras da IHF: 3 por jogo e no máximo 2 por parte (a 2.ª parte começa aos 30:00 do relógio; sem relógio, vale a parte do último evento). Outras competições têm outros números: estão no topo de `api/HandballScouting.Api/Assistente.cs`, junto com todos os limiares, para se acertarem num sítio só. As sugestões do relógio (parcial, superioridade, 7×6) só aparecem se o relógio do banco foi usado; sem ele, os eventos ficam todos a 00:00 e não se inventa nada. Quem vê o jogo só pelo link (ou numa conta que não é a do dono) vê o dashboard sem este painel: é uma escolha do ecrã (o servidor envia as sugestões a todos os dashboards, tal como já envia as estatísticas de que elas saem).
+
+### Sem rede no pavilhão
+
+A rede de um pavilhão cai e arrasta-se; o banco não pára por isso.
+
+- **Cada evento fica guardado no tablet** (fila no `localStorage`, que sobrevive a recarregar a página e a fechar o browser) e aparece logo no banco: placar, contagem dos 2 minutos, expulsões e faixa 6×5 calculam-se no tablet. O indicador `⏳ N por enviar` no cabeçalho diz quantos faltam e, na lista de últimos eventos, cada um leva a marca «por enviar». Desfazer um evento ainda por enviar tira-o da fila na hora.
+- **Quando a rede volta, a fila envia-se sozinha, por ordem**, um evento de cada vez (também ao fim de 2, 5, 10 e 20 segundos se falhar, de 15 em 15 segundos, e ao reabrir o banco ou a lista de jogos).
+- **Nada se regista a dobrar.** Cada evento leva um identificador gerado no tablet (`clienteId`). Se o envio se repetir (a resposta perdeu-se, a lista de jogos e o banco enviaram a mesma fila ao mesmo tempo), o servidor reconhece o identificador e responde `200 {"id": …, "repetido": true}` sem criar outro evento. É único por jogo e garantido pela base de dados (índice único + `ON CONFLICT DO NOTHING`).
+- **O evento fica com a hora do toque**, não a do reenvio (`ocorridoEm`), para o Excel e a lista de jogos em direto. O relógio do tablet não é de confiança: o servidor nunca aceita uma hora no futuro nem com mais de 12 horas, e nesses casos usa a hora do envio. O **tempo de jogo** vem do relógio do banco, que também vive no tablet.
+- **Erros**: um evento que o servidor recuse (`400`, `404`) é descartado com um aviso (repetir não adianta); se o servidor falhar (`5xx`) tenta até 8 vezes; se a sessão terminar (`401`) a fila guarda-se e envia-se depois de entrares outra vez.
+- **Abrir o banco sem rede**: o banco guarda no tablet o jogo, os tipos de evento e as últimas estatísticas de cada jogo que abre, por isso recarregar a página (ou voltar a abri-la) sem rede mostra o jogo com o que está guardado mais os eventos por enviar. A lista de jogos, sem rede, oferece os jogos que o tablet já abriu.
+- **A página também abre sem rede** graças a um *service worker* (`frontend/sw.js`) que guarda no tablet as páginas, o JS, o CSS, as letras e os ícones; vai buscar sempre a versão mais recente à rede e só usa a guardada se a rede falhar ou demorar mais de 3 segundos. **Só funciona em HTTPS** (ou em `localhost`): é uma regra dos browsers. Com a app aberta por `http://` num endereço da rede local a fila funciona na mesma, mas a página do banco tem de estar já aberta quando a rede cai. Em HTTPS o browser também oferece *Instalar app* / *Adicionar ao ecrã principal* (`manifest.webmanifest` e ícones). A API e o tempo real (`/api`, `/hub`) nunca passam pelo service worker.
+
+O que continua a precisar de rede: abrir um jogo pela primeira vez neste tablet, **apagar um evento já enviado**, e o dashboard (só vê o que já chegou ao servidor). Para estar pronto, abre o banco do jogo uma vez com rede antes de ir para o pavilhão.
 
 ## Exportar para Excel
 
@@ -258,7 +273,7 @@ Um tipo com `e_remate = TRUE` seria um evento com posição no mapa, jogador e r
 ## Testes e CI
 
 ```bash
-dotnet test api/HandballScouting.sln        # validação, palavras-passe, travão de tentativas, emails de confirmação e de recuperação, exportação para Excel, cadastro, superioridade numérica e treinador-assistente (xUnit)
+dotnet test api/HandballScouting.sln        # validação, palavras-passe, travão de tentativas, emails de confirmação e de recuperação, exportação para Excel, cadastro, superioridade numérica, treinador-assistente e hora dos eventos enviados mais tarde (xUnit)
 
 # SQL: com o PostgreSQL a correr e PGHOST, PGUSER, PGPASSWORD e PGDATABASE definidos
 psql -v ON_ERROR_STOP=1 -f db/tests/zonas.sql          # zonas do campo
@@ -272,17 +287,18 @@ psql -v ON_ERROR_STOP=1 -f db/tests/equipa_da_conta.sql # uma equipa por conta (
 psql -v ON_ERROR_STOP=1 -f db/tests/expulsoes.sql      # sanções (3.º 2 minutos e vermelho direto expulsam, por jogo e por jogador)
 psql -v ON_ERROR_STOP=1 -f db/tests/escudos.sql        # escudos das equipas (versão, troca, limites, apagar com a equipa)
 psql -v ON_ERROR_STOP=1 -f db/tests/superioridade.sql  # tipos do 7×6 e relógio do jogo guardado no servidor
+psql -v ON_ERROR_STOP=1 -f db/tests/fila_offline.sql  # eventos enviados mais de uma vez (clienteId único por jogo, hora do tablet)
 python3 db/tests/validar_consultas.py                  # todas as consultas contra o esquema
 
-# Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR e a contagem dos 2 minutos
+# Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR, a contagem dos 2 minutos, a fila de eventos sem rede e o service worker
 (cd tests && npm run unidade)
 ```
 
 Há ainda testes que usam a **API verdadeira** e um browser (pasta `tests/`, ver `tests/README.md`):
 
-- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação e de recuperação da palavra-passe lidos na caixa de teste, sessões, a equipa da conta (pedida no registo, `propria` na lista de equipas), isolamento entre contas, link de partilha, jogos abertos a convidados durante 24 horas (lista aberta sem sessão, jogos sem eventos pela hora marcada, acesso sem link, código escondido, jogo escondido pelo dono), estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, sanções e expulsões (3.º 2 minutos, vermelho direto, apagar para corrigir), superioridade numérica (relógio do banco no servidor, sanções, 7×6, eficácia e tempo por situação), treinador-assistente (sugestões, time-outs e direitos por parte), escudos (permissões, formatos, limite de 200 KB, cache, versão nas listas), atualizações em tempo real e descarga do Excel);
+- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação e de recuperação da palavra-passe lidos na caixa de teste, sessões, a equipa da conta (pedida no registo, `propria` na lista de equipas), isolamento entre contas, link de partilha, jogos abertos a convidados durante 24 horas (lista aberta sem sessão, jogos sem eventos pela hora marcada, acesso sem link, código escondido, jogo escondido pelo dono), estatísticas, equipas, jogadores, jogos, convocatória, eventos, local das defesas na baliza, sanções e expulsões (3.º 2 minutos, vermelho direto, apagar para corrigir), superioridade numérica (relógio do banco no servidor, sanções, 7×6, eficácia e tempo por situação), treinador-assistente (sugestões, time-outs e direitos por parte), eventos reenviados sem rede (`clienteId`: o reenvio e os envios simultâneos não duplicam, hora do tablet limitada), escudos (permissões, formatos, limite de 200 KB, cache, versão nas listas), atualizações em tempo real e descarga do Excel);
 - `tests/integracao/verificar_excel.py`: abre os `.xlsx` descarregados e confere os números com os dados de exemplo;
-- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pelo link, reenviar o email, recuperar a palavra-passe pelo link, a página que só mostra a equipa da conta, criar um jogo escrevendo o adversário, a área de convidado e a lista de jogos das últimas 24 horas (incluindo esconder um jogo), sair e entrar, uma segunda conta que não vê os dados da primeira, o link de partilha aberto sem conta, juntar jogadores à equipa, convocatória (incluindo ler a lista de uma foto com o leitor verdadeiro), registar remates no banco, expulsar jogadores (3.º 2 minutos e vermelho direto) e ver o quadro de sanções, contar os 2 minutos com o relógio a andar (faixa 6×5, 7×6, relógio no dashboard) e ver a eficácia por situação, ver as sugestões do treinador-assistente (só o dono) e gastar time-outs no banco, carregar, trocar e tirar o escudo da equipa (a imagem é reduzida no browser) e vê-lo no placar, nas listas e na área de convidado, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
+- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pelo link, reenviar o email, recuperar a palavra-passe pelo link, a página que só mostra a equipa da conta, criar um jogo escrevendo o adversário, a área de convidado e a lista de jogos das últimas 24 horas (incluindo esconder um jogo), sair e entrar, uma segunda conta que não vê os dados da primeira, o link de partilha aberto sem conta, juntar jogadores à equipa, convocatória (incluindo ler a lista de uma foto com o leitor verdadeiro), registar remates no banco, expulsar jogadores (3.º 2 minutos e vermelho direto) e ver o quadro de sanções, contar os 2 minutos com o relógio a andar (faixa 6×5, 7×6, relógio no dashboard) e ver a eficácia por situação, ver as sugestões do treinador-assistente (só o dono) e gastar time-outs no banco, registar sem rede (a fila, o indicador «por enviar», recarregar a página sem rede pelo service worker, a lista de jogos a enviar o que ficou, nada a dobrar), carregar, trocar e tirar o escudo da equipa (a imagem é reduzida no browser) e vê-lo no placar, nas listas e na área de convidado, marcar na baliza onde o guarda-redes defendeu e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
 
 O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada pull request:
 
@@ -293,7 +309,7 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 
 ## Limitações atuais
 
-- Se a rede falhar no momento de registar, o evento **não** fica em fila: aparece um aviso e é preciso tocar outra vez.
+- Sem rede, os eventos ficam na fila do tablet e seguem quando ela voltar, mas **apagar um evento já enviado precisa de rede**, e abrir a página do banco sem rede só funciona em HTTPS (ver [Sem rede no pavilhão](#sem-rede-no-pavilhão)). Se o tablet for limpo (dados do browser apagados) antes de a fila ser enviada, o que estava por enviar perde-se.
 - O registo de contas é aberto (com confirmação do email). Se a app ficar acessível na internet, põe-na atrás de HTTPS (o cookie da sessão passa a `Secure` sozinho quando o proxy envia `X-Forwarded-Proto: https`).
 - A leitura de fotos é feita por OCR: lê bem texto impresso e prints, mas pode trocar letras, perder acentos ou juntar palavras, e a letra manuscrita raramente se lê. Há sempre uma lista para rever antes de confirmar. Num telemóvel antigo a leitura pode demorar alguns segundos.
 - Quem tem o link de partilha de um jogo vê-o em direto até o jogo ser apagado: não há botão para mudar o código.
@@ -305,9 +321,9 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 
 ```
 api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
-db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões, escudos e superioridade numérica (correm por ordem)
+db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões, escudos, superioridade numérica e fila sem rede (correm por ordem)
 db/tests/              testes SQL
-frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard), JS, CSS e fontes; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
+frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard), JS, CSS e fontes; `sw.js` (service worker) e `manifest.webmanifest` para abrir sem rede; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
 tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)
 docker-compose.yml     os 3 contentores (mais o `migrar`, que atualiza a base de dados em cada arranque)
 .github/workflows/     CI

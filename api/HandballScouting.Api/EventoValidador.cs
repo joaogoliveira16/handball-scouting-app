@@ -18,6 +18,9 @@ public static class EventoValidador
         if (r.SegundoJogo is < 0 or > 7200)
             erros.Add("segundoJogo tem de estar entre 0 e 7200.");
 
+        if (r.ClienteId == Guid.Empty)
+            erros.Add("clienteId inválido.");
+
         if (!Situacoes.Contains(r.Situacao ?? "POSICIONAL"))
             erros.Add($"situacao inválida (usar {string.Join(", ", Situacoes)}).");
 

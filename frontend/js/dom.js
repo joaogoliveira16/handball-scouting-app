@@ -20,14 +20,14 @@ export function substituir(pai, ...filhos) {
 }
 
 let temporizadorAviso = null;
-export function avisar(texto, { erro = false } = {}) {
+export function avisar(texto, { erro = false, duracao = null } = {}) {
   const el = document.getElementById('aviso');
   if (!el) return;
   el.textContent = texto;
   el.classList.toggle('erro', erro);
   el.classList.add('visivel');
   clearTimeout(temporizadorAviso);
-  temporizadorAviso = setTimeout(() => el.classList.remove('visivel'), erro ? 4500 : 2200);
+  temporizadorAviso = setTimeout(() => el.classList.remove('visivel'), duracao ?? (erro ? 4500 : 2200));
 }
 
 /** Copia texto para a área de transferência. Devolve false se o browser não deixar (ex.: página sem HTTPS). */

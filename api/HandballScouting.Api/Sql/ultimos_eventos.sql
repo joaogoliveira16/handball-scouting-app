@@ -1,4 +1,5 @@
 SELECT e.id,
+       e.cliente_id,
        e.equipa_id,
        eq.nome AS equipa_nome,
        e.tipo_evento_codigo AS tipo,

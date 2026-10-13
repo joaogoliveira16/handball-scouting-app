@@ -35,9 +35,11 @@ const servidor = process.env.APP_URL
   : await iniciarServidor({ apiUrl: API_URL });
 
 const browser = await chromium.launch();
-// Cada contexto é um "browser" à parte, com os seus próprios cookies (sessões)
-async function novoContexto() {
-  const contexto = await browser.newContext({ viewport: { width: 1180, height: 820 }, locale: 'pt-PT', timezoneId: 'UTC', acceptDownloads: true });
+// Cada contexto é um "browser" à parte, com os seus próprios cookies (sessões).
+// O service worker fica bloqueado: senão guardava páginas entre testes e tapava o que o Playwright simula com route()
+// e clock. Só o passo «Sem rede» o deixa trabalhar (serviceWorkers: 'allow').
+async function novoContexto({ serviceWorkers = 'block' } = {}) {
+  const contexto = await browser.newContext({ viewport: { width: 1180, height: 820 }, locale: 'pt-PT', timezoneId: 'UTC', acceptDownloads: true, serviceWorkers });
   await contexto.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: servidor.url });
   if (SIGNALR_FALSO) await contexto.route('**/lib/signalr.min.js', (r) => r.fulfill({ contentType: 'text/javascript', body: SIGNALR_FALSO }));
   return contexto;
@@ -1155,6 +1157,140 @@ await passo('Treinador-assistente: sugestões ao dono do jogo (time-out, sançõ
   await vazio.locator('section.assistente').waitFor();
   ok((await vazio.locator('li.sugestao').count()) === 0 && (await conteudo(vazio.locator('section.assistente'))).includes('Sem sugestões por agora'), 'assistente: sem dados diz que não há sugestões');
   await vazio.close();
+});
+
+// ======================= Sem rede no pavilhão =======================
+// Erros de consola que a falta de rede provoca (pedidos que falham, o SignalR a perder a ligação): são esperados aqui
+const SEM_REDE = ['ERR_INTERNET_DISCONNECTED', 'Failed to fetch', 'Failed to load resource', 'WebSocket', 'negotiat', 'Server timeout elapsed', 'ERR_NETWORK_CHANGED'];
+
+await passo('Sem rede: o banco guarda os eventos no tablet e envia-os sozinho quando a rede volta', async () => {
+  const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  // Um tablet sem service worker (ex.: a app aberta por http): a página já aberta tem de aguentar a falta de rede
+  const ctxA = await novoContexto();
+  await ctxA.addCookies(await ctx.cookies());
+  const banco = await pagina(`/banco.html?jogo=${jogoId}`, { contexto: ctxA, tolerar: SEM_REDE });
+  await banco.waitForSelector('.botao-jogador');
+  ok(await esperarPor(async () => (await banco.locator('#ligacao').getAttribute('class'))?.includes('ok')), 'sem rede: banco ligado ao hub');
+  ok(await banco.locator('#pendentes').isHidden(), 'sem rede: com rede não há eventos por enviar');
+
+  const nEventos = async () => (await q('SELECT count(*)::int AS n FROM eventos WHERE jogo_id = $1', [jogoId]))[0].n;
+  const naFila = () => banco.evaluate(() => JSON.parse(localStorage.getItem('scouting.fila.v1') ?? '[]').length);
+  const caixa = await banco.locator('#campo').boundingBox();
+  const tocar = async (rx, ry, nJogador) => {
+    await banco.locator('#campo').click({ position: { x: caixa.width * rx, y: caixa.height * ry } });
+    await banco.locator('.botao-jogador').nth(nJogador).click();
+  };
+
+  await ctxA.setOffline(true);
+  ok(await esperarPor(async () => (await texto(banco.locator('#ligacao'))) === 'semrede'), 'sem rede: o banco avisa que está sem rede');
+  const t0 = Date.now();
+
+  // Um golo sem rede: aparece logo no placar e na lista, marcado «por enviar»
+  await tocar(0.5, 0.5, 0);
+  await banco.click('.botao-resultado[data-resultado="GOLO"]');
+  ok(await esperarPor(async () => (await texto(banco.locator('#pendentes'))) === '⏳1porenviar'), 'sem rede: o indicador diz «1 por enviar»');
+  ok((await texto(banco.locator('#golos-casa'))) === '1', 'sem rede: o golo conta logo no placar');
+  ok((await banco.locator('#ultimos li.pendente').count()) === 1, 'sem rede: o golo aparece na lista marcado «por enviar»');
+  await new Promise((r) => setTimeout(r, 400));
+  await tocar(0.3, 0.6, 1);
+  await banco.click('.botao-resultado[data-resultado="FORA"]');
+  ok(await esperarPor(async () => (await texto(banco.locator('#pendentes'))) === '⏳2porenviar'), 'sem rede: o segundo evento junta-se à fila');
+  await new Promise((r) => setTimeout(r, 400));
+  await banco.locator('#outros button', { hasText: /^Time-out$/ }).click();
+  ok(await esperarPor(async () => (await naFila()) === 3), 'sem rede: três eventos guardados no tablet (localStorage)');
+
+  // Desfazer um evento por enviar tira-o da fila, sem precisar do servidor
+  await banco.click('#btn-desfazer');
+  ok(await esperarPor(async () => (await naFila()) === 2 && (await texto(banco.locator('#pendentes'))) === '⏳2porenviar'), 'sem rede: «desfazer» tira da fila o último evento por enviar');
+  ok((await nEventos()) === 0, 'sem rede: nada chegou à base de dados');
+  await captura(banco, 'banco-sem-rede');
+
+  await new Promise((r) => setTimeout(r, 3000));   // a rede demora a voltar: o tempo do evento é o do toque, não o do envio
+  const t1 = Date.now();
+  const enviados = [];
+  banco.on('request', (r) => { if (r.method() === 'POST' && r.url().endsWith(`/api/jogos/${jogoId}/eventos`)) enviados.push(JSON.parse(r.postData())); });
+  await ctxA.setOffline(false);
+
+  ok(await esperarPor(async () => (await nEventos()) === 2, 15000), `sem rede: com a rede de volta os eventos seguem sozinhos (${await nEventos()} na base de dados)`);
+  ok(await esperarPor(async () => (await naFila()) === 0 && (await banco.locator('#pendentes').isHidden())), 'sem rede: a fila esvazia e o indicador desaparece');
+  const linhasBd = await q('SELECT cliente_id, extract(epoch FROM criado_em) * 1000 AS ms, resultado FROM eventos WHERE jogo_id = $1 ORDER BY id', [jogoId]);
+  ok(linhasBd.length === 2 && linhasBd.every((l) => l.cliente_id) && new Set(linhasBd.map((l) => l.cliente_id)).size === 2, 'sem rede: cada evento tem o seu identificador (clienteId)');
+  ok(linhasBd[0]?.resultado === 'GOLO' && linhasBd[1]?.resultado === 'FORA', 'sem rede: chegaram pela ordem em que foram registados');
+  ok(linhasBd.every((l) => Number(l.ms) >= t0 - 1000 && Number(l.ms) <= t1 + 1000), `sem rede: o tempo de cada evento é o do toque, não o do envio (${linhasBd.map((l) => Math.round((Date.now() - Number(l.ms)) / 1000)).join(', ')} s atrás)`);
+  ok(new Set(enviados.map((e) => e.clienteId)).size === 2, `sem rede: cada evento foi enviado (${enviados.length} pedidos)`);
+
+  // O mesmo evento enviado outra vez (a resposta perdeu-se) não é registado duas vezes
+  const repetido = await ctxA.request.post(`${servidor.url}/api/jogos/${jogoId}/eventos`, { data: enviados[0] });
+  const corpoRepetido = await repetido.json();
+  ok(repetido.status() === 200 && corpoRepetido.repetido === true, `sem rede: reenviar o mesmo clienteId responde 200 «repetido» (${repetido.status()})`);
+  ok(corpoRepetido.id != null && (await nEventos()) === 2, 'sem rede: o reenvio não cria um evento novo');
+
+  // Com tudo no servidor o placar não conta duas vezes o que foi enviado
+  await empurrar(banco, jogoId);
+  ok(await esperarPor(async () => (await texto(banco.locator('#golos-casa'))) === '1' && (await banco.locator('#ultimos li').count()) === 2 && (await banco.locator('#ultimos li.pendente').count()) === 0),
+    'sem rede: depois de enviados os eventos aparecem uma só vez, já sem a marca «por enviar»');
+  await ctxA.close();
+});
+
+await passo('Sem rede: a app abre sem rede (service worker) e a lista de jogos envia o que ficou por enviar', async () => {
+  const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  const manifesto = await ctx.request.get(`${servidor.url}/manifest.webmanifest`);
+  ok(manifesto.ok() && (manifesto.headers()['content-type'] ?? '').includes('manifest+json') && (await manifesto.json()).display === 'standalone', 'app instalável: o manifest é servido');
+  ok((await ctx.request.get(`${servidor.url}/icons/icon-512.png`)).ok(), 'app instalável: os ícones são servidos');
+  const sw = await ctx.request.get(`${servidor.url}/sw.js`);
+  ok(sw.ok() && (sw.headers()['content-type'] ?? '').includes('javascript'), 'service worker: sw.js é servido como javascript');
+
+  const ctxB = await novoContexto({ serviceWorkers: 'allow' });
+  await ctxB.addCookies(await ctx.cookies());
+  const banco = await pagina(`/banco.html?jogo=${jogoId}`, { contexto: ctxB, tolerar: SEM_REDE });
+  await banco.waitForSelector('.botao-jogador');
+
+  // O service worker instala-se e guarda a app (páginas, módulos, estilos, letras, ícones)
+  const guardados = () => banco.evaluate(async () => {
+    const nomes = await caches.keys();
+    const cache = nomes.length ? await caches.open(nomes[0]) : null;
+    return cache ? (await cache.keys()).map((r) => new URL(r.url).pathname) : [];
+  });
+  const obrigatorios = ['/banco.html', '/index.html', '/', '/css/estilo.css', '/js/banco.js', '/js/fila.js', '/js/offline.js', '/lib/signalr.min.js', '/fonts/barlow-latin-400-normal.woff2', '/icons/icon-192.png'];
+  ok(await esperarPor(async () => { const g = await guardados(); return obrigatorios.every((o) => g.includes(o)); }, 20000),
+    `service worker: guardou a app no tablet (${(await guardados()).length} ficheiros)`);
+  ok(await esperarPor(() => banco.evaluate(async () => Boolean((await navigator.serviceWorker.getRegistration())?.active))), 'service worker: ativo');
+
+  const nEventos = async () => (await q('SELECT count(*)::int AS n FROM eventos WHERE jogo_id = $1', [jogoId]))[0].n;
+  const naFila = () => banco.evaluate(() => JSON.parse(localStorage.getItem('scouting.fila.v1') ?? '[]').length);
+  const caixa = await banco.locator('#campo').boundingBox();
+
+  // A rede cai a meio do jogo; o adjunto continua a registar e depois recarrega (ou fecha e reabre) a página
+  await ctxB.setOffline(true);
+  await banco.locator('#campo').click({ position: { x: caixa.width * 0.5, y: caixa.height * 0.5 } });
+  await banco.locator('.botao-jogador').first().click();
+  await banco.click('.botao-resultado[data-resultado="GOLO"]');
+  ok(await esperarPor(async () => (await naFila()) === 1), 'service worker: o golo ficou na fila do tablet');
+
+  await banco.reload({ waitUntil: 'domcontentloaded' });
+  ok(await banco.locator('.botao-jogador').first().waitFor({ timeout: 15000 }).then(() => true, () => false), 'service worker: sem rede, recarregar a página abre o banco');
+  ok(await esperarPor(async () => ((await texto(banco.locator('#aviso'))) ?? '').includes('Semrede:obancoabriucomosdadosguardados')), 'service worker: o banco avisa que abriu com os dados guardados no tablet');
+  ok((await texto(banco.locator('#nome-casa'))) === 'ÁguiasdoNorte' && (await texto(banco.locator('#golos-casa'))) === '1', 'service worker: abre com as equipas e o golo por enviar já no placar');
+  ok((await texto(banco.locator('#pendentes'))) === '⏳1porenviar' && (await naFila()) === 1, 'service worker: o golo continua por enviar depois de recarregar');
+  ok(await banco.evaluate(() => navigator.serviceWorker.controller !== null), 'service worker: a página foi servida pelo service worker');
+  ok((await nEventos()) === 0, 'service worker: nada chegou ainda à base de dados');
+
+  // Sem rede, no banco, regista-se outro evento; a lista de jogos (também sem rede) mostra o que está por enviar
+  await banco.locator('#outros button', { hasText: /^Time-out$/ }).click();
+  ok(await esperarPor(async () => (await naFila()) === 2), 'service worker: sem rede continua a registar depois de recarregar');
+  const lista = await pagina('/', { contexto: ctxB, tolerar: SEM_REDE });
+  ok(await lista.locator('#fila-pendente').isVisible() && (await texto(lista.locator('#fila-pendente'))).startsWith('⏳2eventosdobancoporenviar'), 'service worker: a lista de jogos sem rede diz quantos eventos estão por enviar');
+  ok(await esperarPor(async () => (await lista.locator(`a[href="banco.html?jogo=${jogoId}"]`).count()) === 1), 'service worker: a lista de jogos sem rede oferece os jogos já abertos no banco');
+  await captura(lista, 'lista-sem-rede');
+
+  // A rede volta: a lista e o banco (abertos ao mesmo tempo) enviam a mesma fila e o servidor não regista nada a dobrar
+  await ctxB.setOffline(false);
+  ok(await esperarPor(async () => (await nEventos()) === 2, 20000), `service worker: com a rede de volta chegam os 2 eventos (${await nEventos()})`);
+  ok(await esperarPor(async () => (await naFila()) === 0 && await lista.locator('#fila-pendente').isHidden() && await banco.locator('#pendentes').isHidden()), 'service worker: a fila esvazia nas duas páginas');
+  await new Promise((r) => setTimeout(r, 1500));
+  const dupl = await q('SELECT count(*)::int AS n, count(DISTINCT cliente_id)::int AS d FROM eventos WHERE jogo_id = $1', [jogoId]);
+  ok(dupl[0].n === 2 && dupl[0].d === 2, `service worker: duas páginas a enviar a mesma fila não duplicam eventos (${dupl[0].n} eventos, ${dupl[0].d} identificadores)`);
+  await ctxB.close();
 });
 
 // ======================= Escudos das equipas =======================

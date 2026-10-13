@@ -17,7 +17,9 @@ public record NovoEventoRequest(
     short Parte,             // 1 ou 2
     int SegundoJogo,         // segundos desde o início do jogo
     decimal? BalizaX = null, // 0 a 100: onde o guarda-redes defendeu (só em DEFESA), da esquerda para a direita de quem remata
-    decimal? BalizaY = null); // 0 a 100: da trave (0) ao chão (100)
+    decimal? BalizaY = null, // 0 a 100: da trave (0) ao chão (100)
+    Guid? ClienteId = null,  // identificador gerado no tablet: repetir o envio do mesmo evento não o regista duas vezes
+    DateTimeOffset? OcorridoEm = null); // quando o evento aconteceu no tablet (sem rede, o envio pode vir muito depois)
 
 /// <summary>Corpo do PUT /api/jogos/{id}/relogio: o tablet do banco diz em que segundo está o relógio e se está a andar.</summary>
 public record RelogioRequest(int? Segundo, bool? ACorrer);
@@ -45,9 +47,11 @@ public record ConvocatoriaRequest(List<int>? JogadorIds);
 /// <summary>Mostrar (true) ou esconder (false) o jogo na lista de jogos da área de convidado.</summary>
 public record VisibilidadeRequest(bool? Visivel);
 
-public record ResultadoRegisto(bool Ok, int Status, string? Erro, long? Id)
+public record ResultadoRegisto(bool Ok, int Status, string? Erro, long? Id, bool Repetido = false)
 {
     public static ResultadoRegisto Sucesso(long id) => new(true, 201, null, id);
+    /// <summary>O tablet já tinha enviado este evento (mesmo clienteId): devolve o que ficou registado.</summary>
+    public static ResultadoRegisto JaRegistado(long id) => new(true, 200, null, id, true);
     public static ResultadoRegisto Atualizado() => new(true, 200, null, null);
     public static ResultadoRegisto Falha(int status, string erro) => new(false, status, erro, null);
 }
@@ -305,6 +309,8 @@ public class OutroEvento
 public class EventoResumo
 {
     public long Id { get; set; }
+    /// <summary>Identificador gerado no tablet (null nos eventos que não vieram do banco): o banco usa-o para não contar duas vezes um evento que ainda tem por enviar.</summary>
+    public Guid? ClienteId { get; set; }
     public int EquipaId { get; set; }
     public string EquipaNome { get; set; } = "";
     public string Tipo { get; set; } = "";
