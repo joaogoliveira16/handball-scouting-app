@@ -318,6 +318,23 @@ h3 { font: 600 1.05rem/1.2 var(--fonte); }
 .chip-numerica .ponto-equipa { margin-right: 2px; }
 .chip-numerica.sete-seis { background: var(--tinta); border-color: var(--tinta); color: #fff; }
 
+/* Time-out: faixa por baixo do marcador com o minuto a descontar (o relógio de jogo fica parado) */
+.faixa-timeout {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding: 8px 16px;
+  background: var(--realce); border-bottom: 1px solid var(--linha-forte); color: var(--tinta); font-weight: 600;
+}
+.faixa-timeout[hidden] { display: none; }
+.faixa-timeout .timeout-tempo { font: 700 1.9rem/1 var(--fonte-num); font-variant-numeric: tabular-nums; min-width: 3.2ch; }
+.faixa-timeout .timeout-nota { color: var(--suave); flex: 1; }
+.faixa-timeout button {
+  min-height: 44px; padding: 0 16px; border-radius: var(--raio-controlo);
+  border: 1px solid var(--tinta); background: var(--tinta); color: #fff; font-weight: 600;
+}
+.faixa-timeout button:hover { background: var(--tinta-hover); }
+.faixa-timeout.acabou { background: var(--alerta-fundo); border-bottom-color: #ecc766; color: var(--alerta); }
+.faixa-timeout.acabou .timeout-tempo { color: var(--perigo); }
+.relogio .tempo.em-timeout { opacity: 0.6; }
+
 .titulo-com-acao { display: flex; align-items: center; justify-content: space-between; }
 .titulo-com-acao > span { flex: 1; }
 .titulo-com-acao button {

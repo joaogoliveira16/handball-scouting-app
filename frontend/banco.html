@@ -34,6 +34,15 @@
   <!-- Aparece quando alguém está em campo a menos (2 minutos, vermelho) ou uma equipa ataca em 7×6 -->
   <div class="faixa-numerica" id="faixa-numerica" hidden></div>
 
+  <!-- Aparece durante um time-out: o relógio de jogo fica parado e conta-se o minuto do time-out -->
+  <div class="faixa-timeout" id="faixa-timeout" role="timer" hidden>
+    <b>Time-out</b>
+    <span class="timeout-equipa" id="timeout-equipa"></span>
+    <b class="timeout-tempo" id="timeout-tempo">1:00</b>
+    <span class="timeout-nota" id="timeout-nota">relógio de jogo parado</span>
+    <button id="btn-fim-timeout" type="button" title="Acabar o time-out e pôr o relógio de jogo a andar">Retomar o jogo</button>
+  </div>
+
   <main class="banco">
     <section>
       <div class="a-atacar" id="seletor-equipa"></div>

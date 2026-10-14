@@ -9,6 +9,8 @@ import { ligar, TEXTO_ESTADO } from './tempo-real.js';
 import { exigirConta } from './conta.js';
 import { escudo } from './escudo.js';
 import { desenharFaixa } from './faixa-numerica.js';
+import { formatarRestante } from './numerica.js';
+import { novoTimeout, estadoTimeout } from './timeout.js';
 import { criarFila, criarEnvio } from './fila.js';
 import { aplicarPendentes, resumoParaGuardar } from './otimista.js';
 import { registarOffline, chaveCacheBanco } from './offline.js';
@@ -54,9 +56,9 @@ const relogio = lerRelogio();
 function lerRelogio() {
   try {
     const guardado = JSON.parse(localStorage.getItem(CHAVE_RELOGIO));
-    if (guardado) return guardado;
+    if (guardado) return { timeout: null, ...guardado };
   } catch { /* sem armazenamento */ }
-  return { acumuladoMs: 0, iniciadoEm: null, parte: 1 };
+  return { acumuladoMs: 0, iniciadoEm: null, parte: 1, timeout: null };
 }
 function guardarRelogio() {
   try { localStorage.setItem(CHAVE_RELOGIO, JSON.stringify(relogio)); } catch { /* ignora */ }
@@ -73,13 +75,15 @@ function pausarRelogio() {
 }
 function alternarRelogio() {
   if (relogio.iniciadoEm) pausarRelogio();
-  else relogio.iniciadoEm = Date.now();
+  else relogio.iniciadoEm = Date.now();   // ▶ durante um time-out retoma o jogo (a faixa do time-out sai em desenharRelogio)
+  relogio.timeout = null;
   guardarRelogio();
   desenharRelogio();
   sincronizarRelogio();
 }
 function alternarParte() {
   pausarRelogio();
+  relogio.timeout = null;
   if (relogio.parte === 1) {
     relogio.parte = 2;
     relogio.acumuladoMs = Math.max(segundosDeJogo(), 30 * 60) * 1000; // a 2.ª parte começa aos 30:00
@@ -106,7 +110,59 @@ function desenharRelogio() {
   document.getElementById('tempo').textContent = formatarTempo(segundosDeJogo());
   document.getElementById('btn-relogio').textContent = relogio.iniciadoEm ? '⏸' : '▶';
   document.getElementById('btn-parte').textContent = `${relogio.parte}.ª parte`;
+  desenharTimeout();
   desenharNumerica();
+}
+
+// ---------------------------------------------------------------------
+// Time-out: o relógio de jogo pára e conta-se o minuto do time-out até zero
+// ---------------------------------------------------------------------
+let timeoutAcabadoAvisado = false;
+
+/** Pára o relógio de jogo e começa o minuto do time-out da equipa (as sanções em curso também ficam paradas). */
+function iniciarTimeout(equipaId) {
+  pausarRelogio();
+  relogio.timeout = novoTimeout(equipaId);
+  timeoutAcabadoAvisado = false;
+  guardarRelogio();
+  desenharRelogio();
+  sincronizarRelogio();
+}
+
+/** Acaba o time-out. Com `retomar`, o relógio de jogo volta a andar. */
+function terminarTimeout({ retomar = false } = {}) {
+  if (!relogio.timeout) return;
+  relogio.timeout = null;
+  if (retomar && !relogio.iniciadoEm) relogio.iniciadoEm = Date.now();
+  guardarRelogio();
+  desenharRelogio();
+  sincronizarRelogio();
+}
+
+function desenharTimeout() {
+  const faixa = document.getElementById('faixa-timeout');
+  const situacao = estadoTimeout(relogio.timeout);
+  if (relogio.timeout && !situacao) {   // esquecido há muito tempo: sai sem barulho
+    relogio.timeout = null;
+    guardarRelogio();
+  }
+  faixa.hidden = !situacao;
+  document.getElementById('tempo').classList.toggle('em-timeout', Boolean(situacao));
+  if (!situacao) return;
+  faixa.classList.toggle('acabou', situacao.acabou);
+  document.getElementById('timeout-equipa').textContent = equipaDoTimeout();
+  document.getElementById('timeout-tempo').textContent = formatarRestante(situacao.restante);
+  document.getElementById('timeout-nota').textContent = situacao.acabou ? 'fim do time-out · retoma o jogo' : 'relógio de jogo parado';
+  if (situacao.acabou && !timeoutAcabadoAvisado) {
+    timeoutAcabadoAvisado = true;
+    navigator.vibrate?.([300, 150, 300]);
+  }
+}
+
+function equipaDoTimeout() {
+  const { casaId, casaNome, foraNome } = estado.jogo ?? {};
+  if (!estado.jogo) return '';
+  return relogio.timeout.equipaId === casaId ? casaNome : foraNome;
 }
 
 /**
@@ -458,10 +514,9 @@ function registarOutro(tipo) {
   }
   // Os 2 minutos só se contam com o relógio a andar
   const semRelogio = ['DOIS_MINUTOS', 'VERMELHO'].includes(tipo.codigo) && segundosDeJogo() === 0 ? ' · inicia o relógio para contar os 2 minutos' : '';
-  registar({
-    ...corpoBase(tipo.codigo),
-    jogadorId: jogador?.id ?? null,
-  }, `${tipo.nome}${jogador ? ` · #${jogador.numero} ${jogador.nome}` : ''}${consequencia(tipo, jogador)}${semRelogio}`);
+  const corpo = { ...corpoBase(tipo.codigo), jogadorId: jogador?.id ?? null };
+  registar(corpo, `${tipo.nome}${jogador ? ` · #${jogador.numero} ${jogador.nome}` : ''}${consequencia(tipo, jogador)}${semRelogio}`);
+  if (tipo.codigo === 'TIMEOUT') iniciarTimeout(corpo.equipaId);   // o evento leva o segundo em que o relógio estava; só depois pára
 }
 
 /** Liga ou desliga o ataque 7×6 da equipa que está a atacar (não mexe no jogador nem no ponto escolhidos). */
@@ -483,6 +538,7 @@ async function apagarEvento(evento) {
     if (fila.remover(evento.clienteId)) {
       recalcular();
       desenharTudo();
+      if (evento.tipo === 'TIMEOUT') terminarTimeout();
       avisar('Evento apagado (ainda não tinha sido enviado).');
     } else {
       avisar('Este evento acabou de ser enviado: tenta apagar outra vez daqui a pouco.', { erro: true });
@@ -497,6 +553,7 @@ async function apagarEvento(evento) {
       recalcular();
       desenharTudo();
     }
+    if (evento.tipo === 'TIMEOUT') terminarTimeout();   // enganou-se no time-out: o minuto deixa de contar
     avisar('Evento apagado.');
     if (!estado.ligado) await atualizarPorHttp();
   } catch (erro) {
@@ -578,6 +635,7 @@ async function carregarJogo() {
 // Arranque
 // ---------------------------------------------------------------------
 document.getElementById('btn-relogio').addEventListener('click', alternarRelogio);
+document.getElementById('btn-fim-timeout').addEventListener('click', () => terminarTimeout({ retomar: true }));
 document.getElementById('btn-parte').addEventListener('click', alternarParte);
 document.getElementById('btn-ajustar').addEventListener('click', ajustarRelogio);
 document.getElementById('btn-desfazer').addEventListener('click', () => {

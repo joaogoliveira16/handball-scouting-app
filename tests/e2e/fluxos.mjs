@@ -986,7 +986,7 @@ await passo('Superioridade: o banco conta os 2 minutos, marca o 7×6 e o dashboa
   await banco.click('#btn-relogio');
   ok(await esperarPor(async () => (await relogioBd())?.a_correr === true), 'superioridade: ao arrancar, o servidor fica a saber que o relógio anda');
   await banco.clock.fastForward('10:00');
-  ok(await esperarPor(async () => ((await relogioBd())?.segundo ?? 0) >= 600), `superioridade: o aviso periódico põe o relógio do servidor nos 10 minutos (${(await relogioBd())?.segundo} s)`);
+  ok(await esperarPor(async () => ((await relogioBd())?.segundo ?? 0) >= 595), `superioridade: o aviso periódico põe o relógio do servidor nos 10 minutos (${(await relogioBd())?.segundo} s)`);   // 595: o salto do relógio falso e o aviso podem ficar a milésimos de segundo um do outro
 
   // 2 minutos ao minuto 10: o banco mostra 6×5 para o adversário e a contagem decrescente
   const idA = await banco.locator('.botao-jogador').nth(0).getAttribute('data-jogador');
@@ -1050,6 +1050,106 @@ await passo('Superioridade: o banco conta os 2 minutos, marca o 7×6 e o dashboa
   await banco.close();
   await ctxBanco.close();
   await dash.close();
+});
+
+// ======================= Time-out =======================
+await passo('Time-out: o relógio de jogo pára e o minuto do time-out desconta até zero', async () => {
+  const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  const ctxBanco = await novoContexto();   // o relógio falso fica só neste contexto (como na superioridade numérica)
+  await ctxBanco.addCookies(await ctx.cookies());
+  const banco = await pagina(`/banco.html?jogo=${jogoId}`, { contexto: ctxBanco, relogio: true, tolerar: ['Server timeout elapsed'] });
+  await banco.waitForSelector('.botao-jogador');
+  ok(await esperarPor(async () => (await banco.locator('#ligacao').getAttribute('class'))?.includes('ok')), 'time-out: banco ligado ao hub');
+
+  const relogioBd = async () => (await q('SELECT segundo, a_correr FROM relogios_jogo WHERE jogo_id = $1', [jogoId]))[0];
+  const nTimeouts = async () => (await q("SELECT 1 FROM eventos WHERE jogo_id = $1 AND tipo_evento_codigo = 'TIMEOUT'", [jogoId])).length;
+  const faixa = banco.locator('#faixa-timeout');
+  const tempoJogo = () => texto(banco.locator('#tempo'));
+  const minuto = async () => {
+    const [m, sec] = ((await texto(banco.locator('#timeout-tempo'))) ?? '0:00').split(':').map(Number);
+    return m * 60 + sec;
+  };
+  const pedirTimeout = () => banco.locator('#outros button', { hasText: /^Time-out$/ }).click();
+
+  ok(await faixa.isHidden(), 'time-out: sem time-out a faixa está escondida');
+
+  // Relógio a andar até aos 5 minutos
+  await banco.click('#btn-relogio');
+  ok(await esperarPor(async () => (await relogioBd())?.a_correr === true), 'time-out: o relógio de jogo arrancou');
+  await banco.clock.fastForward('05:00');
+  ok(await esperarPor(async () => /^05:0\d$/.test((await tempoJogo()) ?? '')), `time-out: o relógio de jogo está nos 5 minutos (${await tempoJogo()})`);
+
+  // Pedir o time-out: o relógio pára e aparece o minuto
+  await pedirTimeout();
+  ok(await esperarPor(async () => await faixa.isVisible()), 'time-out: aparece a faixa do time-out');
+  ok(await esperarPor(async () => (await texto(banco.locator('#btn-relogio'))) === '▶'), 'time-out: o relógio de jogo fica parado (▶)');
+  ok(await esperarPor(async () => (await relogioBd())?.a_correr === false), 'time-out: o servidor fica a saber que o relógio parou');
+  const inicial = await minuto();
+  ok(inicial >= 58 && inicial <= 60, `time-out: o minuto começa em 1:00 (${inicial} s)`);
+  ok(((await faixa.textContent()) ?? '').includes('Águias do Norte') && ((await faixa.textContent()) ?? '').includes('relógio de jogo parado'),
+    'time-out: a faixa diz que equipa pediu e que o relógio de jogo está parado');
+  ok(await esperarPor(async () => (await nTimeouts()) === 1), 'time-out: o evento ficou registado');
+  const [{ segundo_jogo: segTimeout }] = await q("SELECT segundo_jogo FROM eventos WHERE jogo_id = $1 AND tipo_evento_codigo = 'TIMEOUT'", [jogoId]);
+  ok(segTimeout >= 300 && segTimeout <= 302, `time-out: o evento leva o segundo em que o relógio estava (${segTimeout} s)`);
+  await captura(banco, 'banco-timeout');
+
+  // Passam 30 segundos: o relógio de jogo não anda, o minuto desconta
+  const parado = await tempoJogo();
+  await banco.clock.fastForward('00:30');
+  ok(await esperarPor(async () => { const r = await minuto(); return r >= 28 && r <= 31; }), `time-out: passados 30 s faltam cerca de 30 s (${await minuto()} s)`);
+  ok((await tempoJogo()) === parado, `time-out: o relógio de jogo continua parado nos ${parado}`);
+
+  // Acaba o minuto: fica a zero à espera de se retomar o jogo
+  await banco.clock.fastForward('00:32');
+  ok(await esperarPor(async () => (await faixa.getAttribute('class'))?.includes('acabou')), 'time-out: ao fim do minuto a faixa avisa que acabou');
+  ok((await minuto()) === 0 && ((await faixa.textContent()) ?? '').includes('fim do time-out'), 'time-out: o minuto chega a 0:00 e diz «fim do time-out»');
+  ok((await tempoJogo()) === parado && (await texto(banco.locator('#btn-relogio'))) === '▶', 'time-out: acabou o minuto mas o relógio de jogo só anda quando se retomar');
+
+  // Retomar o jogo: a faixa sai e o relógio volta a andar
+  await banco.click('#btn-fim-timeout');
+  ok(await faixa.isHidden(), 'time-out: «Retomar o jogo» esconde a faixa');
+  ok(await esperarPor(async () => (await texto(banco.locator('#btn-relogio'))) === '⏸'), 'time-out: «Retomar o jogo» põe o relógio de jogo a andar');
+  ok(await esperarPor(async () => (await relogioBd())?.a_correr === true), 'time-out: o servidor fica a saber que o jogo retomou');
+  await banco.clock.fastForward('00:10');
+  ok(await esperarPor(async () => (await tempoJogo()) !== parado), 'time-out: depois de retomar o relógio de jogo anda');
+
+  // Carregar em ▶ durante um time-out também retoma o jogo
+  await pedirTimeout();
+  ok(await esperarPor(async () => await faixa.isVisible() && (await nTimeouts()) === 2), 'time-out: segundo time-out registado, a faixa volta');
+  ok((await texto(banco.locator('#btn-relogio'))) === '▶', 'time-out: o relógio parou outra vez');
+  await banco.click('#btn-relogio');
+  ok(await faixa.isHidden() && (await texto(banco.locator('#btn-relogio'))) === '⏸', 'time-out: ▶ durante o time-out acaba-o e retoma o jogo');
+
+  // Enganou-se no time-out: apagar o evento cancela o minuto (e o relógio fica parado)
+  await pedirTimeout();
+  ok(await esperarPor(async () => await faixa.isVisible() && (await nTimeouts()) === 3), 'time-out: terceiro time-out registado');
+  await empurrar(banco, jogoId);
+  await esperarPor(async () => (await banco.locator('#ultimos li:not(.pendente)').count()) >= 1);
+  await banco.click('#btn-desfazer');
+  ok(await esperarPor(async () => (await nTimeouts()) === 2), 'time-out: apagar o evento tira-o da base de dados');
+  ok(await esperarPor(async () => await faixa.isHidden()), 'time-out: apagar o time-out cancela o minuto');
+  ok((await texto(banco.locator('#btn-relogio'))) === '▶', 'time-out: o relógio continua parado até alguém o retomar');
+
+  // Mudar de parte acaba o time-out
+  await pedirTimeout();
+  ok(await esperarPor(async () => await faixa.isVisible() && (await nTimeouts()) === 3), 'time-out: novo time-out na 1.ª parte');
+  await banco.click('#btn-parte');
+  ok(await faixa.isHidden() && (await texto(banco.locator('#btn-parte'))) === '2.ªparte', 'time-out: mudar de parte acaba o time-out');
+  await banco.close();
+  await ctxBanco.close();
+
+  // Recarregar a página (ou fechar e abrir o tablet) não perde o minuto
+  const real = await pagina(`/banco.html?jogo=${jogoId}`);
+  await real.waitForSelector('.botao-jogador');
+  await real.evaluate(({ chave, equipaId }) => localStorage.setItem(chave, JSON.stringify({
+    acumuladoMs: 301000, iniciadoEm: null, parte: 1, timeout: { ate: Date.now() + 40000, equipaId },
+  })), { chave: `relogio-jogo-${jogoId}`, equipaId: leoes.id });
+  await real.reload({ waitUntil: 'domcontentloaded' });
+  await real.locator('#faixa-timeout').waitFor({ state: 'visible' });
+  const restante = ((await texto(real.locator('#timeout-tempo'))) ?? '0:00').split(':').map(Number);
+  ok(restante[0] === 0 && restante[1] >= 30 && restante[1] <= 40, `time-out: ao recarregar a página o minuto continua (0:${restante[1]})`);
+  ok(await esperarPor(async () => ((await real.locator('#faixa-timeout').textContent()) ?? '').includes('Leões do Sul')), 'time-out: depois de recarregar a faixa lembra que equipa pediu');
+  await real.close();
 });
 
 await passo('Superioridade: a eficácia por situação (igualdade, superioridade, inferioridade, 7×6) no dashboard', async () => {
