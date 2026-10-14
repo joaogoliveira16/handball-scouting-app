@@ -65,13 +65,13 @@
     </section>
   </main>
 
-  <!-- Abre ao tocar em "Defesa": o adjunto marca na baliza onde o guarda-redes defendeu a bola -->
+  <!-- Abre ao tocar em "Golo" ou "Defesa": o adjunto marca na baliza onde a bola entrou ou onde o guarda-redes a defendeu -->
   <div class="janela-fundo" id="janela-baliza" hidden>
     <div class="janela cartao" role="dialog" aria-modal="true" aria-labelledby="titulo-baliza">
-      <h2 id="titulo-baliza">Onde defendeu o guarda-redes?</h2>
+      <h2 id="titulo-baliza"></h2>
       <p class="janela-sub" id="sub-baliza"></p>
       <svg id="baliza" class="baliza"></svg>
-      <p class="janela-nota">Toca na baliza, vista de frente do lado de quem remata, no sítio onde a bola foi defendida.</p>
+      <p class="janela-nota" id="nota-baliza"></p>
       <div class="janela-acoes">
         <button type="button" class="botao perigo" id="baliza-cancelar">Cancelar</button>
         <button type="button" class="botao suave" id="baliza-sem-local">Registar sem local</button>

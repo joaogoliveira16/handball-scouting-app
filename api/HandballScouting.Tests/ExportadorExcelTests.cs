@@ -135,7 +135,7 @@ public class ExportadorExcelTests
             new List<string>
             {
                 "Resumo", "Jogadores", "Por posição", "Por corredor", "Por distância", "Por parte", "Guarda-redes",
-                "Defesas na baliza", "Outros eventos", "Eventos"
+                "Defesas na baliza", "Golos na baliza", "Outros eventos", "Eventos"
             },
             LeitorXlsx.NomesDasFolhas(Gerar(Amostra())));
     }
@@ -438,6 +438,57 @@ public class ExportadorExcelTests
     {
         var todas = LeitorXlsx.Linhas(Gerar(Amostra()), "Defesas na baliza");
         Assert.Contains(todas, l => l.Length == 1 && l[0].Contains("vistas de frente"));
+    }
+
+    // ------------------------- Golos na baliza -------------------------
+
+    private static List<string[]> TabelaGolos(byte[] ficheiro) =>
+        LeitorXlsx.Linhas(ficheiro, "Golos na baliza").Where(l => l.Length > 3).ToList();
+
+    [Fact]
+    public void Golos_na_baliza_tem_as_mesmas_colunas_das_defesas_e_o_total_de_golos()
+    {
+        var cabecalho = TabelaGolos(Gerar(Amostra()))[0];
+        Assert.Equal(
+            new[]
+            {
+                "Equipa", "Nº", "Nome",
+                "Alto à esquerda", "Alto ao centro", "Alto à direita",
+                "Meio à esquerda", "Meio ao centro", "Meio à direita",
+                "Baixo à esquerda", "Baixo ao centro", "Baixo à direita",
+                "Sem local", "Total de golos"
+            },
+            cabecalho);
+    }
+
+    [Fact]
+    public void Golos_sem_local_contam_em_sem_local_e_os_com_local_na_zona_do_guarda_redes_que_os_sofreu()
+    {
+        var dados = Amostra();
+        // o Rui Gomes (Águias) sofre mais dois golos: um no canto de baixo à direita e outro sem local
+        dados.Eventos.Add(Remate(7, Fora, 6, "Ivo Pinto", "CE", "GOLO", "CENTRAL", "DE_6_A_9M", 2, 3900,
+            grId: 1, grEquipa: Casa, grNumero: 1, grNome: "Rui Gomes", balizaX: 90m, balizaY: 90m, zona: "BAIXO_DIR"));
+        dados.Eventos.Add(Remate(8, Fora, 8, "Davi Cruz", "LD", "GOLO", "CENTRAL", "MAIS_9M", 2, 3950,
+            grId: 1, grEquipa: Casa, grNumero: 1, grNome: "Rui Gomes"));
+
+        var linhas = TabelaGolos(Gerar(dados)).Skip(1).Select(l => string.Join("|", l)).ToArray();
+        Assert.Equal(
+            new[]
+            {
+                // Rui Gomes: o golo do Ivo (5) e o do Davi (8) sem local, e o do Ivo (7) em baixo à direita
+                "Águias do Norte|1|Rui Gomes|0|0|0|0|0|0|0|0|1|2|3",
+                // os dois golos das Águias não têm guarda-redes registado: ficam numa linha da equipa de fora
+                "Leões do Sul||(sem guarda-redes)|0|0|0|0|0|0|0|0|0|2|2"
+            },
+            linhas);
+    }
+
+    [Fact]
+    public void Golos_na_baliza_de_uma_equipa_so_mostra_os_guarda_redes_dessa_equipa()
+    {
+        var dados = Amostra();
+        var fora = TabelaGolos(Gerar(dados, equipaId: Fora)).Skip(1).Select(l => string.Join("|", l)).ToArray();
+        Assert.Equal(new[] { "Leões do Sul||(sem guarda-redes)|0|0|0|0|0|0|0|0|0|2|2" }, fora);
     }
 
     [Fact]

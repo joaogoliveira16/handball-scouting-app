@@ -1,4 +1,4 @@
--- Onde o guarda-redes defendeu: ponto na baliza (só nos remates com resultado DEFESA).
+-- Onde o guarda-redes defendeu: ponto na baliza (nos remates com resultado DEFESA; desde 16_baliza_golo.sql também nos golos).
 -- Este ficheiro é idempotente: também serve para atualizar uma base de dados já existente:
 --   Get-Content db/init/06_baliza.sql -Raw | docker compose exec -T db psql -U scouting -d scouting   (PowerShell)
 --   docker compose exec -T db psql -U scouting -d scouting < db/init/06_baliza.sql                     (Linux, macOS)

@@ -7,6 +7,8 @@ public static class EventoValidador
     /// <summary>Código do vermelho direto na tabela tipos_evento (ver db/init/12_expulsoes.sql).</summary>
     public const string TipoVermelho = "VERMELHO";
     public static readonly string[] Situacoes = { "POSICIONAL", "CONTRA_ATAQUE", "SETE_METROS" };
+    /// <summary>Resultados em que se marca na baliza o sítio da bola: onde o guarda-redes defendeu ou onde entrou o golo.</summary>
+    public static readonly string[] ResultadosComLocalNaBaliza = { "DEFESA", "GOLO" };
 
     public static List<string> Validar(NovoEventoRequest r, bool eRemate)
     {
@@ -45,13 +47,14 @@ public static class EventoValidador
         if (r.TipoEvento == TipoVermelho && r.JogadorId is null)
             erros.Add("jogadorId é obrigatório num vermelho direto.");
 
-        // Local da defesa na baliza: opcional, mas os dois pontos vêm juntos, dentro da baliza e só numa defesa
+        // Local na baliza (onde o guarda-redes defendeu ou onde entrou o golo): opcional, mas os dois pontos vêm juntos,
+        // dentro da baliza e só numa defesa ou num golo
         if (eRemate && (r.BalizaX is not null || r.BalizaY is not null))
         {
             if (r.BalizaX is null || r.BalizaY is null || r.BalizaX < 0 || r.BalizaX > 100 || r.BalizaY < 0 || r.BalizaY > 100)
                 erros.Add("balizaX e balizaY vêm juntos e têm de estar entre 0 e 100.");
-            if (r.Resultado != "DEFESA")
-                erros.Add("o local na baliza só existe numa defesa.");
+            if (r.Resultado is null || !ResultadosComLocalNaBaliza.Contains(r.Resultado))
+                erros.Add("o local na baliza só existe numa defesa ou num golo.");
         }
 
         return erros;

@@ -316,7 +316,7 @@ function desenharDica() {
 }
 
 // ---------------------------------------------------------------------
-// Janela da baliza (onde o guarda-redes defendeu)
+// Janela da baliza (onde entrou o golo ou onde o guarda-redes defendeu)
 // ---------------------------------------------------------------------
 const janelaBaliza = document.getElementById('janela-baliza');
 let resolverJanela = null;
@@ -326,14 +326,29 @@ criarBaliza(document.getElementById('baliza'), {
   aoClicar: ({ x, y }) => fecharJanelaBaliza({ x, y }),
 });
 
-/** Abre a janela. Devolve {x, y} se tocou na baliza, null se escolheu "sem local" e undefined se cancelou. */
-function pedirLocalDaDefesa(guardaRedes) {
+/** Os textos da janela da baliza, conforme o resultado do remate. */
+const TEXTOS_JANELA_BALIZA = {
+  GOLO: {
+    titulo: 'Onde entrou o golo?',
+    sub: (gr) => (gr ? `Golo contra o guarda-redes #${gr.numero} ${gr.nome}` : 'Sem guarda-redes escolhido'),
+    nota: 'Toca na baliza, vista de frente do lado de quem remata, no sítio onde a bola entrou.',
+  },
+  DEFESA: {
+    titulo: 'Onde defendeu o guarda-redes?',
+    sub: (gr) => (gr ? `Guarda-redes adversário: #${gr.numero} ${gr.nome}` : 'Sem guarda-redes escolhido'),
+    nota: 'Toca na baliza, vista de frente do lado de quem remata, no sítio onde a bola foi defendida.',
+  },
+};
+
+/** Abre a janela (resultado: 'GOLO' ou 'DEFESA'). Devolve {x, y} se tocou na baliza, null se escolheu "sem local" e undefined se cancelou. */
+function pedirLocalNaBaliza(resultado, guardaRedes) {
   return new Promise((resolve) => {
     resolverJanela = resolve;
     focoAntes = document.activeElement;
-    document.getElementById('sub-baliza').textContent = guardaRedes
-      ? `Guarda-redes adversário: #${guardaRedes.numero} ${guardaRedes.nome}`
-      : 'Sem guarda-redes escolhido';
+    const textos = TEXTOS_JANELA_BALIZA[resultado];
+    document.getElementById('titulo-baliza').textContent = textos.titulo;
+    document.getElementById('sub-baliza').textContent = textos.sub(guardaRedes);
+    document.getElementById('nota-baliza').textContent = textos.nota;
     janelaBaliza.hidden = false;
     document.getElementById('baliza-cancelar').focus({ preventScroll: true });
   });
@@ -411,10 +426,10 @@ async function registarRemate(resultado) {
   };
   let descricao = `${ROTULO_RESULTADO[resultado]} · #${jogador.numero} ${jogador.nome}`;
 
-  // Numa defesa, abre a baliza para marcar onde o guarda-redes defendeu a bola
-  if (resultado === 'DEFESA') {
+  // Num golo ou numa defesa, abre a baliza para marcar onde a bola entrou ou onde o guarda-redes a defendeu
+  if (resultado === 'GOLO' || resultado === 'DEFESA') {
     estado.aEscolherBaliza = true;
-    const escolha = await pedirLocalDaDefesa(guardaRedes);
+    const escolha = await pedirLocalNaBaliza(resultado, guardaRedes);
     estado.aEscolherBaliza = false;
     if (escolha === undefined) return; // cancelou: nada fica registado
     if (escolha) {

@@ -1,9 +1,9 @@
 // Baliza (3 m x 2 m) vista de frente, do lado de quem remata. Serve para marcar onde o guarda-redes
-// defendeu a bola (banco) e para mostrar as defesas (dashboard).
+// defendeu a bola ou onde entrou o golo (banco) e para mostrar as defesas e os golos (dashboard).
 // Coordenadas: x e y em percentagem (0 a 100). x: 0 = poste esquerdo de quem remata, 100 = poste direito.
 // y: 0 = trave, 100 = chão.
 import { desenharSimbolo } from './campo.js';
-import { ORDEM_ZONA_BALIZA, ROTULO_ZONA_BALIZA, zonaBaliza } from './api.js';
+import { ORDEM_ZONA_BALIZA, ROTULO_ZONA_BALIZA, ROTULO_RESULTADO, zonaBaliza } from './api.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -86,25 +86,25 @@ export function criarBaliza(elemento, { aoClicar = null } = {}) {
   }
 
   return {
-    /** Pontos {balizaX, balizaY, jogadorNumero} de defesas. */
-    marcadores(lista) {
+    /** Pontos {balizaX, balizaY, jogadorNumero} de defesas ou de golos (`resultado`, com o símbolo e a cor desse resultado). */
+    marcadores(lista, resultado = 'DEFESA') {
       camadaMarcadores.replaceChildren();
       for (const r of lista) {
         if (r.balizaX == null || r.balizaY == null) continue;
         const { cx, cy } = paraSvg(Number(r.balizaX), Number(r.balizaY));
         const zona = r.balizaZona ?? zonaBaliza(Number(r.balizaX), Number(r.balizaY));
-        desenharSimbolo(camadaMarcadores, cx, cy, 'DEFESA', {
-          raio: 6, titulo: `#${r.jogadorNumero} · Defesa · ${ROTULO_ZONA_BALIZA[zona]}`,
+        desenharSimbolo(camadaMarcadores, cx, cy, resultado, {
+          raio: 6, titulo: `#${r.jogadorNumero} · ${ROTULO_RESULTADO[resultado]} · ${ROTULO_ZONA_BALIZA[zona]}`,
         });
       }
     },
-    /** Número de defesas por zona (objeto zona -> total); as zonas mais cheias ficam mais brilhantes. */
-    contagens(porZona) {
+    /** Número de remates por zona (objeto zona -> total); as zonas mais cheias ficam mais brilhantes (`rgb`: "r, g, b"). */
+    contagens(porZona, rgb = '124, 58, 237') {
       const maximo = Math.max(1, ...ORDEM_ZONA_BALIZA.map((z) => porZona[z] ?? 0));
       for (const zona of ORDEM_ZONA_BALIZA) {
         const n = porZona[zona] ?? 0;
         textos[zona].textContent = n > 0 ? String(n) : '';
-        celulas[zona].style.fill = n > 0 ? `rgba(124, 58, 237, ${(0.08 + 0.4 * (n / maximo)).toFixed(2)})` : '';
+        celulas[zona].style.fill = n > 0 ? `rgba(${rgb}, ${(0.08 + 0.4 * (n / maximo)).toFixed(2)})` : '';
       }
     },
   };

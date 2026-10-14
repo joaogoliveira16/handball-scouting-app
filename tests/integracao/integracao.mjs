@@ -403,8 +403,12 @@ await passo('Estatísticas (GROUP BY / COUNT) sobre os dados de exemplo', async 
   const defesasExemplo = est.json?.remates?.filter((r) => r.resultado === 'DEFESA') ?? [];
   ok(defesasExemplo.length === 11 && defesasExemplo.every((r) => r.balizaX != null && r.balizaY != null && r.balizaZona),
     `jogo 2: as 11 defesas de exemplo têm local na baliza (${defesasExemplo.length})`, JSON.stringify(defesasExemplo[0]));
-  ok(est.json.remates.filter((r) => r.resultado !== 'DEFESA').every((r) => r.balizaX == null && r.balizaY == null && r.balizaZona == null),
-    'jogo 2: só as defesas têm local na baliza');
+  ok(est.json.remates.filter((r) => !['DEFESA', 'GOLO'].includes(r.resultado)).every((r) => r.balizaX == null && r.balizaY == null && r.balizaZona == null),
+    'jogo 2: só as defesas e os golos têm local na baliza');
+  const golosExemplo = est.json.remates.filter((r) => r.resultado === 'GOLO');
+  ok(golosExemplo.length === 15 && golosExemplo.every((r) => r.balizaX != null && r.balizaY != null && r.balizaZona),
+    `jogo 2: os 15 golos de exemplo têm local na baliza (${golosExemplo.length})`, JSON.stringify(golosExemplo[0]));
+  ok(new Set(golosExemplo.map((r) => r.balizaZona)).size >= 8, 'jogo 2: os golos de exemplo cobrem pelo menos 8 zonas da baliza');
   const zonasExemplo = new Set(defesasExemplo.map((r) => r.balizaZona));
   ok(zonasExemplo.size === 9, `jogo 2: as defesas de exemplo cobrem as 9 zonas da baliza (${zonasExemplo.size})`);
   ok(est.json?.parcial?.length === 2 && est.json.parcial.find((p) => p.equipaId === fora?.equipaId)?.golos === 3, 'parcial dos últimos 5 minutos: 3 golos da equipa de fora');
@@ -633,7 +637,11 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
   ok((await http('POST', `/api/jogos/${id}/eventos`, { ...defesaBaliza, balizaX: undefined })).status === 400, 'baliza: só o Y sem o X = 400');
   ok((await http('POST', `/api/jogos/${id}/eventos`, { ...defesaBaliza, balizaX: 100.5 })).status === 400, 'baliza: X acima de 100 = 400');
   ok((await http('POST', `/api/jogos/${id}/eventos`, { ...defesaBaliza, balizaY: -1 })).status === 400, 'baliza: Y abaixo de 0 = 400');
-  ok((await http('POST', `/api/jogos/${id}/eventos`, { ...remate, balizaX: 50, balizaY: 50 })).status === 400, 'baliza: um golo não tem local de defesa = 400');
+  for (const resultado of ['FORA', 'POSTE', 'BLOQUEADO']) {
+    const r = await http('POST', `/api/jogos/${id}/eventos`, { ...remate, resultado, balizaX: 50, balizaY: 50 });
+    ok(r.status === 400 && r.texto.includes('defesa ou num golo'), `baliza: um remate «${resultado}» não tem local na baliza = 400`, descricao(r));
+  }
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { ...remate, balizaY: undefined, balizaX: 50 })).status === 400, 'baliza: golo só com o X sem o Y = 400');
   ok((await http('POST', `/api/jogos/${id}/eventos`, { tipoEvento: 'FALTA_OFENSIVA', equipaId: casaId, jogadorId: lateralCasa, parte: 1, segundoJogo: 200, balizaX: 50, balizaY: 50 })).status === 400, 'baliza: uma falta não tem local na baliza = 400');
   ok(recebidos.length === 0, 'pedidos recusados não enviam nada ao dashboard');
 
@@ -660,13 +668,13 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
   const http_ = await http('GET', `/api/jogos/${id}/estatisticas`);
   ok(http_.json?.equipas?.find((e) => e.equipaId === casaId)?.remates === 2, 'GET estatísticas coincide com o tempo real');
 
-  // local da defesa na baliza: chega ao mapa e aos últimos eventos
+  // local na baliza: chega ao mapa e aos últimos eventos
   const defesaMapa = ultimo.remates.find((r) => r.id === defesa.json.id);
   ok(Number(defesaMapa?.balizaX) === 83.5 && Number(defesaMapa?.balizaY) === 91.2 && defesaMapa?.balizaZona === 'BAIXO_DIR',
     'baliza: o remate recebido traz o local e a zona (baixo à direita)', JSON.stringify(defesaMapa));
   ok(ultimo.ultimosEventos.find((e) => e.id === defesa.json.id)?.balizaZona === 'BAIXO_DIR', 'baliza: os últimos eventos trazem a zona da defesa');
   const golosNoMapa = ultimo.remates.find((r) => r.resultado === 'GOLO');
-  ok(golosNoMapa && golosNoMapa.balizaX == null && golosNoMapa.balizaZona == null, 'baliza: o golo não tem local de defesa');
+  ok(golosNoMapa && golosNoMapa.balizaX == null && golosNoMapa.balizaZona == null, 'baliza: o golo registado sem local fica sem coordenadas nem zona');
 
   // defesa sem local (continua válida)
   const semLocal = await http('POST', `/api/jogos/${id}/eventos`, { ...remate, resultado: 'DEFESA', x: 25, y: 70, segundoJogo: 190 });
@@ -676,6 +684,18 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
   ok(semLocalMapa && semLocalMapa.balizaX == null && semLocalMapa.balizaY == null && semLocalMapa.balizaZona == null,
     'baliza: a defesa sem local fica sem coordenadas nem zona', JSON.stringify(semLocalMapa));
   ok(recebidos.at(-1).remates.filter((r) => r.balizaZona != null).length === 1, 'baliza: só uma das duas defesas tem local');
+
+  // golo com local na baliza (onde entrou a bola): chega ao dashboard com a zona e conta no placar
+  const goloBaliza = await http('POST', `/api/jogos/${id}/eventos`, { ...remate, x: 60, y: 30, segundoJogo: 195, balizaX: 12.5, balizaY: 20 });
+  ok(goloBaliza.status === 201, 'POST golo com local na baliza = 201', descricao(goloBaliza));
+  ok(await ate(() => recebidos.at(-1)?.remates?.some((r) => r.id === goloBaliza.json?.id)), 'baliza: o golo com local chega ao dashboard');
+  const goloMapa = recebidos.at(-1).remates.find((r) => r.id === goloBaliza.json.id);
+  ok(goloMapa?.resultado === 'GOLO' && Number(goloMapa.balizaX) === 12.5 && Number(goloMapa.balizaY) === 20 && goloMapa.balizaZona === 'ALTO_ESQ',
+    'baliza: o golo traz o local onde entrou e a zona (alto à esquerda)', JSON.stringify(goloMapa));
+  ok(recebidos.at(-1).ultimosEventos.find((e) => e.id === goloBaliza.json.id)?.balizaZona === 'ALTO_ESQ', 'baliza: os últimos eventos trazem a zona do golo');
+  ok(recebidos.at(-1).equipas.find((e) => e.equipaId === casaId).golos === 2, 'baliza: o golo com local conta no placar');
+  ok((await http('DELETE', `/api/jogos/${id}/eventos/${goloBaliza.json.id}`)).status === 204, 'baliza: apagar o golo com local = 204');
+  ok(await ate(() => recebidos.at(-1)?.equipas?.find((e) => e.equipaId === casaId)?.golos === 1), 'baliza: depois de apagar volta a haver um só golo');
 
   // apagar -> nova atualização
   const antes = recebidos.length;

@@ -49,7 +49,7 @@ def abrir(nome):
 
 
 FOLHAS = ["Resumo", "Jogadores", "Por posição", "Por corredor", "Por distância", "Por parte",
-          "Guarda-redes", "Defesas na baliza", "Outros eventos", "Eventos"]
+          "Guarda-redes", "Defesas na baliza", "Golos na baliza", "Outros eventos", "Eventos"]
 
 ZONAS = ["Alto à esquerda", "Alto ao centro", "Alto à direita", "Meio à esquerda", "Meio ao centro", "Meio à direita",
          "Baixo à esquerda", "Baixo ao centro", "Baixo à direita"]
@@ -116,6 +116,20 @@ if jogo:
     ok(defesas_gr == defesas_baliza, "Defesas na baliza: coincide com as defesas da folha Guarda-redes",
        f"{defesas_gr} != {defesas_baliza}")
 
+    # Golos na baliza: a mesma forma, por guarda-redes que sofreu o golo (os 15 golos de exemplo têm local)
+    golos = [l for l in tabela(jogo, "Golos na baliza") if l.get("Nº") is not None]
+    ok(list(tabela(jogo, "Golos na baliza")[0].keys())[:3 + 9 + 2] == ["Equipa", "Nº", "Nome", *ZONAS, "Sem local", "Total de golos"],
+       "Golos na baliza: cabeçalho com as 9 zonas", str(list(tabela(jogo, "Golos na baliza")[0].keys())))
+    ok(sum(b["Total de golos"] for b in golos) == 15, "Golos na baliza: 15 golos no total", str(golos))
+    ok(all(sum(b[z] for z in ZONAS) + b["Sem local"] == b["Total de golos"] for b in golos),
+       "Golos na baliza: zonas + sem local = total em cada guarda-redes", str(golos))
+    ok(all(b["Sem local"] == 0 for b in golos), "Golos na baliza: nos dados de exemplo todos os golos têm local", str(golos))
+    golos_por_zona = [sum(b[z] for b in golos) for z in ZONAS]
+    ok(golos_por_zona == [2, 2, 1, 1, 2, 2, 2, 1, 2], "Golos na baliza: totais por zona dos dados de exemplo", str(golos_por_zona))
+    golos_gr = {(g["Equipa"], g["Nome"]): g["Golos sofridos"] for g in grs}
+    golos_baliza = {(b["Equipa"], b["Nome"]): b["Total de golos"] for b in golos}
+    ok(golos_gr == golos_baliza, "Golos na baliza: coincide com os golos sofridos da folha Guarda-redes", f"{golos_gr} != {golos_baliza}")
+
     outros = {(l["Equipa"], l["Evento"]): l["Total"] for l in tabela(jogo, "Outros eventos")}
     ok(sum(outros.values()) == 6, "Outros eventos: 6 no total (2 faltas, 2 perdas, 1 dois minutos, 1 timeout)", str(outros))
 
@@ -160,6 +174,9 @@ if equipa:
     baliza = [l for l in tabela(equipa, "Defesas na baliza") if l.get("Nº") is not None]
     ok(len(baliza) >= 1 and {b["Equipa"] for b in baliza} == {"Leões do Sul"}, "equipa: defesas na baliza só dos guarda-redes dos Leões", str(baliza))
     ok(sum(b["Total de defesas"] for b in baliza) == sum(g["Defesas"] for g in grs), "equipa: defesas na baliza = defesas da folha Guarda-redes", str(baliza))
+    golos_baliza = [l for l in tabela(equipa, "Golos na baliza") if l.get("Nº") is not None]
+    ok({b["Equipa"] for b in golos_baliza} == {"Leões do Sul"}, "equipa: golos na baliza só dos guarda-redes dos Leões", str(golos_baliza))
+    ok(sum(b["Total de golos"] for b in golos_baliza) == sum(g["Golos sofridos"] for g in grs), "equipa: golos na baliza = golos sofridos da folha Guarda-redes", str(golos_baliza))
 
 # ----------------------------------------------------------------------------- jogo novo, quase vazio
 novo = abrir("jogo-novo.xlsx")

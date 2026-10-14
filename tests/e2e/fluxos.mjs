@@ -103,6 +103,14 @@ async function empurrar(page, jogoId, codigo = null) {
   }, { id: jogoId, c: codigo });
 }
 
+// Num golo (e numa defesa) abre a baliza: toca-se na zona onde a bola entrou, ou em «Registar sem local»
+async function golo(banco, zona = null) {
+  await banco.click('.botao-resultado[data-resultado="GOLO"]');
+  await banco.waitForSelector('#janela-baliza:not([hidden])');
+  if (zona) await banco.locator(`#baliza .baliza-zona[data-zona="${zona}"]`).click();
+  else await banco.click('#baliza-sem-local');
+}
+
 /** Um PNG de uma cor só (sem bibliotecas): serve para ver o escudo ser reduzido pelo browser. */
 function crc32(bytes) {
   let crc = 0xffffffff;
@@ -465,7 +473,7 @@ await passo('Equipas e jogadores', async () => {
   await p.fill('#nome', 'Rui Lopes'); await p.selectOption('#posicao', 'GR');
   await p.click('.formulario-jogador button[type=submit]');
   await p.waitForSelector('table.tabela tbody tr');
-  ok((await p.inputValue('#numero')) === '2', 'jogadores: depois de adicionar sugere o 2');
+  ok(await esperarPor(async () => (await p.inputValue('#numero')) === '2'), 'jogadores: depois de adicionar sugere o 2');
   await p.fill('#nome', 'Tiago Reis'); await p.selectOption('#posicao', 'LE');
   await p.click('.formulario-jogador button[type=submit]');
   await p.waitForFunction(() => document.querySelectorAll('table.tabela tbody tr').length === 2);
@@ -745,11 +753,27 @@ await passo('Banco regista, dashboard recebe em tempo real', async () => {
   await banco.locator('#campo').click({ position: { x: caixa.width * 0.5, y: caixa.height * 0.5 } });
   await banco.locator('.botao-jogador').first().click();
   ok(await banco.locator('#dica.pronto').count() === 1, 'banco: depois do mapa e do jogador está pronto a registar');
+
+  // o golo também abre a baliza, para marcar onde a bola entrou
   await banco.click('.botao-resultado[data-resultado="GOLO"]');
+  await banco.waitForSelector('#janela-baliza:not([hidden])');
+  ok((await texto(banco.locator('#titulo-baliza'))) === 'Ondeentrouogolo?', 'golo na baliza: ao tocar em Golo a janela pergunta onde entrou');
+  ok((await banco.locator('#sub-baliza').textContent()).startsWith('Golo contra o guarda-redes #'), 'golo na baliza: a janela diz contra que guarda-redes');
+  ok((await banco.locator('#baliza .baliza-zona').count()) === 9, 'golo na baliza: a baliza tem 9 zonas');
+  await captura(banco, 'banco-baliza-golo');
+  ok((await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 0, 'golo na baliza: enquanto a janela está aberta o golo ainda não foi gravado');
+  await banco.click('#baliza-cancelar');
+  await new Promise((r) => setTimeout(r, 400));
+  ok((await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 0 && (await banco.locator('#dica.pronto').count()) === 1, 'golo na baliza: cancelar não regista o golo e mantém o mapa e o jogador');
+  await banco.click('.botao-resultado[data-resultado="GOLO"]');
+  await banco.waitForSelector('#janela-baliza:not([hidden])');
+  await banco.locator('#baliza .baliza-zona[data-zona="ALTO_DIR"]').click();
 
   ok(await esperarPor(async () => (await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 1), 'banco: o golo ficou na base de dados');
   const [ev] = await q("SELECT * FROM eventos WHERE jogo_id = $1 AND tipo_evento_codigo = 'REMATE'", [jogoId]);
   ok(ev?.resultado === 'GOLO' && ev.equipa_id === aguias.id, 'banco: golo da equipa da casa');
+  ok(ev?.baliza_zona === 'ALTO_DIR' && Number(ev.baliza_x) > 66 && Number(ev.baliza_y) < 33.4, `golo na baliza: o local onde entrou ficou guardado (${ev?.baliza_zona}, ${ev?.baliza_x}, ${ev?.baliza_y})`);
+  ok(await esperarPor(async () => (await texto(banco.locator('#aviso'))).includes('altoàdireita')), 'golo na baliza: o aviso diz onde entrou o golo');
   ok(ev && Number(ev.x) > 35 && Number(ev.x) < 65 && Number(ev.y) > 35 && Number(ev.y) < 65, `banco: coordenadas do toque no mapa (${ev?.x}, ${ev?.y})`);
   ok(ev?.guarda_redes_id != null && (await q('SELECT equipa_id FROM jogadores WHERE id = $1', [ev.guarda_redes_id]))[0]?.equipa_id === leoes.id, 'banco: guarda-redes da equipa adversária associado');
 
@@ -760,6 +784,13 @@ await passo('Banco regista, dashboard recebe em tempo real', async () => {
   await empurrar(visitante, jogoId, codigoJogo);
   ok(await esperarPor(async () => (await texto(visitante.locator('#golos-casa'))) === '1'), 'visitante: o golo também aparece no dashboard, sem conta');
   ok(await esperarPor(async () => (await dash.locator('svg.campo .camada-marcadores .marcador').count()) === 1), 'dashboard: o remate aparece no mapa');
+  const cartaoGolos = dash.locator('section.cartao', { has: dash.locator('h2', { hasText: 'Golos na baliza' }) });
+  const cartaoDefesas = dash.locator('section.cartao', { has: dash.locator('h2', { hasText: 'Defesas na baliza' }) });
+  ok(await esperarPor(async () => (await cartaoGolos.locator('.baliza-dash .camada-marcadores .marcador').count()) === 1), 'dashboard: o golo aparece na baliza dos golos');
+  ok((await texto(cartaoGolos.locator('.baliza-zona[data-zona="ALTO_DIR"] + .baliza-contagem'))) === '1', 'dashboard: a zona alto à direita tem 1 golo');
+  ok((await cartaoGolos.locator('.zona-top').textContent()).includes('Mais golos') && (await cartaoGolos.locator('.zona-top').textContent()).includes('alto à direita'), 'dashboard: «Mais golos» aponta para alto à direita');
+  ok((await cartaoGolos.locator('.baliza-dash + p').textContent()).includes('1 de 1 golo com local marcado'), 'dashboard: o resumo dos golos com local marcado');
+  ok((await cartaoDefesas.locator('.baliza-dash .camada-marcadores .marcador').count()) === 0, 'dashboard: a baliza das defesas não leva o golo');
   await captura(dash, 'dashboard-tempo-real');
 
   // um segundo remate: defesa do guarda-redes -> abre a baliza para marcar onde ele defendeu
@@ -794,9 +825,9 @@ await passo('Banco regista, dashboard recebe em tempo real', async () => {
   ok(await esperarPor(async () => (await banco.locator('#ultimos .zona-baliza').count()) >= 1), 'banco: últimos eventos mostram a zona da defesa');
   ok(await esperarPor(async () => (await dash.locator('svg.campo .camada-marcadores .marcador').count()) === 2), 'dashboard: 2 remates no mapa');
   ok((await texto(dash.locator('#golos-casa'))) === '1', 'dashboard: a defesa não altera o placar');
-  ok(await esperarPor(async () => (await dash.locator('.baliza-dash .camada-marcadores .marcador').count()) === 1), 'dashboard: a defesa aparece na baliza');
-  ok((await texto(dash.locator('.baliza-dash .baliza-zona[data-zona="ALTO_ESQ"] + .baliza-contagem'))) === '1', 'dashboard: a zona alto à esquerda tem 1 defesa');
-  ok((await dash.locator('.zona-top').textContent()).includes('alto à esquerda'), 'dashboard: "Mais defesas" aponta para alto à esquerda');
+  ok(await esperarPor(async () => (await cartaoDefesas.locator('.baliza-dash .camada-marcadores .marcador').count()) === 1), 'dashboard: a defesa aparece na baliza');
+  ok((await texto(cartaoDefesas.locator('.baliza-zona[data-zona="ALTO_ESQ"] + .baliza-contagem'))) === '1', 'dashboard: a zona alto à esquerda tem 1 defesa');
+  ok((await cartaoDefesas.locator('.zona-top').textContent()).includes('alto à esquerda'), 'dashboard: "Mais defesas" aponta para alto à esquerda');
   await captura(dash, 'dashboard-baliza');
 
   // terceiro remate: defesa sem local
@@ -811,8 +842,8 @@ await passo('Banco regista, dashboard recebe em tempo real', async () => {
   await empurrar(banco, jogoId);
   await empurrar(dash, jogoId);
   ok(await esperarPor(async () => (await dash.locator('svg.campo .camada-marcadores .marcador').count()) === 3), 'dashboard: 3 remates no mapa');
-  ok(await esperarPor(async () => (await dash.locator('.baliza-dash + p').textContent()).includes('1 de 2 defesas com local marcado (1 sem local)')), 'dashboard: o resumo conta a defesa sem local à parte');
-  ok((await dash.locator('.baliza-dash .camada-marcadores .marcador').count()) === 1, 'dashboard: a defesa sem local não aparece na baliza');
+  ok(await esperarPor(async () => (await cartaoDefesas.locator('.baliza-dash + p').textContent()).includes('1 de 2 defesas com local marcado (1 sem local)')), 'dashboard: o resumo conta a defesa sem local à parte');
+  ok((await cartaoDefesas.locator('.baliza-dash .camada-marcadores .marcador').count()) === 1, 'dashboard: a defesa sem local não aparece na baliza');
 
   // desfazer o último (a defesa sem local)
   await banco.click('#btn-desfazer');
@@ -825,13 +856,14 @@ await passo('Banco regista, dashboard recebe em tempo real', async () => {
   await empurrar(banco, jogoId);
   await empurrar(dash, jogoId);
   ok(await esperarPor(async () => (await dash.locator('svg.campo .camada-marcadores .marcador').count()) === 1), 'dashboard: volta a 1 remate no mapa');
-  ok(await esperarPor(async () => (await dash.locator('.baliza-dash .camada-marcadores .marcador').count()) === 0), 'dashboard: a baliza fica sem defesas');
+  ok(await esperarPor(async () => (await cartaoDefesas.locator('.baliza-dash .camada-marcadores .marcador').count()) === 0), 'dashboard: a baliza fica sem defesas');
 
   // apagar o golo -> placar 0–0
   await esperarPor(async () => (await banco.locator('#ultimos li:not(.vazio)').count()) === 1);
   await banco.click('#btn-desfazer');
   ok(await esperarPor(async () => (await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoId])).length === 0), 'banco: o golo foi apagado');
   await empurrar(dash, jogoId);
+  ok(await esperarPor(async () => (await cartaoGolos.locator('.baliza-dash .camada-marcadores .marcador').count()) === 0), 'dashboard: apagado o golo, a baliza dos golos fica vazia');
   await empurrar(visitante, jogoId, codigoJogo);
   ok(await esperarPor(async () => (await texto(dash.locator('#golos-casa'))) === '0'), 'dashboard: o placar volta a 0');
   ok(await esperarPor(async () => (await texto(visitante.locator('#golos-casa'))) === '0'), 'visitante: o placar também volta a 0');
@@ -1187,8 +1219,9 @@ await passo('Sem rede: o banco guarda os eventos no tablet e envia-os sozinho qu
 
   // Um golo sem rede: aparece logo no placar e na lista, marcado «por enviar»
   await tocar(0.5, 0.5, 0);
-  await banco.click('.botao-resultado[data-resultado="GOLO"]');
+  await golo(banco, 'BAIXO_ESQ');   // a baliza também se marca sem rede
   ok(await esperarPor(async () => (await texto(banco.locator('#pendentes'))) === '⏳1porenviar'), 'sem rede: o indicador diz «1 por enviar»');
+  ok(((await banco.locator('#ultimos li.pendente').first().textContent()) ?? '').includes('baixo à esquerda'), 'sem rede: o golo por enviar já mostra onde entrou');
   ok((await texto(banco.locator('#golos-casa'))) === '1', 'sem rede: o golo conta logo no placar');
   ok((await banco.locator('#ultimos li.pendente').count()) === 1, 'sem rede: o golo aparece na lista marcado «por enviar»');
   await new Promise((r) => setTimeout(r, 400));
@@ -1213,9 +1246,10 @@ await passo('Sem rede: o banco guarda os eventos no tablet e envia-os sozinho qu
 
   ok(await esperarPor(async () => (await nEventos()) === 2, 15000), `sem rede: com a rede de volta os eventos seguem sozinhos (${await nEventos()} na base de dados)`);
   ok(await esperarPor(async () => (await naFila()) === 0 && (await banco.locator('#pendentes').isHidden())), 'sem rede: a fila esvazia e o indicador desaparece');
-  const linhasBd = await q('SELECT cliente_id, extract(epoch FROM criado_em) * 1000 AS ms, resultado FROM eventos WHERE jogo_id = $1 ORDER BY id', [jogoId]);
+  const linhasBd = await q('SELECT cliente_id, extract(epoch FROM criado_em) * 1000 AS ms, resultado, baliza_zona FROM eventos WHERE jogo_id = $1 ORDER BY id', [jogoId]);
   ok(linhasBd.length === 2 && linhasBd.every((l) => l.cliente_id) && new Set(linhasBd.map((l) => l.cliente_id)).size === 2, 'sem rede: cada evento tem o seu identificador (clienteId)');
   ok(linhasBd[0]?.resultado === 'GOLO' && linhasBd[1]?.resultado === 'FORA', 'sem rede: chegaram pela ordem em que foram registados');
+  ok(linhasBd[0]?.baliza_zona === 'BAIXO_ESQ' && linhasBd[1]?.baliza_zona === null, `sem rede: o local do golo na baliza chega com o evento (${linhasBd[0]?.baliza_zona})`);
   ok(linhasBd.every((l) => Number(l.ms) >= t0 - 1000 && Number(l.ms) <= t1 + 1000), `sem rede: o tempo de cada evento é o do toque, não o do envio (${linhasBd.map((l) => Math.round((Date.now() - Number(l.ms)) / 1000)).join(', ')} s atrás)`);
   ok(new Set(enviados.map((e) => e.clienteId)).size === 2, `sem rede: cada evento foi enviado (${enviados.length} pedidos)`);
 
@@ -1264,7 +1298,7 @@ await passo('Sem rede: a app abre sem rede (service worker) e a lista de jogos e
   await ctxB.setOffline(true);
   await banco.locator('#campo').click({ position: { x: caixa.width * 0.5, y: caixa.height * 0.5 } });
   await banco.locator('.botao-jogador').first().click();
-  await banco.click('.botao-resultado[data-resultado="GOLO"]');
+  await golo(banco);
   ok(await esperarPor(async () => (await naFila()) === 1), 'service worker: o golo ficou na fila do tablet');
 
   await banco.reload({ waitUntil: 'domcontentloaded' });

@@ -100,7 +100,8 @@ public static class ExportadorExcel
             FolhaPorDistancia(contexto),
             FolhaPorParte(contexto),
             FolhaGuardaRedes(contexto),
-            FolhaDefesasNaBaliza(contexto),
+            FolhaNaBaliza(contexto, "DEFESA", "Defesas na baliza", "Total de defesas"),
+            FolhaNaBaliza(contexto, "GOLO", "Golos na baliza", "Total de golos"),
             FolhaOutrosEventos(contexto),
             FolhaEventos(contexto)
         });
@@ -288,21 +289,24 @@ public static class ExportadorExcel
         return folha;
     }
 
-    /// <summary>Defesas de cada guarda-redes por zona da baliza (3 x 3). O local é opcional: sem ele a defesa conta em "Sem local".</summary>
-    private static FolhaXlsx FolhaDefesasNaBaliza(Contexto c)
+    /// <summary>
+    /// Defesas (ou golos sofridos) de cada guarda-redes por zona da baliza (3 x 3). O local é opcional: sem ele o remate
+    /// conta em "Sem local".
+    /// </summary>
+    private static FolhaXlsx FolhaNaBaliza(Contexto c, string resultado, string titulo, string rotuloTotal)
     {
         var cabecalho = new List<string> { "Equipa", "Nº", "Nome" };
         cabecalho.AddRange(OrdemZonaBaliza.Select(z => RotuloZonaBaliza[z]));
         cabecalho.Add("Sem local");
-        cabecalho.Add("Total de defesas");
-        var folha = Tabela("Defesas na baliza", cabecalho.ToArray());
+        cabecalho.Add(rotuloTotal);
+        var folha = Tabela(titulo, cabecalho.ToArray());
 
-        // A equipa do guarda-redes é a que não rematou; se a defesa não tem guarda-redes, fica numa linha à parte
+        // A equipa do guarda-redes é a que não rematou; se o remate não tem guarda-redes, fica numa linha à parte
         int EquipaDoGuardaRedes(EventoExport e) =>
             e.GuardaRedesEquipaId ?? (e.EquipaId == c.Jogo.CasaId ? c.Jogo.ForaId : c.Jogo.CasaId);
 
         var grupos = c.Dados.Eventos
-            .Where(e => e.Resultado == "DEFESA" && c.TiposRemate.Contains(e.Tipo) && c.Inclui(EquipaDoGuardaRedes(e)))
+            .Where(e => e.Resultado == resultado && c.TiposRemate.Contains(e.Tipo) && c.Inclui(EquipaDoGuardaRedes(e)))
             .GroupBy(e => (Equipa: EquipaDoGuardaRedes(e), Gr: e.GuardaRedesId))
             .OrderBy(g => c.OrdemEquipa(g.Key.Equipa)).ThenBy(g => g.First().GuardaRedesNumero ?? short.MaxValue);
 

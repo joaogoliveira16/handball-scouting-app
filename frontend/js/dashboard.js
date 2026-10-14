@@ -133,35 +133,48 @@ function blocoMapa(selecionada) {
   return cartaoMapa;
 }
 
-/** Onde o guarda-redes adversário defendeu os remates da equipa escolhida (baliza vista de quem remata). */
-function blocoBaliza(selecionada) {
-  const defesas = estado.dados.remates.filter((r) => r.equipaId === selecionada.equipaId && r.resultado === 'DEFESA');
-  const comLocal = defesas.filter((r) => r.balizaX != null && r.balizaY != null);
+/** Textos e cor de cada baliza do dashboard: onde o guarda-redes adversário defendeu e onde entraram os golos. */
+const BALIZA_DASH = {
+  DEFESA: {
+    titulo: 'Defesas na baliza', rgb: '124, 58, 237', singular: 'defesa', plural: 'defesas', maior: 'Mais defesas', vazio: 'Ainda sem defesas.',
+    intro: (equipa, adversaria) => `Remates de ${equipa} defendidos por ${adversaria}.`,
+  },
+  GOLO: {
+    titulo: 'Golos na baliza', rgb: '22, 163, 74', singular: 'golo', plural: 'golos', maior: 'Mais golos', vazio: 'Ainda sem golos.',
+    intro: (equipa, adversaria) => `Onde entraram os golos de ${equipa} na baliza de ${adversaria}.`,
+  },
+};
+
+/** O local na baliza (vista de quem remata) das defesas ou dos golos da equipa escolhida. */
+function blocoBaliza(selecionada, resultado) {
+  const texto = BALIZA_DASH[resultado];
+  const remates = estado.dados.remates.filter((r) => r.equipaId === selecionada.equipaId && r.resultado === resultado);
+  const comLocal = remates.filter((r) => r.balizaX != null && r.balizaY != null);
   const adversaria = estado.dados.equipas.find((e) => e.equipaId !== selecionada.equipaId);
 
   const porZona = {};
   for (const r of comLocal) porZona[r.balizaZona] = (porZona[r.balizaZona] ?? 0) + 1;
 
   const svgBaliza = novoSvgBaliza();
-  const semLocal = defesas.length - comLocal.length;
-  const resumo = defesas.length === 0
-    ? 'Ainda sem defesas.'
-    : `${comLocal.length} de ${defesas.length} ${defesas.length === 1 ? 'defesa' : 'defesas'} com local marcado${semLocal ? ` (${semLocal} sem local)` : ''}.`;
+  const semLocal = remates.length - comLocal.length;
+  const resumo = remates.length === 0
+    ? texto.vazio
+    : `${comLocal.length} de ${remates.length} ${remates.length === 1 ? texto.singular : texto.plural} com local marcado${semLocal ? ` (${semLocal} sem local)` : ''}.`;
 
   // a zona mais atacada, para ler o mapa de relance
   const [zonaTop, totalTop] = Object.entries(porZona).sort((a, b) => b[1] - a[1])[0] ?? [];
 
-  const cartaoBaliza = cartao(`Defesas na baliza · ${selecionada.nome}`,
-    h('p', { class: 'vazio', style: 'margin:0 0 8px' }, `Remates de ${selecionada.nome} defendidos por ${adversaria.nome}.`),
-    h('div', { class: 'baliza-dash' }, svgBaliza),
+  const cartaoBaliza = cartao(`${texto.titulo} · ${selecionada.nome}`,
+    h('p', { class: 'vazio', style: 'margin:0 0 8px' }, texto.intro(selecionada.nome, adversaria.nome)),
+    h('div', { class: 'baliza-dash', 'data-resultado': resultado }, svgBaliza),
     h('p', { class: 'vazio', style: 'text-align:center' }, resumo),
     zonaTop
-      ? h('p', { class: 'zona-top' }, 'Mais defesas: ', h('b', {}, ROTULO_ZONA_BALIZA[zonaTop]), ` (${totalTop})`)
+      ? h('p', { class: 'zona-top' }, `${texto.maior}: `, h('b', {}, ROTULO_ZONA_BALIZA[zonaTop]), ` (${totalTop})`)
       : null,
     h('p', { class: 'vazio', style: 'text-align:center;font-size:0.85rem' }, 'Baliza vista de frente, do lado de quem remata.'));
   const baliza = criarBaliza(svgBaliza);
-  baliza.contagens(porZona);
-  baliza.marcadores(comLocal);
+  baliza.contagens(porZona, texto.rgb);
+  baliza.marcadores(comLocal, resultado);
   return cartaoBaliza;
 }
 
@@ -349,7 +362,8 @@ function desenhar() {
     blocoParcial(),
     abas,
     blocoMapa(selecionada),
-    blocoBaliza(selecionada),
+    blocoBaliza(selecionada, 'GOLO'),
+    blocoBaliza(selecionada, 'DEFESA'),
     blocoJogadores(selecionada),
     blocoNumerica(selecionada),
     blocoZonas('Por corredor', dados.porCorredor, ORDEM_CORREDOR, ROTULO_CORREDOR, selecionada),

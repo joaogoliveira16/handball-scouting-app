@@ -16,7 +16,7 @@ public record NovoEventoRequest(
     decimal? Y,              // 0 a 100 (só em remates)
     short Parte,             // 1 ou 2
     int SegundoJogo,         // segundos desde o início do jogo
-    decimal? BalizaX = null, // 0 a 100: onde o guarda-redes defendeu (só em DEFESA), da esquerda para a direita de quem remata
+    decimal? BalizaX = null, // 0 a 100: onde o guarda-redes defendeu ou onde entrou o golo (só em DEFESA e GOLO), da esquerda para a direita de quem remata
     decimal? BalizaY = null, // 0 a 100: da trave (0) ao chão (100)
     Guid? ClienteId = null,  // identificador gerado no tablet: repetir o envio do mesmo evento não o regista duas vezes
     DateTimeOffset? OcorridoEm = null); // quando o evento aconteceu no tablet (sem rede, o envio pode vir muito depois)

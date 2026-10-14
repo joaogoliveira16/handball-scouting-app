@@ -49,6 +49,13 @@ test('um golo pendente sobe no placar e aparece primeiro nos últimos eventos, m
   assert.equal(equipa(s, CASA).golos, 0, 'o original não foi alterado');
 });
 
+test('um golo pendente com local na baliza mostra a zona onde entrou; sem local fica sem zona', () => {
+  const com = aplicarPendentes(servidor(), [remate(CASA, 10, 'GOLO', 100, { balizaX: 15, balizaY: 10 })], contexto);
+  assert.equal(com.ultimosEventos[0].balizaZona, 'ALTO_ESQ');
+  const sem = aplicarPendentes(servidor(), [remate(CASA, 10, 'GOLO')], contexto);
+  assert.equal(sem.ultimosEventos[0].balizaZona, null);
+});
+
 test('defesa, fora, poste e bloqueado contam como remates sem golo', () => {
   const r = aplicarPendentes(servidor(), [
     remate(FORA, 20, 'DEFESA'), remate(FORA, 20, 'FORA'), remate(FORA, 20, 'POSTE'), remate(FORA, 20, 'BLOQUEADO'), remate(FORA, 20, 'GOLO'),
