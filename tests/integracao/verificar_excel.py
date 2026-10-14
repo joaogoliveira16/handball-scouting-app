@@ -144,8 +144,11 @@ if jogo:
     ok(all(isinstance(e["Baliza X (%)"], (int, float)) and 0 <= e["Baliza X (%)"] <= 100
            and isinstance(e["Baliza Y (%)"], (int, float)) and 0 <= e["Baliza Y (%)"] <= 100 for e in defesas),
        "Eventos: coordenadas da baliza entre 0 e 100 nas defesas")
-    ok(all(e["Zona da baliza"] is None and e["Baliza X (%)"] is None for e in eventos if e["Resultado"] != "Defesa"),
-       "Eventos: só as defesas têm local na baliza")
+    golos_ev = [e for e in eventos if e["Resultado"] == "Golo"]
+    ok(len(golos_ev) == 15 and all(e["Zona da baliza"] in ZONAS for e in golos_ev),
+       "Eventos: os 15 golos têm a zona da baliza", str([e["Zona da baliza"] for e in golos_ev]))
+    ok(all(e["Zona da baliza"] is None and e["Baliza X (%)"] is None for e in eventos if e["Resultado"] not in ("Defesa", "Golo")),
+       "Eventos: só as defesas e os golos têm local na baliza")
     ok(all(isinstance(e["Guarda-redes"], str) and e["Guarda-redes"].startswith("#") for e in defesas),
        "Eventos: as defesas indicam o guarda-redes (#nº nome)", str([e["Guarda-redes"] for e in defesas][:3]))
     tempos = [e["Tempo"] for e in eventos]
