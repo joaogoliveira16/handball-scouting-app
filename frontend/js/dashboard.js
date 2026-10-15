@@ -2,8 +2,9 @@
 import { h, substituir, avisar, copiarTexto } from './dom.js';
 import {
   formatarTempo, percentagem, RESULTADOS, ROTULO_RESULTADO, ROTULO_SITUACAO,
-  ROTULO_CORREDOR, ORDEM_CORREDOR, ROTULO_DISTANCIA, ORDEM_DISTANCIA, ROTULO_ZONA_BALIZA, urlExcel, urlPartilha, obter,
+  ROTULO_CORREDOR, ORDEM_CORREDOR, ROTULO_DISTANCIA, ORDEM_DISTANCIA, ROTULO_ZONA_BALIZA, ROTULO_SISTEMA, urlExcel, urlPartilha, obter,
 } from './api.js';
+import { eficaciaPorSistema, livroSeteMetros, MINIMO_REMATES_SISTEMA } from './analise.js';
 import { criarCampo, novoSvgCampo, simboloLegenda } from './campo.js';
 import { criarBaliza, novoSvgBaliza } from './baliza.js';
 import { ligar, TEXTO_ESTADO } from './tempo-real.js';
@@ -176,6 +177,87 @@ function blocoBaliza(selecionada, resultado) {
   baliza.contagens(porZona, texto.rgb);
   baliza.marcadores(comLocal, resultado);
   return cartaoBaliza;
+}
+
+/** Cor (r, g, b) da equipa para pintar as contagens da baliza. */
+const RGB_EQUIPA = { casa: '36, 87, 230', fora: '232, 98, 12' };
+
+const plural = (n, singular, pluralTexto) => `${n} ${n === 1 ? singular : pluralTexto}`;
+
+/**
+ * Livro dos 7 metros: por lançador, quantos lançou, como acabaram e para onde bateu (uma baliza 3 x 3 por jogador).
+ * É para o guarda-redes do adversário saber para onde se atirar, por isso convém ver a equipa que vai defrontar.
+ */
+function blocoSeteMetros(selecionada) {
+  const adversaria = estado.dados.equipas.find((e) => e.equipaId !== selecionada.equipaId);
+  const { lancadores, total } = livroSeteMetros(estado.dados.remates, selecionada.equipaId);
+  const titulo = `Livro dos 7 metros · ${selecionada.nome}`;
+  if (!lancadores.length) {
+    const vazio = cartao(titulo, h('p', { class: 'vazio' },
+      'Ainda sem 7 metros. No banco, escolhe «7 metros» ao registar o remate: o livro enche-se com o que cada jogador faz.'));
+    vazio.classList.add('largo');
+    return vazio;
+  }
+
+  const nomeDe = (jogadorId) => estado.dados.jogadores.find((j) => j.jogadorId === jogadorId)?.nome ?? '';
+  const rgb = RGB_EQUIPA[ladoDe(selecionada)];
+  const fichas = lancadores.map((l) => {
+    const svgBaliza = novoSvgBaliza();
+    const ficha = h('div', { class: 'lancador', 'data-jogador': l.jogadorId },
+      h('h3', {}, `#${l.numero} ${nomeDe(l.jogadorId)}`),
+      h('p', { class: 'lancador-numeros' },
+        `${plural(l.lancamentos, 'lançamento', 'lançamentos')} · ${plural(l.golos, 'golo', 'golos')} · ${plural(l.defendidos, 'defendido', 'defendidos')}`
+        + `${l.outros ? ` · ${l.outros} sem defesa (fora, poste ou bloqueado)` : ''}`),
+      svgBaliza,
+      l.tendencia
+        ? h('p', { class: 'zona-top' }, 'Tende a bater ', h('b', {}, ROTULO_ZONA_BALIZA[l.tendencia.zona]), ` (${l.tendencia.total} de ${l.tendencia.de})`)
+        : h('p', { class: 'vazio', style: 'text-align:center;margin:4px 0 0' },
+          l.comLocal ? 'Ainda sem zona preferida.' : 'Sem local marcado na baliza.'));
+    criarBaliza(svgBaliza).contagens(l.porZona, rgb);
+    return ficha;
+  });
+
+  const cartaoLivro = cartao(titulo,
+    h('p', { class: 'vazio', style: 'margin:0 0 4px' },
+      `Para onde batem os 7 metros de ${selecionada.nome}, para o guarda-redes de ${adversaria.nome} se preparar. `
+      + `Total: ${plural(total.lancamentos, 'lançamento', 'lançamentos')}, ${plural(total.golos, 'golo', 'golos')} (${percentagem(total.eficacia)}).`),
+    h('div', { class: 'livro-7m' }, fichas),
+    h('p', { class: 'vazio', style: 'text-align:center;font-size:0.85rem;margin:10px 0 0' },
+      'Cada baliza conta os golos e as defesas (só esses têm o local marcado), vista de frente, do lado de quem remata. '
+      + 'Só se fala de uma zona preferida com pelo menos 3 lançamentos com local.'));
+  cartaoLivro.classList.add('largo');
+  return cartaoLivro;
+}
+
+/** A eficácia da equipa em ataque posicional contra cada defesa do adversário (6:0, 5:1, 3:2:1, 4:2, individual). */
+function blocoSistemas(selecionada) {
+  const { linhas, marcados, melhor, pior } = eficaciaPorSistema(estado.dados.remates, selecionada.equipaId);
+  const titulo = `Contra que defesa · ${selecionada.nome}`;
+  if (!linhas.length) return cartao(titulo, h('p', { class: 'vazio' }, 'Ainda sem remates em ataque posicional.'));
+  if (!marcados) {
+    return cartao(titulo, h('p', { class: 'vazio' },
+      'Ainda sem a defesa do adversário marcada. No banco, escolhe «Defesa do adversário» (6:0, 5:1...) antes de registar os remates.'));
+  }
+
+  const linhasTabela = linhas.map((l) => {
+    const marca = l === melhor ? 'melhor' : l === pior ? 'pior' : null;
+    return h('tr', { 'data-sistema': l.sistema ?? 'NENHUM', class: marca ?? '' },
+      h('td', {}, l.sistema ? `Defesa ${ROTULO_SISTEMA[l.sistema]}` : 'Sem defesa marcada',
+        marca ? h('span', { class: `etiqueta ${marca}` }, marca === 'melhor' ? 'melhor' : 'pior') : null),
+      h('td', { class: 'num' }, l.remates),
+      h('td', { class: 'num' }, l.golos),
+      h('td', { class: 'num' }, percentagem(l.eficacia)),
+      h('td', { class: 'barra-celula' }, barra(l.eficacia, ladoDe(selecionada))));
+  });
+  return cartao(titulo,
+    tabela([['Defesa do adversário'], ['Rem.', true], ['Golos', true], ['%', true], ['']], linhasTabela),
+    melhor && pior
+      ? h('p', { class: 'zona-top', style: 'text-align:left' }, 'Marca mais contra a defesa ', h('b', {}, ROTULO_SISTEMA[melhor.sistema]),
+        ` (${percentagem(melhor.eficacia)}) e menos contra a ${ROTULO_SISTEMA[pior.sistema]} (${percentagem(pior.eficacia)}).`)
+      : h('p', { class: 'vazio', style: 'margin:8px 0 0' },
+        `Para comparar são precisas pelo menos duas defesas com ${MINIMO_REMATES_SISTEMA} remates cada (e eficácias diferentes).`),
+    h('p', { class: 'vazio', style: 'font-size:0.85rem;margin:6px 0 0' },
+      'Só os remates em ataque posicional: no contra-ataque e nos 7 metros não há defesa montada.'));
 }
 
 function blocoJogadores(selecionada) {
@@ -364,8 +446,10 @@ function desenhar() {
     blocoMapa(selecionada),
     blocoBaliza(selecionada, 'GOLO'),
     blocoBaliza(selecionada, 'DEFESA'),
+    blocoSeteMetros(selecionada),
     blocoJogadores(selecionada),
     blocoNumerica(selecionada),
+    blocoSistemas(selecionada),
     blocoZonas('Por corredor', dados.porCorredor, ORDEM_CORREDOR, ROTULO_CORREDOR, selecionada),
     blocoZonas('Por distância', dados.porDistancia, ORDEM_DISTANCIA, ROTULO_DISTANCIA, selecionada),
     blocoPorParte(),
@@ -420,8 +504,8 @@ function mostrarSemAcesso(conta) {
     h('section', { class: 'sem-acesso' },
       h('h1', {}, 'Este jogo não está disponível'),
       h('p', {}, conta
-        ? 'O jogo não existe ou não é teu. Se recebeste um link, pede um novo a quem o partilhou.'
-        : 'O jogo foi escondido, já passaram mais de 24 horas ou o link está incompleto. Vê os jogos de hoje ou pede um link novo a quem o partilhou. Se o jogo é teu, entra na tua conta.'),
+        ? 'O jogo não existe ou não é teu. Se recebeste uma ligação, pede uma nova a quem a partilhou.'
+        : 'O jogo foi escondido, já passaram mais de 24 horas ou a ligação está incompleta. Vê os jogos de hoje ou pede uma ligação nova a quem a partilhou. Se o jogo é teu, entra na tua conta.'),
       conta
         ? h('a', { class: 'botao-link primario', href: './' }, 'Ver os meus jogos')
         : h('div', { class: 'acoes-formulario' },
@@ -440,8 +524,8 @@ function mostrarEstadoLigacao(estadoLigacao) {
 
 async function copiarLink() {
   const link = urlPartilha(jogoId, codigo);
-  if (await copiarTexto(link)) avisar('Link copiado. Quem o abrir vê este jogo em direto, sem conta.');
-  else window.prompt('Copia este link para partilhar o jogo em direto:', link);
+  if (await copiarTexto(link)) avisar('Ligação copiada. Quem a abrir vê este jogo em direto, sem conta.');
+  else window.prompt('Copia esta ligação para partilhar o jogo em direto:', link);
 }
 
 // Quem tem conta volta à lista de jogos e pode copiar o link; quem veio só pelo link (convidado) volta à área de

@@ -19,7 +19,8 @@ public record NovoEventoRequest(
     decimal? BalizaX = null, // 0 a 100: onde o guarda-redes defendeu ou onde entrou o golo (só em DEFESA e GOLO), da esquerda para a direita de quem remata
     decimal? BalizaY = null, // 0 a 100: da trave (0) ao chão (100)
     Guid? ClienteId = null,  // identificador gerado no tablet: repetir o envio do mesmo evento não o regista duas vezes
-    DateTimeOffset? OcorridoEm = null); // quando o evento aconteceu no tablet (sem rede, o envio pode vir muito depois)
+    DateTimeOffset? OcorridoEm = null, // quando o evento aconteceu no tablet (sem rede, o envio pode vir muito depois)
+    string? SistemaDefensivo = null);  // 6_0 | 5_1 | 3_2_1 | 4_2 | INDIVIDUAL: a defesa do adversário (só em remates em ataque posicional)
 
 /// <summary>Corpo do PUT /api/jogos/{id}/relogio: o tablet do banco diz em que segundo está o relógio e se está a andar.</summary>
 public record RelogioRequest(int? Segundo, bool? ACorrer);
@@ -150,6 +151,7 @@ public class EventoExport
     public decimal? BalizaX { get; set; }
     public decimal? BalizaY { get; set; }
     public string? BalizaZona { get; set; }
+    public string? SistemaDefensivo { get; set; }
     public int? GuardaRedesId { get; set; }
     public int? GuardaRedesEquipaId { get; set; }
     public short? GuardaRedesNumero { get; set; }
@@ -338,6 +340,7 @@ public class RemateMapa
     public decimal? BalizaX { get; set; }
     public decimal? BalizaY { get; set; }
     public string? BalizaZona { get; set; }
+    public string? SistemaDefensivo { get; set; }
     public int SegundoJogo { get; set; }
 }
 

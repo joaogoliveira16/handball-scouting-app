@@ -33,32 +33,45 @@ BEGIN
 END
 $$;
 
--- A vista passa a incluir o local da defesa (as colunas novas ficam no fim)
-CREATE OR REPLACE VIEW v_remates AS
-SELECT e.id,
-       e.jogo_id,
-       e.equipa_id,
-       e.jogador_id,
-       e.guarda_redes_id,
-       e.resultado,
-       e.situacao,
-       e.x,
-       e.y,
-       e.corredor,
-       e.distancia,
-       e.parte,
-       e.segundo_jogo,
-       e.criado_em,
-       j.numero         AS jogador_numero,
-       j.nome           AS jogador_nome,
-       j.posicao_codigo AS posicao_jogador,
-       e.baliza_x,
-       e.baliza_y,
-       e.baliza_zona
-FROM eventos e
-JOIN tipos_evento t ON t.codigo = e.tipo_evento_codigo AND t.e_remate
-JOIN jogadores    j ON j.id = e.jogador_id
-WHERE e.resultado IS NOT NULL;
+-- A vista passa a incluir o local da defesa (as colunas novas ficam no fim). Só se muda quando ainda não o inclui:
+-- os scripts seguintes (17_sistema_defensivo.sql...) acrescentam mais colunas à vista e este corre outra vez em
+-- cada arranque, por isso não a pode substituir por uma versão mais curta.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'v_remates' AND column_name = 'baliza_zona'
+    ) THEN
+        EXECUTE $vista$
+            CREATE OR REPLACE VIEW v_remates AS
+            SELECT e.id,
+                   e.jogo_id,
+                   e.equipa_id,
+                   e.jogador_id,
+                   e.guarda_redes_id,
+                   e.resultado,
+                   e.situacao,
+                   e.x,
+                   e.y,
+                   e.corredor,
+                   e.distancia,
+                   e.parte,
+                   e.segundo_jogo,
+                   e.criado_em,
+                   j.numero         AS jogador_numero,
+                   j.nome           AS jogador_nome,
+                   j.posicao_codigo AS posicao_jogador,
+                   e.baliza_x,
+                   e.baliza_y,
+                   e.baliza_zona
+            FROM eventos e
+            JOIN tipos_evento t ON t.codigo = e.tipo_evento_codigo AND t.e_remate
+            JOIN jogadores    j ON j.id = e.jogador_id
+            WHERE e.resultado IS NOT NULL
+        $vista$;
+    END IF;
+END
+$$;
 
 -- Jogo de exemplo (2): põe o local nas defesas fictícias, só se ainda não houver nenhum local registado
 WITH defesas AS (

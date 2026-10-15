@@ -30,7 +30,7 @@ const envio = criarEnvio({
   aoRejeitar: (item, erro) => avisar(`Um evento não foi aceite pelo servidor e foi descartado: ${erro.message}`, { erro: true, duracao: 8000 }),
   aoTerminar: (resultado) => {
     desenharFila();
-    if (resultado?.enviados) carregarJogos(equipasDaConta);   // os placares mudaram
+    if (resultado?.enviados) carregarJogos(equipasDaConta);   // os marcadores mudaram
   },
 });
 
@@ -45,9 +45,9 @@ function desenharFila() {
 async function partilhar(jogo) {
   const link = urlPartilha(jogo.id, jogo.codigo);
   if (await copiarTexto(link)) {
-    avisar('Link copiado. Quem o abrir vê o jogo em direto, sem conta.');
+    avisar('Ligação copiada. Quem a abrir vê o jogo em direto, sem conta.');
   } else {
-    window.prompt('Copia este link para partilhar o jogo em direto:', link);
+    window.prompt('Copia esta ligação para partilhar o jogo em direto:', link);
   }
 }
 
@@ -60,7 +60,7 @@ async function mudarVisibilidade(jogo, caixa) {
     jogo.visivelConvidados = visivel;
     avisar(visivel
       ? 'Este jogo aparece na área de convidado durante 24 horas.'
-      : 'Jogo escondido: só quem tem o link o vê.');
+      : 'Jogo escondido: só quem tem a ligação o vê.');
   } catch (erro) {
     caixa.checked = !visivel;
     avisar(`Não foi possível mudar: ${erro.message}`, { erro: true });
@@ -85,14 +85,14 @@ function linhaJogo(jogo) {
       h('a', { class: 'botao-link primario pequeno', href: `banco.html?jogo=${jogo.id}` }, 'Banco'),
       h('a', { class: 'botao-link pequeno', href: `dashboard.html?jogo=${jogo.id}&c=${encodeURIComponent(jogo.codigo)}` }, 'Dashboard'),
       h('button', {
-        type: 'button', class: 'botao pequeno', title: 'Copiar o link do dashboard em direto, para quem não tem conta',
+        type: 'button', class: 'botao pequeno', title: 'Copiar a ligação do dashboard em direto, para quem não tem conta',
         onclick: () => partilhar(jogo),
-      }, 'Copiar link'),
+      }, 'Copiar ligação'),
       h('a', { class: 'botao-link suave pequeno', href: `convocatoria.html?jogo=${jogo.id}` }, 'Convocatória'),
       h('a', { class: 'botao-link suave pequeno', href: urlExcel(jogo.id), download: '' }, '⬇ Excel')),
     h('label', {
       class: 'opcao-jogo',
-      title: 'Quem não tem conta vê este jogo na área de convidado durante 24 horas, sem precisar do link',
+      title: 'Quem não tem conta vê este jogo na área de convidado durante 24 horas, sem precisar da ligação',
     }, caixaVisivel, 'Mostrar na área de convidado'));
 }
 
@@ -105,7 +105,7 @@ function estadoVazio(equipas) {
     h('ol', { class: 'passos' },
       h('li', {}, h('div', {}, h('strong', {}, temEquipa ? 'Junta os jogadores da tua equipa' : 'Cria a tua equipa'), h('span', {}, 'O plantel fica guardado para todos os jogos.'))),
       h('li', {}, h('div', {}, h('strong', {}, 'Cria o jogo e escolhe os convocados'), h('span', {}, 'Escreve o nome do adversário. Até 16 jogadores por equipa.'))),
-      h('li', {}, h('div', {}, h('strong', {}, 'Regista no Banco'), h('span', {}, 'Copia o link do dashboard e envia ao treinador: vê tudo em direto, sem conta.')))),
+      h('li', {}, h('div', {}, h('strong', {}, 'Regista no Banco'), h('span', {}, 'Copia a ligação do dashboard e envia-a ao treinador: vê tudo em direto, sem conta.')))),
     temEquipa
       ? h('button', { type: 'button', class: 'botao primario', onclick: () => { novoJogo.open = true; campoAdversario.focus(); } }, 'Criar o primeiro jogo')
       : h('a', { class: 'botao-link primario', href: 'equipas.html' }, 'Criar a minha equipa'));

@@ -409,6 +409,11 @@ await passo('Estatísticas (GROUP BY / COUNT) sobre os dados de exemplo', async 
   ok(golosExemplo.length === 15 && golosExemplo.every((r) => r.balizaX != null && r.balizaY != null && r.balizaZona),
     `jogo 2: os 15 golos de exemplo têm local na baliza (${golosExemplo.length})`, JSON.stringify(golosExemplo[0]));
   ok(new Set(golosExemplo.map((r) => r.balizaZona)).size >= 8, 'jogo 2: os golos de exemplo cobrem pelo menos 8 zonas da baliza');
+  const posicionaisExemplo = est.json.remates.filter((r) => r.situacao === 'POSICIONAL');
+  const porSistemaExemplo = Object.fromEntries(['6_0', '5_1', null].map((sis) => [sis, posicionaisExemplo.filter((r) => (r.sistemaDefensivo ?? null) === sis).length]));
+  ok(posicionaisExemplo.length === 30 && porSistemaExemplo['6_0'] === 18 && porSistemaExemplo['5_1'] === 8 && porSistemaExemplo.null === 4,
+    `jogo 2: os remates posicionais de exemplo trazem a defesa do adversário (6:0 ${porSistemaExemplo['6_0']}, 5:1 ${porSistemaExemplo['5_1']}, sem ${porSistemaExemplo.null})`);
+  ok(est.json.remates.filter((r) => r.situacao !== 'POSICIONAL').every((r) => r.sistemaDefensivo == null), 'jogo 2: o contra-ataque e os 7 metros não têm sistema defensivo');
   const zonasExemplo = new Set(defesasExemplo.map((r) => r.balizaZona));
   ok(zonasExemplo.size === 9, `jogo 2: as defesas de exemplo cobrem as 9 zonas da baliza (${zonasExemplo.size})`);
   ok(est.json?.parcial?.length === 2 && est.json.parcial.find((p) => p.equipaId === fora?.equipaId)?.golos === 3, 'parcial dos últimos 5 minutos: 3 golos da equipa de fora');
@@ -696,6 +701,19 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
   ok(recebidos.at(-1).equipas.find((e) => e.equipaId === casaId).golos === 2, 'baliza: o golo com local conta no placar');
   ok((await http('DELETE', `/api/jogos/${id}/eventos/${goloBaliza.json.id}`)).status === 204, 'baliza: apagar o golo com local = 204');
   ok(await ate(() => recebidos.at(-1)?.equipas?.find((e) => e.equipaId === casaId)?.golos === 1), 'baliza: depois de apagar volta a haver um só golo');
+
+  // sistema defensivo do adversário: opcional, só num remate em ataque posicional
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { ...remate, resultado: 'FORA', sistemaDefensivo: 'ZONA' })).status === 400, 'sistema defensivo: um sistema desconhecido = 400');
+  const semSistema = await http('POST', `/api/jogos/${id}/eventos`, { ...remate, resultado: 'FORA', situacao: 'CONTRA_ATAQUE', sistemaDefensivo: '6_0' });
+  ok(semSistema.status === 400 && semSistema.texto.includes('ataque posicional'), 'sistema defensivo: no contra-ataque = 400', descricao(semSistema));
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { ...remate, resultado: 'FORA', situacao: 'SETE_METROS', sistemaDefensivo: '6_0' })).status === 400, 'sistema defensivo: num 7 metros = 400');
+  ok((await http('POST', `/api/jogos/${id}/eventos`, { tipoEvento: 'FALTA_OFENSIVA', equipaId: casaId, jogadorId: lateralCasa, parte: 1, segundoJogo: 200, sistemaDefensivo: '6_0' })).status === 400, 'sistema defensivo: num evento que não é remate = 400');
+  const comSistema = await http('POST', `/api/jogos/${id}/eventos`, { ...remate, resultado: 'FORA', segundoJogo: 205, sistemaDefensivo: '3_2_1' });
+  ok(comSistema.status === 201, 'POST remate com a defesa do adversário (3:2:1) = 201', descricao(comSistema));
+  ok(await ate(() => recebidos.at(-1)?.remates?.some((r) => r.id === comSistema.json?.id)), 'sistema defensivo: o remate chega ao dashboard');
+  ok(recebidos.at(-1).remates.find((r) => r.id === comSistema.json.id)?.sistemaDefensivo === '3_2_1', 'sistema defensivo: o remate traz a defesa do adversário (3_2_1)');
+  ok(recebidos.at(-1).remates.find((r) => r.id === golo.json.id)?.sistemaDefensivo == null, 'sistema defensivo: um remate sem defesa escolhida vem sem sistema');
+  ok((await http('DELETE', `/api/jogos/${id}/eventos/${comSistema.json.id}`)).status === 204, 'sistema defensivo: apagar o remate = 204');
 
   // apagar -> nova atualização
   const antes = recebidos.length;

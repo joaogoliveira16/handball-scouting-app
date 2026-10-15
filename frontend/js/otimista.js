@@ -60,7 +60,7 @@ export function aplicarPendentes(estatisticas, pendentes, { jogo, tipos = [] }) 
     const jogador = e.jogadorId != null ? jogo.jogadores?.find((j) => j.id === e.jogadorId) : null;
     const equipa = resultado.equipas.find((x) => x.equipaId === e.equipaId);
 
-    // Remates: placar e contagens
+    // Remates: marcador e contagens
     if (e.resultado && equipa) {
       equipa.remates += 1;
       if (e.resultado === 'GOLO') equipa.golos += 1;

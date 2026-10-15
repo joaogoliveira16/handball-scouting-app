@@ -26,7 +26,7 @@ function tirarPosicao(texto) {
     [/ponta[\s-]*direita/i, 'PD'],
     [/lateral[\s-]*esquerdo/i, 'LE'],
     [/lateral[\s-]*direito/i, 'LD'],
-    [/\bpiv[oô]\b/i, 'PV'],
+    [/\bpiv(?:ot|[oô])(?![\p{L}])/iu, 'PV'],   // (\b não vê o «ô» como letra)
     [/\bcentral\b/i, 'CE'],
   ];
   for (const [regex, codigo] of palavras) {

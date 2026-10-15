@@ -276,7 +276,7 @@ await passo('Contas: criar conta, confirmar o email, sair e entrar', async () =>
   await outraVez.close();
   const invalido = await pagina(`/verificar.html?t=${'f'.repeat(64)}`, { tolerar: ['400'] });
   await invalido.waitForSelector('#falhou:not([hidden])');
-  ok((await invalido.locator('#erro-confirmar').textContent()).includes('inválido ou já expirou') && (await invalido.locator('#form-novo-link').isVisible()), 'link inválido: explica o que se passou e oferece um link novo');
+  ok((await invalido.locator('#erro-confirmar').textContent()).includes('inválida ou já expirou') && (await invalido.locator('#form-novo-link').isVisible()), 'link inválido: explica o que se passou e oferece um link novo');
   await captura(invalido, 'email-link-invalido');
   await invalido.fill('#novo-email', `ninguem-${sufixo}@exemplo.pt`);
   await invalido.click('#botao-novo-link');
@@ -432,7 +432,7 @@ await passo('Recuperar a palavra-passe', async () => {
   await gasto.fill('#nova-senha', 'outra-palavra-passe-1');
   await gasto.click('#botao-nova');
   await gasto.waitForSelector('#falhou:not([hidden])');
-  ok((await gasto.locator('#erro-link').textContent()).includes('já foi usado') && (await gasto.locator('#form-novo-link').isVisible()), 'redefinir: um link já usado explica o motivo e oferece um link novo');
+  ok((await gasto.locator('#erro-link').textContent()).includes('já foi usada') && (await gasto.locator('#form-novo-link').isVisible()), 'redefinir: um link já usado explica o motivo e oferece um link novo');
   ok(!new URL(gasto.url()).searchParams.has('t'), 'redefinir: o código recusado também sai do endereço');
   await gasto.fill('#novo-email', email);
   await gasto.click('#botao-novo-link');
@@ -1101,7 +1101,9 @@ await passo('Time-out: o relógio de jogo pára e o minuto do time-out desconta 
 
   // Acaba o minuto: fica a zero à espera de se retomar o jogo
   await banco.clock.fastForward('00:32');
-  ok(await esperarPor(async () => (await faixa.getAttribute('class'))?.includes('acabou')), 'time-out: ao fim do minuto a faixa avisa que acabou');
+  // (cada tentativa avança mais 1 s: o relógio simulado só dispara cada temporizador uma vez por salto)
+  ok(await esperarPor(async () => { await banco.clock.fastForward('00:01'); return (await faixa.getAttribute('class'))?.includes('acabou'); }),
+    'time-out: ao fim do minuto a faixa avisa que acabou');
   ok((await minuto()) === 0 && ((await faixa.textContent()) ?? '').includes('fim do time-out'), 'time-out: o minuto chega a 0:00 e diz «fim do time-out»');
   ok((await tempoJogo()) === parado && (await texto(banco.locator('#btn-relogio'))) === '▶', 'time-out: acabou o minuto mas o relógio de jogo só anda quando se retomar');
 
@@ -1150,6 +1152,152 @@ await passo('Time-out: o relógio de jogo pára e o minuto do time-out desconta 
   ok(restante[0] === 0 && restante[1] >= 30 && restante[1] <= 40, `time-out: ao recarregar a página o minuto continua (0:${restante[1]})`);
   ok(await esperarPor(async () => ((await real.locator('#faixa-timeout').textContent()) ?? '').includes('Leões do Sul')), 'time-out: depois de recarregar a faixa lembra que equipa pediu');
   await real.close();
+});
+
+// ======================= Sistema defensivo do adversário =======================
+await passo('Sistema defensivo: o banco marca a defesa do adversário e ela segue com os remates posicionais', async () => {
+  const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  const banco = await pagina(`/banco.html?jogo=${jogoId}`);
+  await banco.waitForSelector('.botao-jogador');
+  const sistema = async () => (await banco.locator('#sistemas button.ativo').evaluateAll((bs) => bs.map((b) => b.textContent)));
+  const nRemates = async () => (await q("SELECT 1 FROM eventos WHERE jogo_id = $1 AND tipo_evento_codigo = 'REMATE'", [jogoId])).length;
+  const ultimo = async () => (await q("SELECT resultado, situacao, sistema_defensivo FROM eventos WHERE jogo_id = $1 AND tipo_evento_codigo = 'REMATE' ORDER BY id DESC LIMIT 1", [jogoId]))[0];
+  const caixa = await banco.locator('#campo').boundingBox();
+  // um remate da equipa que ataca: toca no mapa, escolhe o 1.º jogador e o resultado
+  const remate = async (resultado, situacao = null) => {
+    if (situacao) await banco.locator('#situacoes button', { hasText: situacao }).click();
+    if (situacao !== '7 metros') await banco.locator('#campo').click({ position: { x: caixa.width * 0.5, y: caixa.height * 0.5 } });
+    await banco.locator('.botao-jogador').first().click();
+    if (resultado === 'GOLO') await golo(banco, 'MEIO_CENTRO');
+    else await banco.click(`.botao-resultado[data-resultado="${resultado}"]`);
+  };
+  const esperarRemates = async (n) => esperarPor(async () => (await nRemates()) === n);
+
+  ok((await banco.locator('#rotulo-sistema').textContent()) === 'Defesa do adversário', 'sistema defensivo: o banco tem a linha «Defesa do adversário»');
+  ok((await banco.locator('#sistemas button').evaluateAll((bs) => bs.map((b) => b.textContent))).join('|') === '6:0|5:1|3:2:1|4:2|Individual', 'sistema defensivo: 6:0, 5:1, 3:2:1, 4:2 e individual');
+  ok((await sistema()).length === 0, 'sistema defensivo: começa sem nenhuma defesa escolhida');
+
+  // sem defesa escolhida o remate fica sem sistema
+  await remate('FORA');
+  ok(await esperarRemates(1) && (await ultimo()).sistema_defensivo === null, 'sistema defensivo: sem defesa escolhida o remate fica sem sistema');
+
+  // escolher a 5:1: fica marcada e segue com o remate posicional
+  await banco.locator('#sistemas button', { hasText: '5:1' }).click();
+  ok((await sistema()).join() === '5:1' && (await banco.locator('#sistemas button[data-sistema="5_1"]').getAttribute('aria-pressed')) === 'true', 'sistema defensivo: a 5:1 fica marcada');
+  await remate('FORA');
+  ok(await esperarRemates(2) && (await ultimo()).sistema_defensivo === '5_1', 'sistema defensivo: o remate posicional leva a 5:1');
+  await captura(banco, 'banco-sistema-defensivo');
+
+  // a defesa fica escolhida para os remates seguintes (não é preciso voltar a tocar)
+  await remate('GOLO');
+  ok(await esperarRemates(3) && (await ultimo()).sistema_defensivo === '5_1' && (await ultimo()).resultado === 'GOLO', 'sistema defensivo: continua escolhida no remate seguinte (um golo, com a janela da baliza)');
+
+  // contra-ataque e 7 metros não enfrentam uma defesa montada: não levam sistema
+  await remate('FORA', 'Contra-ataque');
+  ok(await esperarRemates(4) && (await ultimo()).situacao === 'CONTRA_ATAQUE' && (await ultimo()).sistema_defensivo === null, 'sistema defensivo: o contra-ataque não leva sistema');
+  await remate('FORA', '7 metros');
+  ok(await esperarRemates(5) && (await ultimo()).situacao === 'SETE_METROS' && (await ultimo()).sistema_defensivo === null, 'sistema defensivo: os 7 metros não levam sistema');
+  ok((await sistema()).join() === '5:1', 'sistema defensivo: depois deles a 5:1 continua escolhida');
+
+  // cada equipa tem a sua defesa: a do adversário de quem ataca
+  await banco.locator('#seletor-equipa button').nth(1).click();
+  ok((await sistema()).length === 0, 'sistema defensivo: a outra equipa (que ataca contra a defesa das Águias) começa sem defesa');
+  await banco.locator('#sistemas button', { hasText: 'Individual' }).click();
+  await banco.locator('#seletor-equipa button').nth(0).click();
+  ok((await sistema()).join() === '5:1', 'sistema defensivo: ao voltar à equipa da casa a 5:1 continua lá');
+
+  // recarregar a página não a perde
+  await banco.reload({ waitUntil: 'domcontentloaded' });
+  await banco.waitForSelector('.botao-jogador');
+  ok((await sistema()).join() === '5:1', 'sistema defensivo: recarregar a página não perde a defesa escolhida');
+  await banco.locator('#seletor-equipa button').nth(1).click();
+  ok((await sistema()).join() === 'Individual', 'sistema defensivo: nem a da outra equipa');
+  await banco.locator('#seletor-equipa button').nth(0).click();
+
+  // tocar outra vez na escolhida tira-a
+  await banco.locator('#sistemas button', { hasText: '5:1' }).click();
+  ok((await sistema()).length === 0, 'sistema defensivo: tocar outra vez na defesa escolhida tira-a');
+  await remate('FORA');
+  ok(await esperarRemates(6) && (await ultimo()).sistema_defensivo === null, 'sistema defensivo: depois de a tirar o remate fica sem sistema');
+
+  await banco.close();
+});
+
+await passo('Dashboard: contra que defesa se marca mais e o livro dos 7 metros', async () => {
+  const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  const [jogA, jogB] = await q("SELECT id, numero, nome FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 2", [aguias.id]);
+  const [{ id: jogFora }] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [leoes.id]);
+  let segundo = 0;
+  const evento = (equipa, jogador, resultado, { situacao = 'POSICIONAL', sistema = null, baliza = null } = {}) => q(
+    `INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, resultado, situacao, x, y, parte, segundo_jogo, baliza_x, baliza_y, sistema_defensivo)
+     VALUES ($1, $2, 'REMATE', $3, $4, $5, 50, 40, 1, $6, $7, $8, $9)`,
+    [jogoId, equipa, jogador, resultado, situacao, (segundo += 30), baliza?.[0] ?? null, baliza?.[1] ?? null, sistema]);
+  // Águias contra a 6:0: 1 golo em 4 (25 %); contra a 5:1: 3 em 4 (75 %); e um golo sem defesa marcada
+  for (const r of ['GOLO', 'FORA', 'FORA', 'DEFESA']) await evento(aguias.id, jogA.id, r, { sistema: '6_0' });
+  for (const r of ['GOLO', 'GOLO', 'GOLO', 'POSTE']) await evento(aguias.id, jogB.id, r, { sistema: '5_1' });
+  await evento(aguias.id, jogA.id, 'GOLO');
+  // 7 metros do jogador A: 2 golos e 1 defesa em baixo à direita, 1 fora; do B: 1 golo em cima à esquerda (não contam como defesa montada)
+  await evento(aguias.id, jogA.id, 'GOLO', { situacao: 'SETE_METROS', baliza: [90, 90] });
+  await evento(aguias.id, jogA.id, 'GOLO', { situacao: 'SETE_METROS', baliza: [85, 80] });
+  await evento(aguias.id, jogA.id, 'DEFESA', { situacao: 'SETE_METROS', baliza: [88, 92] });
+  await evento(aguias.id, jogA.id, 'FORA', { situacao: 'SETE_METROS' });
+  await evento(aguias.id, jogB.id, 'GOLO', { situacao: 'SETE_METROS', baliza: [10, 10] });
+  await evento(leoes.id, jogFora, 'GOLO', { sistema: '6_0' });
+  ok((await q("SELECT 1 FROM v_remates WHERE jogo_id = $1 AND sistema_defensivo IS NOT NULL", [jogoId])).length === 9, 'dashboard: a vista dos remates traz o sistema defensivo (9 remates com defesa marcada)');
+
+  const dash = await pagina(`/dashboard.html?jogo=${jogoId}`);
+  await dash.waitForSelector('#painel .cartao');
+  const cartaoDefesa = dash.locator('section.cartao', { has: dash.locator('h2', { hasText: 'Contra que defesa' }) });
+  const cartaoLivro = dash.locator('section.cartao', { has: dash.locator('h2', { hasText: 'Livro dos 7 metros' }) });
+  const linha = (sistema) => cartaoDefesa.locator(`tr[data-sistema="${sistema}"]`);
+
+  ok(((await cartaoDefesa.locator('h2').textContent()) ?? '').includes('Águias do Norte'), 'dashboard: «Contra que defesa» é da equipa escolhida');
+  ok((await cartaoDefesa.locator('tbody tr').count()) === 3, 'dashboard: três linhas (6:0, 5:1 e sem defesa marcada)');
+  ok((await texto(linha('6_0'))).startsWith('Defesa6:0') && (await linha('6_0').locator('td.num').allTextContents()).join('|') === '4|1|25%', `dashboard: contra a 6:0 marcam 1 de 4 (25%) (${await linha('6_0').textContent()})`);
+  ok((await linha('5_1').locator('td.num').allTextContents()).join('|') === '4|3|75%', 'dashboard: contra a 5:1 marcam 3 de 4 (75%)');
+  ok((await linha('NENHUM').locator('td').first().textContent()) === 'Sem defesa marcada' && (await linha('NENHUM').locator('td.num').first().textContent()) === '1', 'dashboard: o remate sem defesa marcada fica à parte');
+  ok((await cartaoDefesa.locator('tr.melhor[data-sistema="5_1"]').count()) === 1 && (await cartaoDefesa.locator('tr.pior[data-sistema="6_0"]').count()) === 1, 'dashboard: a 5:1 é a melhor e a 6:0 a pior');
+  const resumoDefesa = (await cartaoDefesa.locator('.zona-top').textContent()) ?? '';
+  ok(resumoDefesa.includes('Marca mais contra a defesa 5:1') && resumoDefesa.includes('menos contra a 6:0'), `dashboard: o resumo diz contra que defesa marcam mais e menos (${resumoDefesa})`);
+  ok(((await cartaoDefesa.textContent()) ?? '').includes('contra-ataque e nos 7 metros não há defesa montada'), 'dashboard: o quadro avisa que só conta o ataque posicional');
+  ok((await cartaoDefesa.locator('tbody td').allTextContents()).every((t) => !/7 metros/.test(t)), 'dashboard: os 7 metros não entram na comparação');
+
+  // livro dos 7 metros das Águias
+  ok(((await cartaoLivro.locator('h2').textContent()) ?? '').includes('Águias do Norte'), 'livro: é da equipa escolhida');
+  ok((await cartaoLivro.locator('.lancador').count()) === 2, 'livro: dois lançadores');
+  const ficha = cartaoLivro.locator('.lancador').first();
+  const textoFicha = (await ficha.textContent()) ?? '';
+  ok(textoFicha.includes(`#${jogA.numero} ${jogA.nome}`) && textoFicha.includes('4 lançamentos · 2 golos · 1 defendido') && textoFicha.includes('1 sem defesa'),
+    `livro: o que mais lançou vem primeiro, com os números (${textoFicha})`);
+  ok((await ficha.locator('.zona-top').textContent())?.includes('baixo à direita') && (await ficha.locator('.zona-top').textContent())?.includes('3 de 3'), 'livro: a tendência é baixo à direita (3 de 3)');
+  ok((await texto(ficha.locator('.baliza-zona[data-zona="BAIXO_DIR"] + .baliza-contagem'))) === '3', 'livro: a baliza do jogador tem 3 em baixo à direita');
+  const segunda = cartaoLivro.locator('.lancador').nth(1);
+  ok(((await segunda.textContent()) ?? '').includes('1 lançamento · 1 golo · 0 defendidos') && ((await segunda.textContent()) ?? '').includes('Ainda sem zona preferida'), 'livro: com 1 lançamento ainda não há zona preferida');
+  ok(((await cartaoLivro.textContent()) ?? '').includes('Total: 5 lançamentos, 3 golos (60%)'), 'livro: o total da equipa (5 lançamentos, 3 golos, 60%)');
+  await captura(dash, 'dashboard-livro-7-metros');
+
+  // a outra equipa: uma defesa só e sem 7 metros
+  await dash.locator('.separador-abas button', { hasText: 'Leões do Sul' }).click();
+  ok((await cartaoDefesa.locator('tbody tr').count()) === 1 && (await cartaoDefesa.locator('tr.melhor, tr.pior').count()) === 0, 'dashboard: a outra equipa tem uma defesa só e não há melhor nem pior');
+  ok(((await cartaoDefesa.textContent()) ?? '').includes('Para comparar são precisas pelo menos duas defesas'), 'dashboard: com uma defesa só explica o que falta para comparar');
+  ok(((await cartaoLivro.textContent()) ?? '').includes('Ainda sem 7 metros'), 'livro: a equipa sem 7 metros diz que o livro ainda está vazio');
+  await dash.close();
+
+  // um jogo sem remates
+  const [{ id: vazioId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  const vazio = await pagina(`/dashboard.html?jogo=${vazioId}`);
+  await vazio.waitForSelector('#painel .cartao');
+  const textoVazio = (await vazio.locator('#painel').textContent()) ?? '';
+  ok(textoVazio.includes('Ainda sem remates em ataque posicional.') && textoVazio.includes('Ainda sem 7 metros'), 'dashboard: sem remates os dois quadros explicam que ainda não há dados');
+  await vazio.close();
+
+  // jogo com remates posicionais mas sem a defesa marcada
+  const [{ id: semId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  await q("INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, resultado, x, y, parte, segundo_jogo) VALUES ($1, $2, 'REMATE', $3, 'GOLO', 50, 40, 1, 30)", [semId, aguias.id, jogA.id]);
+  const sem = await pagina(`/dashboard.html?jogo=${semId}`);
+  await sem.waitForSelector('#painel .cartao');
+  ok((((await sem.locator('#painel').textContent()) ?? '').includes('Ainda sem a defesa do adversário marcada')), 'dashboard: sem defesa marcada o quadro explica como a marcar no banco');
+  await sem.close();
 });
 
 await passo('Superioridade: a eficácia por situação (igualdade, superioridade, inferioridade, 7×6) no dashboard', async () => {
@@ -1665,10 +1813,10 @@ await passo('Link de partilha: copiar e ver sem conta', async () => {
   const lista = await pagina('/');
   const linha = lista.locator('.jogo-linha', { hasText: 'Pavilhão Central' });
   ok((await linha.locator('a:has-text("Dashboard")').getAttribute('href')) === `dashboard.html?jogo=${novoJogoId}&c=${codigoNovo}`, 'jogos: o botão Dashboard já leva o código do jogo');
-  await linha.getByRole('button', { name: 'Copiar link' }).click();
-  await lista.waitForFunction(() => document.getElementById('aviso').textContent.includes('Link copiado'));
+  await linha.getByRole('button', { name: 'Copiar ligação' }).click();
+  await lista.waitForFunction(() => document.getElementById('aviso').textContent.includes('Ligação copiada'));
   const copiado = await lista.evaluate(() => navigator.clipboard.readText());
-  ok(copiado === `${servidor.url}/dashboard.html?jogo=${novoJogoId}&c=${codigoNovo}`, `jogos: "Copiar link" copia o endereço de partilha (${copiado})`);
+  ok(copiado === `${servidor.url}/dashboard.html?jogo=${novoJogoId}&c=${codigoNovo}`, `jogos: "Copiar ligação" copia o endereço de partilha (${copiado})`);
   await lista.close();
 
   // Quem recebe o link abre o dashboard num browser sem sessão
@@ -1680,7 +1828,7 @@ await passo('Link de partilha: copiar e ver sem conta', async () => {
   ok((await v.locator('svg.campo .camada-marcadores .marcador').count()) > 0, 'visitante: o mapa de remates aparece');
   await captura(v, 'dashboard-visitante');
   await v.click('#partilhar');
-  ok((await v.evaluate(() => navigator.clipboard.readText())) === `${servidor.url}/dashboard.html?jogo=2&c=${codigo}`, 'visitante: "Copiar link" copia o mesmo endereço');
+  ok((await v.evaluate(() => navigator.clipboard.readText())) === `${servidor.url}/dashboard.html?jogo=2&c=${codigo}`, 'visitante: "Copiar ligação" copia o mesmo endereço');
   const [descarga] = await Promise.all([v.waitForEvent('download'), v.click('#excel-jogo')]);
   const ficheiroVisitante = path.join(E2E_DIR, `e2e-visitante-${descarga.suggestedFilename()}`);
   await descarga.saveAs(ficheiroVisitante);
@@ -1729,11 +1877,11 @@ await passo('Área de convidado: ver jogos só com o link', async () => {
 
   // Link inválido: explica o que falta
   await e.click('#form-link button[type=submit]');
-  ok((await e.locator('#erro-link').textContent()).includes('Cola o link'), 'convidado: sem link pede para colar o link');
+  ok((await e.locator('#erro-link').textContent()).includes('Cola a ligação'), 'convidado: sem link pede para colar o link');
   for (const mau of ['isto não é um link', `${servidor.url}/dashboard.html?jogo=2&c=curto`, `${servidor.url}/dashboard.html?c=${codigo}`, `${servidor.url}/dashboard.html?jogo=0&c=${codigo}`]) {
     await e.fill('#link-jogo', mau);
     await e.click('#form-link button[type=submit]');
-    ok((await e.locator('#erro-link').textContent()).includes('não parece o link de um jogo') && e.url().includes('convidado.html'), `convidado: recusa "${mau.replace(servidor.url, '')}" e fica na página`);
+    ok((await e.locator('#erro-link').textContent()).includes('não parece a ligação de um jogo') && e.url().includes('convidado.html'), `convidado: recusa "${mau.replace(servidor.url, '')}" e fica na página`);
   }
 
   // Link bom, no meio de uma mensagem: abre o dashboard do jogo, sem conta

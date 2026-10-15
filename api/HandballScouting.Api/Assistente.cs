@@ -203,7 +203,7 @@ public static class Assistente
                     $"Considerar trocar o guarda-redes de {equipa.Nome}", $"#{gr.Numero} {gr.Nome}: {numeros}.");
             else if (gr.Defesas * 100 >= DefesaGuardaRedesForte * gr.RematesBaliza)
                 yield return Nova("GUARDA_REDES_FORTE", "info", adversaria.EquipaId, gr.JogadorId, PrioGuardaRedesForte,
-                    $"Variar as finalizações contra o #{gr.Numero} de {equipa.Nome}", $"{gr.Nome}: {numeros}.");
+                    $"Variar os remates contra o #{gr.Numero} de {equipa.Nome}", $"{gr.Nome}: {numeros}.");
         }
     }
 

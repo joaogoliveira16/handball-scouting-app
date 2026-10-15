@@ -66,6 +66,16 @@ export const SITUACOES = [
 
 export const ROTULO_SITUACAO = Object.fromEntries(SITUACOES.map((s) => [s.codigo, s.rotulo]));
 
+// A defesa que o adversário jogava num remate em ataque posicional (ver db/init/17_sistema_defensivo.sql)
+export const SISTEMAS_DEFENSIVOS = [
+  { codigo: '6_0', rotulo: '6:0' },
+  { codigo: '5_1', rotulo: '5:1' },
+  { codigo: '3_2_1', rotulo: '3:2:1' },
+  { codigo: '4_2', rotulo: '4:2' },
+  { codigo: 'INDIVIDUAL', rotulo: 'Individual' },
+];
+export const ROTULO_SISTEMA = Object.fromEntries(SISTEMAS_DEFENSIVOS.map((s) => [s.codigo, s.rotulo]));
+
 export const ROTULO_CORREDOR = {
   PONTA_ESQ: 'Ponta esquerda', LATERAL_ESQ: 'Lateral esquerdo', CENTRAL: 'Central',
   LATERAL_DIR: 'Lateral direito', PONTA_DIR: 'Ponta direita',
@@ -102,7 +112,7 @@ export const POSICOES = [
   { codigo: 'CE', rotulo: 'Central' },
   { codigo: 'LD', rotulo: 'Lateral direito' },
   { codigo: 'PD', rotulo: 'Ponta direita' },
-  { codigo: 'PV', rotulo: 'Pivô' },
+  { codigo: 'PV', rotulo: 'Pivot' },
 ];
 export const ROTULO_POSICAO = Object.fromEntries(POSICOES.map((p) => [p.codigo, p.rotulo]));
 

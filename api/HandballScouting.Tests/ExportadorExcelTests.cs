@@ -17,19 +17,20 @@ public class ExportadorExcelTests
         long id, int equipa, int numero, string nome, string posicao, string resultado,
         string corredor, string distancia, short parte, int segundo,
         int? grId = null, int? grEquipa = null, int? grNumero = null, string? grNome = null,
-        decimal? balizaX = null, decimal? balizaY = null, string? zona = null) => new()
+        decimal? balizaX = null, decimal? balizaY = null, string? zona = null,
+        string situacao = "POSICIONAL", string? sistema = null) => new()
     {
         Id = id, EquipaId = equipa, EquipaNome = equipa == Casa ? "Águias do Norte" : "Leões do Sul",
         Tipo = "REMATE", TipoNome = "Remate", JogadorNumero = (short)numero, JogadorNome = nome, JogadorPosicao = posicao,
-        Resultado = resultado, Situacao = "POSICIONAL", Corredor = corredor, Distancia = distancia,
+        Resultado = resultado, Situacao = situacao, Corredor = corredor, Distancia = distancia,
         X = 50.5m, Y = 30m, Parte = parte, SegundoJogo = segundo,
         GuardaRedesId = grId, GuardaRedesEquipaId = grEquipa, GuardaRedesNumero = (short?)grNumero, GuardaRedesNome = grNome,
-        BalizaX = balizaX, BalizaY = balizaY, BalizaZona = zona
+        BalizaX = balizaX, BalizaY = balizaY, BalizaZona = zona, SistemaDefensivo = sistema
     };
 
     /// <summary>
     /// Jogo de exemplo. Casa: PE #7 1/1, LE #9 2 remates (1 golo, 1 defesa). Fora: CE #6 1/1, LD #8 1 remate fora.
-    /// O pivô #5 da casa não está convocado.
+    /// O pivot #5 da casa não está convocado.
     /// </summary>
     private static DadosExportacao Amostra(bool comConvocatoria = true)
     {
@@ -134,8 +135,8 @@ public class ExportadorExcelTests
         Assert.Equal(
             new List<string>
             {
-                "Resumo", "Jogadores", "Por posição", "Por corredor", "Por distância", "Por parte", "Guarda-redes",
-                "Defesas na baliza", "Golos na baliza", "Outros eventos", "Eventos"
+                "Resumo", "Jogadores", "Por posição", "Por corredor", "Por distância", "Por parte", "Sistemas defensivos", "Guarda-redes",
+                "Defesas na baliza", "Golos na baliza", "Livro dos 7 metros", "Outros eventos", "Eventos"
             },
             LeitorXlsx.NomesDasFolhas(Gerar(Amostra())));
     }
@@ -167,10 +168,10 @@ public class ExportadorExcelTests
 
         Assert.Contains(texto, l => l == "Águias do Norte vs Leões do Sul");
         Assert.Contains(texto, l => l == "Resultado|2 – 1");
-        Assert.Contains(texto, l => l == "Data|2026-10-11 19:30");
+        Assert.Contains(texto, l => l == "Data|11/10/2026 19:30");
         Assert.Contains(texto, l => l == "Local|Pavilhão Municipal");
         Assert.Contains(texto, l => l == "Âmbito|Jogo completo");
-        Assert.Contains(texto, l => l == "Exportado em|2026-10-11 21:00 (UTC)");
+        Assert.Contains(texto, l => l == "Exportado em|11/10/2026 21:00 (UTC)");
     }
 
     [Fact]
@@ -198,7 +199,7 @@ public class ExportadorExcelTests
 
         var linhas = LeitorXlsx.Linhas(ExportadorExcel.Gerar(Amostra(), null, lisboa, Agora), "Resumo");
         // 11 de outubro de 2026 ainda é hora de verão em Portugal (UTC+1)
-        Assert.Contains(linhas, l => l.Length > 1 && l[0] == "Data" && l[1] == "2026-10-11 20:30");
+        Assert.Contains(linhas, l => l.Length > 1 && l[0] == "Data" && l[1] == "11/10/2026 20:30");
     }
 
     [Fact]
@@ -214,8 +215,8 @@ public class ExportadorExcelTests
     {
         var linhas = LeitorXlsx.Linhas(Gerar(Amostra()), "Jogadores");
 
-        Assert.Equal(new[] { "Equipa", "Nº", "Nome", "Posição", "Convocado", "Remates", "Golos", "Eficácia (%)" }, linhas[0]);
-        Assert.Equal(6, linhas.Count - 1);                         // 7 jogadores, menos o pivô não convocado
+        Assert.Equal(new[] { "Equipa", "N.º", "Nome", "Posição", "Convocado", "Remates", "Golos", "Eficácia (%)" }, linhas[0]);
+        Assert.Equal(6, linhas.Count - 1);                         // 7 jogadores, menos o pivot não convocado
         Assert.DoesNotContain(linhas, l => l.Length > 2 && l[2] == "Nuno Reis");
         Assert.True(linhas.Skip(1).All(l => l[4] == "Sim"));
     }
@@ -357,7 +358,7 @@ public class ExportadorExcelTests
     {
         var linhas = LeitorXlsx.Linhas(Gerar(Amostra()), "Eventos");
         Assert.Equal(
-            new[] { "Guarda-redes", "Zona da baliza", "Baliza X (%)", "Baliza Y (%)" },
+            new[] { "Guarda-redes", "Zona da baliza", "Baliza X (%)", "Baliza Y (%)", "Defesa do adversário" },
             linhas[0].Skip(14).ToArray());
 
         var defesa = linhas[4]; // evento 4
@@ -380,7 +381,7 @@ public class ExportadorExcelTests
         Assert.Equal(
             new[]
             {
-                "Equipa", "Nº", "Nome",
+                "Equipa", "N.º", "Nome",
                 "Alto à esquerda", "Alto ao centro", "Alto à direita",
                 "Meio à esquerda", "Meio ao centro", "Meio à direita",
                 "Baixo à esquerda", "Baixo ao centro", "Baixo à direita",
@@ -452,7 +453,7 @@ public class ExportadorExcelTests
         Assert.Equal(
             new[]
             {
-                "Equipa", "Nº", "Nome",
+                "Equipa", "N.º", "Nome",
                 "Alto à esquerda", "Alto ao centro", "Alto à direita",
                 "Meio à esquerda", "Meio ao centro", "Meio à direita",
                 "Baixo à esquerda", "Baixo ao centro", "Baixo à direita",
@@ -489,6 +490,125 @@ public class ExportadorExcelTests
         var dados = Amostra();
         var fora = TabelaGolos(Gerar(dados, equipaId: Fora)).Skip(1).Select(l => string.Join("|", l)).ToArray();
         Assert.Equal(new[] { "Leões do Sul||(sem guarda-redes)|0|0|0|0|0|0|0|0|0|2|2" }, fora);
+    }
+
+    // ------------------------- Sistemas defensivos -------------------------
+
+    private static List<string[]> TabelaSistemas(byte[] ficheiro) =>
+        LeitorXlsx.Linhas(ficheiro, "Sistemas defensivos").Where(l => l.Length > 2).ToList();
+
+    [Fact]
+    public void Sistemas_defensivos_tem_o_cabecalho_esperado()
+    {
+        Assert.Equal(
+            new[] { "Equipa", "Defesa do adversário", "Remates", "Golos", "Defesas", "Fora", "Poste", "Bloqueados", "Eficácia (%)" },
+            TabelaSistemas(Gerar(Amostra()))[0]);
+    }
+
+    [Fact]
+    public void Sistemas_defensivos_agrupa_por_equipa_e_por_defesa_com_os_sem_defesa_no_fim()
+    {
+        var dados = Amostra();   // os 5 remates de exemplo são posicionais e sem defesa escolhida
+        dados.Eventos[0].SistemaDefensivo = "6_0";    // Tiago, golo
+        dados.Eventos[1].SistemaDefensivo = "5_1";    // Pedro, golo
+        dados.Eventos[3].SistemaDefensivo = "6_0";    // Pedro, defesa
+        dados.Eventos[2].SistemaDefensivo = "INDIVIDUAL";   // Davi, fora
+
+        var linhas = TabelaSistemas(Gerar(dados)).Skip(1).Select(l => string.Join("|", l)).ToArray();
+        Assert.Equal(
+            new[]
+            {
+                // Águias: 6:0 (golo e defesa) antes de 5:1; ordem dos sistemas, não alfabética
+                "Águias do Norte|6:0|2|1|1|0|0|0|50",
+                "Águias do Norte|5:1|1|1|0|0|0|0|100",
+                "Leões do Sul|Individual|1|0|0|1|0|0|0",
+                // o golo do Ivo não tem defesa escolhida
+                "Leões do Sul|Sem defesa marcada|1|1|0|0|0|0|100"
+            },
+            linhas);
+    }
+
+    [Fact]
+    public void Sistemas_defensivos_ignora_o_contra_ataque_e_os_7_metros()
+    {
+        var dados = Amostra();
+        dados.Eventos.Add(Remate(7, Casa, 7, "Tiago Alves", "PE", "GOLO", "PONTA_ESQ", "ATE_6M", 2, 3900, situacao: "CONTRA_ATAQUE"));
+        dados.Eventos.Add(Remate(8, Casa, 9, "Pedro Lima", "LE", "GOLO", "CENTRAL", "DE_6_A_9M", 2, 3950, situacao: "SETE_METROS"));
+
+        var total = TabelaSistemas(Gerar(dados)).Skip(1).Where(l => l[0] == "Águias do Norte").Sum(l => int.Parse(l[2]));
+        Assert.Equal(3, total);   // só os 3 remates posicionais das Águias
+    }
+
+    [Fact]
+    public void Sistemas_defensivos_de_uma_equipa_so_mostra_essa_equipa()
+    {
+        var dados = Amostra();
+        dados.Eventos[2].SistemaDefensivo = "6_0";
+        var linhas = TabelaSistemas(Gerar(dados, equipaId: Fora)).Skip(1).ToList();
+        Assert.NotEmpty(linhas);
+        Assert.All(linhas, l => Assert.Equal("Leões do Sul", l[0]));
+    }
+
+    [Fact]
+    public void Eventos_mostra_a_defesa_do_adversario_com_o_rotulo()
+    {
+        var dados = Amostra();
+        dados.Eventos[0].SistemaDefensivo = "3_2_1";
+        var linhas = LeitorXlsx.Linhas(Gerar(dados), "Eventos");
+        Assert.Equal("3:2:1", linhas[1][18]);   // evento 1
+        Assert.True(linhas[2].Length <= 18 || linhas[2][18] == "");   // evento 2: sem defesa escolhida (a célula vazia final pode nem existir)
+    }
+
+    // ------------------------- Livro dos 7 metros -------------------------
+
+    private static List<string[]> TabelaSeteMetros(byte[] ficheiro) =>
+        LeitorXlsx.Linhas(ficheiro, "Livro dos 7 metros").Where(l => l.Length > 3).ToList();
+
+    [Fact]
+    public void Livro_dos_7_metros_tem_as_zonas_da_baliza_e_a_zona_mais_usada()
+    {
+        var cabecalho = TabelaSeteMetros(Gerar(Amostra()))[0];
+        Assert.Equal(
+            new[]
+            {
+                "Equipa", "N.º", "Nome", "Lançamentos", "Golos", "Defendidos", "Fora", "Poste", "Bloqueados", "Eficácia (%)",
+                "Alto à esquerda", "Alto ao centro", "Alto à direita",
+                "Meio à esquerda", "Meio ao centro", "Meio à direita",
+                "Baixo à esquerda", "Baixo ao centro", "Baixo à direita",
+                "Sem local", "Zona mais usada"
+            },
+            cabecalho);
+    }
+
+    [Fact]
+    public void Livro_dos_7_metros_conta_por_lancador_e_so_os_7_metros()
+    {
+        var dados = Amostra();   // os remates de exemplo são posicionais: não entram
+        const string s = "SETE_METROS";
+        // Ivo (Leões): 4 lançamentos: golo e golo em baixo à direita, defesa em baixo à direita, fora
+        dados.Eventos.Add(Remate(7, Fora, 6, "Ivo Pinto", "CE", "GOLO", "CENTRAL", "DE_6_A_9M", 1, 600, situacao: s, grId: 1, grEquipa: Casa, grNumero: 1, grNome: "Rui Gomes", balizaX: 90m, balizaY: 90m, zona: "BAIXO_DIR"));
+        dados.Eventos.Add(Remate(8, Fora, 6, "Ivo Pinto", "CE", "DEFESA", "CENTRAL", "DE_6_A_9M", 1, 1200, situacao: s, grId: 1, grEquipa: Casa, grNumero: 1, grNome: "Rui Gomes", balizaX: 80m, balizaY: 85m, zona: "BAIXO_DIR"));
+        dados.Eventos.Add(Remate(9, Fora, 6, "Ivo Pinto", "CE", "GOLO", "CENTRAL", "DE_6_A_9M", 2, 2000, situacao: s, grId: 1, grEquipa: Casa, grNumero: 1, grNome: "Rui Gomes"));
+        dados.Eventos.Add(Remate(10, Fora, 6, "Ivo Pinto", "CE", "FORA", "CENTRAL", "DE_6_A_9M", 2, 2600, situacao: s));
+        // Pedro (Águias): 1 golo em cima à esquerda
+        dados.Eventos.Add(Remate(11, Casa, 9, "Pedro Lima", "LE", "GOLO", "CENTRAL", "DE_6_A_9M", 2, 3000, situacao: s, balizaX: 10m, balizaY: 10m, zona: "ALTO_ESQ"));
+
+        var linhas = TabelaSeteMetros(Gerar(dados)).Skip(1).Select(l => string.Join("|", l)).ToArray();
+        Assert.Equal(
+            new[]
+            {
+                // 1 lançamento, 1 golo, 100 %; zona ALTO_ESQ
+                "Águias do Norte|9|Pedro Lima|1|1|0|0|0|0|100|1|0|0|0|0|0|0|0|0|0|Alto à esquerda (1)",
+                // 4 lançamentos: 2 golos, 1 defesa, 1 fora; 2 em baixo à direita; 1 golo sem local; 50 %
+                "Leões do Sul|6|Ivo Pinto|4|2|1|1|0|0|50|0|0|0|0|0|0|0|0|2|1|Baixo à direita (2)"
+            },
+            linhas);
+    }
+
+    [Fact]
+    public void Livro_dos_7_metros_sem_lancamentos_so_tem_o_cabecalho()
+    {
+        Assert.Single(TabelaSeteMetros(Gerar(Amostra())));
     }
 
     [Fact]

@@ -21,11 +21,11 @@ public static partial class EmailRedefinicao
         $"""
         Olá {Linha(nome)},
 
-        Pediram para escolher uma palavra-passe nova para a tua conta no Scouting de Andebol. Abre este link para a escolheres:
+        Pediram para escolher uma palavra-passe nova para a tua conta no Scouting de Andebol. Abre esta ligação para a escolheres:
 
         {link}
 
-        O link é válido durante 1 hora e só funciona uma vez. Se não foste tu, ignora este email: a tua palavra-passe não muda.
+        A ligação é válida durante 1 hora e só funciona uma vez. Se não foste tu, ignora este email: a tua palavra-passe não muda.
         """;
 
     public static string Html(string nome, string link)
@@ -45,7 +45,7 @@ public static partial class EmailRedefinicao
             </p>
             <p style="margin:0 0 8px;font-size:13px;color:#5b6577">Se o botão não funcionar, copia este endereço para o browser:</p>
             <p style="margin:0 0 20px;font-size:13px;word-break:break-all"><a href="{linkHtml}" style="color:#1f4fd8">{linkHtml}</a></p>
-            <p style="margin:0;font-size:13px;color:#5b6577">O link é válido durante 1 hora e só funciona uma vez. Se não foste tu, ignora este email: a tua palavra-passe não muda.</p>
+            <p style="margin:0;font-size:13px;color:#5b6577">A ligação é válida durante 1 hora e só funciona uma vez. Se não foste tu, ignora este email: a tua palavra-passe não muda.</p>
           </div>
         </body>
         </html>

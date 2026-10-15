@@ -172,7 +172,7 @@ function colunaEquipa(equipa) {
         h('button', { type: 'button', class: 'botao suave pequeno', onclick: () => escolherNenhum(equipa.id) }, 'Nenhum'),
         h('button', {
           type: 'button', class: 'botao suave pequeno', disabled: estado.aLerFoto, onclick: () => lerDeFoto(equipa),
-          title: 'Escolhe uma foto ou um print da convocatória e a app lê os jogadores',
+          title: 'Escolhe uma foto ou uma captura de ecrã da convocatória e a app lê os jogadores',
         }, 'Ler de uma foto'))),
     plantel.length
       ? h('div', { class: 'grelha-azulejos' }, plantel.map((j) => azulejo(j, cheia)))

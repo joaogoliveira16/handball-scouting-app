@@ -292,7 +292,7 @@ h3 { font: 600 1.05rem/1.2 var(--fonte); }
 .segmentos button + button { border-left: 1px solid var(--linha); }
 .segmentos button:hover:not(.ativo) { background: var(--realce); }
 .segmentos button.ativo { background: var(--tinta); color: #fff; }
-.campo-gr { display: flex; align-items: center; gap: 8px; color: var(--suave); font-weight: 500; }
+.campo-gr, .rotulo-opcao { display: flex; align-items: center; gap: 8px; color: var(--suave); font-weight: 500; }
 
 .outros { display: flex; flex-wrap: wrap; gap: 8px; }
 .outros button {
@@ -357,6 +357,8 @@ h3 { font: 600 1.05rem/1.2 var(--fonte); }
 }
 .etiqueta.neutra { color: var(--suave); background: var(--realce); }
 .etiqueta.expulso { color: var(--perigo); background: var(--perigo-fundo); }
+.etiqueta.melhor { color: var(--ok); background: #e6f6ec; margin-left: 8px; }
+.etiqueta.pior { color: var(--perigo); background: var(--perigo-fundo); margin-left: 8px; }
 .ponto-equipa { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
 .ponto-equipa.casa { background: var(--cor-casa); }
 .ponto-equipa.fora { background: var(--cor-fora); }
@@ -724,6 +726,13 @@ table.tabela td.suave { color: var(--suave); }
 .baliza-chao { stroke: #9aa8c2; stroke-width: 3; }
 .baliza-etiqueta { font: 600 13px var(--fonte); fill: #7a889f; }
 .baliza-dash { max-width: 440px; margin: 0 auto; }
+
+/* Livro dos 7 metros: uma ficha por lançador, com a sua baliza */
+.livro-7m { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; margin-top: 10px; }
+.lancador { border: 1px solid var(--linha); border-radius: var(--raio-controlo); padding: 10px 12px; background: var(--superficie); }
+.lancador h3 { margin: 0 0 2px; font-size: 1.05rem; }
+.lancador-numeros { margin: 0 0 6px; color: var(--suave); font-size: 0.92rem; }
+.lancador .baliza { max-width: 190px; margin: 0 auto; }
 .zona-baliza { color: var(--c-texto, #6d28d9); font-weight: 700; }
 .zona-top { margin: 4px 0 6px; text-align: center; color: var(--suave); }
 .zona-top b { color: #6d28d9; }

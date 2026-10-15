@@ -12,7 +12,7 @@ public static class ExportadorExcel
     private static readonly Dictionary<string, string> RotuloPosicao = new()
     {
         ["GR"] = "Guarda-redes", ["PE"] = "Ponta esquerda", ["LE"] = "Lateral esquerdo", ["CE"] = "Central",
-        ["LD"] = "Lateral direito", ["PD"] = "Ponta direita", ["PV"] = "Pivô"
+        ["LD"] = "Lateral direito", ["PD"] = "Ponta direita", ["PV"] = "Pivot"
     };
 
     private static readonly Dictionary<string, string> RotuloCorredor = new()
@@ -40,6 +40,14 @@ public static class ExportadorExcel
         ["ALTO_ESQ"] = "Alto à esquerda", ["ALTO_CENTRO"] = "Alto ao centro", ["ALTO_DIR"] = "Alto à direita",
         ["MEIO_ESQ"] = "Meio à esquerda", ["MEIO_CENTRO"] = "Meio ao centro", ["MEIO_DIR"] = "Meio à direita",
         ["BAIXO_ESQ"] = "Baixo à esquerda", ["BAIXO_CENTRO"] = "Baixo ao centro", ["BAIXO_DIR"] = "Baixo à direita"
+    };
+
+    // Defesa que o adversário jogava (ver db/init/17_sistema_defensivo.sql)
+    private static readonly List<string> OrdemSistema = new() { "6_0", "5_1", "3_2_1", "4_2", "INDIVIDUAL" };
+
+    private static readonly Dictionary<string, string> RotuloSistema = new()
+    {
+        ["6_0"] = "6:0", ["5_1"] = "5:1", ["3_2_1"] = "3:2:1", ["4_2"] = "4:2", ["INDIVIDUAL"] = "Individual"
     };
 
     private static readonly Dictionary<string, string> RotuloResultado = new()
@@ -99,9 +107,11 @@ public static class ExportadorExcel
             FolhaPorCorredor(contexto),
             FolhaPorDistancia(contexto),
             FolhaPorParte(contexto),
+            FolhaSistemasDefensivos(contexto),
             FolhaGuardaRedes(contexto),
             FolhaNaBaliza(contexto, "DEFESA", "Defesas na baliza", "Total de defesas"),
             FolhaNaBaliza(contexto, "GOLO", "Golos na baliza", "Total de golos"),
+            FolhaLivroSeteMetros(contexto),
             FolhaOutrosEventos(contexto),
             FolhaEventos(contexto)
         });
@@ -189,7 +199,7 @@ public static class ExportadorExcel
 
     private static FolhaXlsx FolhaJogadores(Contexto c)
     {
-        var folha = Tabela("Jogadores", "Equipa", "Nº", "Nome", "Posição", "Convocado", "Remates", "Golos", "Eficácia (%)");
+        var folha = Tabela("Jogadores", "Equipa", "N.º", "Nome", "Posição", "Convocado", "Remates", "Golos", "Eficácia (%)");
         folha.FiltroNoCabecalho = true;
 
         foreach (var (equipaId, nomeEquipa) in c.EquipasIncluidas)
@@ -275,9 +285,42 @@ public static class ExportadorExcel
         return folha;
     }
 
+    /// <summary>
+    /// Eficácia de cada equipa contra cada defesa do adversário (6:0, 5:1, 3:2:1, 4:2, individual). Só os remates em
+    /// ataque posicional: no contra-ataque e nos 7 metros não há defesa montada.
+    /// </summary>
+    private static FolhaXlsx FolhaSistemasDefensivos(Contexto c)
+    {
+        var folha = Tabela("Sistemas defensivos", "Equipa", "Defesa do adversário", "Remates", "Golos", "Defesas", "Fora", "Poste",
+            "Bloqueados", "Eficácia (%)");
+
+        var grupos = c.Remates
+            .Where(e => e.Situacao == "POSICIONAL")
+            .GroupBy(e => (e.EquipaId, Sistema: e.SistemaDefensivo))
+            .OrderBy(g => c.OrdemEquipa(g.Key.EquipaId))
+            .ThenBy(g => g.Key.Sistema is null ? int.MaxValue : Indice(OrdemSistema, g.Key.Sistema));
+
+        foreach (var grupo in grupos)
+        {
+            var remates = grupo.ToList();
+            folha.Adicionar(
+                Celula.Texto(c.NomeEquipa(grupo.Key.EquipaId)),
+                Celula.Texto(grupo.Key.Sistema is null ? "Sem defesa marcada" : Rotulo(RotuloSistema, grupo.Key.Sistema)),
+                Celula.Numero(remates.Count), Celula.Numero(Contar(remates, "GOLO")), Celula.Numero(Contar(remates, "DEFESA")),
+                Celula.Numero(Contar(remates, "FORA")), Celula.Numero(Contar(remates, "POSTE")),
+                Celula.Numero(Contar(remates, "BLOQUEADO")),
+                Celula.Numero(Eficacia(Contar(remates, "GOLO"), remates.Count)));
+        }
+
+        folha.LinhaVazia();
+        folha.Adicionar(Celula.Texto("A equipa indicada é a que ataca; a defesa é a do adversário. Só entram os remates em ataque posicional."));
+        folha.Adicionar(Celula.Texto("«Sem defesa marcada»: o adjunto não escolheu a defesa do adversário no banco."));
+        return folha;
+    }
+
     private static FolhaXlsx FolhaGuardaRedes(Contexto c)
     {
-        var folha = Tabela("Guarda-redes", "Equipa", "Nº", "Nome", "Defesas", "Golos sofridos", "Remates à baliza", "Defesa (%)");
+        var folha = Tabela("Guarda-redes", "Equipa", "N.º", "Nome", "Defesas", "Golos sofridos", "Remates à baliza", "Defesa (%)");
         foreach (var gr in c.Estat.GuardaRedes.Where(g => c.Inclui(g.EquipaId))
                      .OrderBy(g => c.OrdemEquipa(g.EquipaId)).ThenBy(g => g.Numero))
         {
@@ -295,7 +338,7 @@ public static class ExportadorExcel
     /// </summary>
     private static FolhaXlsx FolhaNaBaliza(Contexto c, string resultado, string titulo, string rotuloTotal)
     {
-        var cabecalho = new List<string> { "Equipa", "Nº", "Nome" };
+        var cabecalho = new List<string> { "Equipa", "N.º", "Nome" };
         cabecalho.AddRange(OrdemZonaBaliza.Select(z => RotuloZonaBaliza[z]));
         cabecalho.Add("Sem local");
         cabecalho.Add(rotuloTotal);
@@ -330,6 +373,51 @@ public static class ExportadorExcel
         return folha;
     }
 
+    /// <summary>
+    /// Livro dos 7 metros: por lançador, quantos lançou, como acabaram e para onde bateu (golos e defesas, as únicas
+    /// que têm o local marcado na baliza), para o guarda-redes adversário se preparar.
+    /// </summary>
+    private static FolhaXlsx FolhaLivroSeteMetros(Contexto c)
+    {
+        var cabecalho = new List<string> { "Equipa", "N.º", "Nome", "Lançamentos", "Golos", "Defendidos", "Fora", "Poste", "Bloqueados", "Eficácia (%)" };
+        cabecalho.AddRange(OrdemZonaBaliza.Select(z => RotuloZonaBaliza[z]));
+        cabecalho.Add("Sem local");
+        cabecalho.Add("Zona mais usada");
+        var folha = Tabela("Livro dos 7 metros", cabecalho.ToArray());
+
+        var grupos = c.Remates
+            .Where(e => e.Situacao == "SETE_METROS" && e.JogadorNumero is not null)
+            .GroupBy(e => (e.EquipaId, Numero: e.JogadorNumero!.Value, Nome: e.JogadorNome))
+            .OrderBy(g => c.OrdemEquipa(g.Key.EquipaId)).ThenBy(g => g.Key.Numero);
+
+        foreach (var grupo in grupos)
+        {
+            var remates = grupo.ToList();
+            var contagens = OrdemZonaBaliza.ToDictionary(z => z, z => remates.Count(r => r.BalizaZona == z));
+            // o local só se marca nos golos e nas defesas: o resto (fora, poste, bloqueado) não tem sítio na baliza
+            var semLocal = remates.Count(r => r.Resultado is "GOLO" or "DEFESA" && r.BalizaZona is null);
+            var topo = OrdemZonaBaliza.Select(z => (Zona: z, Total: contagens[z])).Where(p => p.Total > 0)
+                .OrderByDescending(p => p.Total).FirstOrDefault();
+
+            var celulas = new List<Celula>
+            {
+                Celula.Texto(c.NomeEquipa(grupo.Key.EquipaId)), Celula.Numero(grupo.Key.Numero), Celula.Texto(grupo.Key.Nome),
+                Celula.Numero(remates.Count), Celula.Numero(Contar(remates, "GOLO")), Celula.Numero(Contar(remates, "DEFESA")),
+                Celula.Numero(Contar(remates, "FORA")), Celula.Numero(Contar(remates, "POSTE")),
+                Celula.Numero(Contar(remates, "BLOQUEADO")),
+                Celula.Numero(Eficacia(Contar(remates, "GOLO"), remates.Count))
+            };
+            celulas.AddRange(OrdemZonaBaliza.Select(z => Celula.Numero((long)contagens[z])));
+            celulas.Add(Celula.Numero((long)semLocal));
+            celulas.Add(topo.Total > 0 ? Celula.Texto($"{RotuloZonaBaliza[topo.Zona]} ({topo.Total})") : Celula.Vazia);
+            folha.Adicionar(celulas.ToArray());
+        }
+
+        folha.LinhaVazia();
+        folha.Adicionar(Celula.Texto("As zonas contam os golos e as defesas (só esses têm o local marcado na baliza). Esquerda e direita são vistas de frente, do lado de quem remata."));
+        return folha;
+    }
+
     private static FolhaXlsx FolhaOutrosEventos(Contexto c)
     {
         var folha = Tabela("Outros eventos", "Equipa", "Evento", "Total");
@@ -346,9 +434,9 @@ public static class ExportadorExcel
 
     private static FolhaXlsx FolhaEventos(Contexto c)
     {
-        var folha = Tabela("Eventos", "Nº", "Parte", "Tempo", "Equipa", "Evento", "Jogador Nº", "Jogador", "Posição",
+        var folha = Tabela("Eventos", "N.º", "Parte", "Tempo", "Equipa", "Evento", "Jogador N.º", "Jogador", "Posição",
             "Resultado", "Situação", "Corredor", "Distância", "X (%)", "Y (%)",
-            "Guarda-redes", "Zona da baliza", "Baliza X (%)", "Baliza Y (%)");
+            "Guarda-redes", "Zona da baliza", "Baliza X (%)", "Baliza Y (%)", "Defesa do adversário");
         folha.FiltroNoCabecalho = true;
 
         foreach (var e in c.Dados.Eventos.Where(e => c.Inclui(e.EquipaId)).OrderBy(e => e.Id))
@@ -365,7 +453,8 @@ public static class ExportadorExcel
                 Celula.Numero(e.X), Celula.Numero(e.Y),
                 Celula.Texto(e.GuardaRedesNumero is { } g ? $"#{g} {e.GuardaRedesNome}" : null),
                 Celula.Texto(e.BalizaZona is null ? null : Rotulo(RotuloZonaBaliza, e.BalizaZona)),
-                Celula.Numero(e.BalizaX), Celula.Numero(e.BalizaY));
+                Celula.Numero(e.BalizaX), Celula.Numero(e.BalizaY),
+                Celula.Texto(e.SistemaDefensivo is null ? null : Rotulo(RotuloSistema, e.SistemaDefensivo)));
         }
         return folha;
     }
@@ -406,7 +495,7 @@ public static class ExportadorExcel
     private static string DataLocal(DateTime utc, TimeZoneInfo fuso)
     {
         var instante = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
-        return TimeZoneInfo.ConvertTimeFromUtc(instante, fuso).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        return TimeZoneInfo.ConvertTimeFromUtc(instante, fuso).ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture);
     }
 
     /// <summary>"Águias do Norte" → "aguias-do-norte".</summary>

@@ -11,7 +11,7 @@ const seccoes = {
 
 function mostrar(qual) {
   for (const [nome, el] of Object.entries(seccoes)) el.hidden = nome !== qual;
-  document.title = `${{ escolher: 'Palavra-passe nova', feito: 'Palavra-passe alterada', falhou: 'Link inválido' }[qual]} · Scouting de Andebol`;
+  document.title = `${{ escolher: 'Palavra-passe nova', feito: 'Palavra-passe alterada', falhou: 'Ligação inválida' }[qual]} · Scouting de Andebol`;
 }
 
 /** Depois de usado (ou recusado), o código já não serve para nada: sai do endereço e do histórico. */
@@ -76,7 +76,7 @@ document.getElementById('form-novo-link').addEventListener('submit', async (even
   botao.disabled = true;
   try {
     await enviar('POST', '/api/conta/esqueci-palavra-passe', { email });
-    ok.textContent = 'Se existir uma conta com este email, enviámos-lhe um link novo.';
+    ok.textContent = 'Se existir uma conta com este email, enviámos-lhe uma ligação nova.';
     ok.hidden = false;
   } catch (falha) {
     erro.textContent = falha.message;
@@ -87,7 +87,7 @@ document.getElementById('form-novo-link').addEventListener('submit', async (even
 
 if (!/^[0-9a-f]{64}$/.test(token ?? '')) {
   limparEndereco();
-  falhou('Falta o código no endereço ou está incompleto. Abre o link do email outra vez, ou pede um novo.');
+  falhou('Falta o código no endereço ou está incompleto. Abre a ligação do email outra vez, ou pede uma nova.');
 } else {
   mostrar('escolher');
   document.getElementById('nova-senha').focus();

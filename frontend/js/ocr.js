@@ -68,7 +68,7 @@ export async function prepararImagem(ficheiro, { limiar = false, alvo = 1600, am
   try {
     bitmap = await createImageBitmap(ficheiro, { imageOrientation: 'from-image' });
   } catch {
-    throw new Error('Não foi possível abrir esta imagem. Usa uma foto ou um print em JPG ou PNG.');
+    throw new Error('Não foi possível abrir esta imagem. Usa uma foto ou uma captura de ecrã em JPG ou PNG.');
   }
   const escala = Math.min(ampliarAte, alvo / Math.max(bitmap.width, bitmap.height));
   const largura = Math.max(1, Math.round(bitmap.width * escala));

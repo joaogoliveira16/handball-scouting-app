@@ -62,6 +62,8 @@ test('formatos de uma linha', () => {
     '09 JOÃO-PEDRO SILVA (PV)': [9, 'João-Pedro Silva', 'PV'],
     '8 Miguel Santos - Ponta Esquerda': [8, 'Miguel Santos', 'PE'],
     '4 Rui Lopes Guarda-Redes': [4, 'Rui Lopes', 'GR'],
+    '5 Diogo Pires Pivot': [5, 'Diogo Pires', 'PV'],
+    '5 Diogo Pires Pivô': [5, 'Diogo Pires', 'PV'],   // quem escreve à brasileira também se lê
     '6 A. Santos': [6, 'A. Santos', null],
     '11 RUi Mesquita': [11, 'Rui Mesquita', null],
     '1O Ricardo Alves': [10, 'Ricardo Alves', null],   // o OCR leu um «O» em vez de «0»

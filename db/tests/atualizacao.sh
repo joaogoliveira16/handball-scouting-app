@@ -17,6 +17,8 @@ psql -X -v ON_ERROR_STOP=1 -q -c "SELECT registar_utilizador('antiga@exemplo.pt'
 psql -X -v ON_ERROR_STOP=1 -q >/dev/null <<'SQL'
 INSERT INTO equipas (nome, dono_id) SELECT 'Equipa da antiga', id FROM utilizadores WHERE email = 'antiga@exemplo.pt';
 INSERT INTO equipas (nome, dono_id) SELECT 'Adversária da antiga', id FROM utilizadores WHERE email = 'antiga@exemplo.pt';
+-- e a posição ainda tinha o nome de antes do português de Portugal
+UPDATE posicoes SET nome = 'Pivô' WHERE codigo = 'PV';
 SQL
 
 # É o que o serviço "migrar" do docker compose faz em cada arranque: corre outra vez os scripts 05 em diante
@@ -40,6 +42,14 @@ BEGIN
         'a conta criada sem equipa (versão anterior) fica sem equipa da conta, mesmo depois de repetir os scripts';
     ASSERT (SELECT COUNT(*) > 0 AND bool_and(visivel_convidados) FROM jogos),
         'os jogos que já existiam devem ficar visíveis na área de convidado (podem ser escondidos pelo dono)';
+    -- a vista dos remates acaba com todas as colunas, mesmo com os scripts mais antigos a correrem outra vez em cada arranque
+    ASSERT (SELECT COUNT(*) = 2 FROM information_schema.columns
+            WHERE table_name = 'v_remates' AND column_name IN ('baliza_zona', 'sistema_defensivo')),
+        'a vista v_remates devia ter o local na baliza e o sistema defensivo depois de repetir os scripts';
+    ASSERT (SELECT nome FROM posicoes WHERE codigo = 'PV') = 'Pivot',
+        'a posição PV devia chamar-se Pivot (português de Portugal)';
+    ASSERT (SELECT COUNT(*) > 0 FROM eventos WHERE jogo_id = 2 AND sistema_defensivo IS NOT NULL),
+        'o jogo de exemplo devia ficar com a defesa do adversário marcada nos remates posicionais';
 END
 $$;
 SELECT 'atualização de uma base antiga: OK';

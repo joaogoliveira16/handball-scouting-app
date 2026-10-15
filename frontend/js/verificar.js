@@ -37,7 +37,7 @@ document.getElementById('form-novo-link').addEventListener('submit', async (even
   botao.disabled = true;
   try {
     await enviar('POST', '/api/conta/reenviar-confirmacao', { email });
-    ok.textContent = 'Se a conta existir e ainda não estiver confirmada, enviámos-lhe um link novo.';
+    ok.textContent = 'Se a conta existir e ainda não estiver confirmada, enviámos-lhe uma ligação nova.';
     ok.hidden = false;
   } catch (falha) {
     erro.textContent = falha.message;
@@ -47,7 +47,7 @@ document.getElementById('form-novo-link').addEventListener('submit', async (even
 });
 
 if (!token) {
-  falhou('Falta o código no endereço. Abre o link do email outra vez, ou pede um novo.');
+  falhou('Falta o código no endereço. Abre a ligação do email outra vez, ou pede uma nova.');
 } else {
   mostrar('confirmar');
   try {

@@ -59,6 +59,7 @@ public class EventosService(NpgsqlDataSource dados, SqlLoader sql)
             segundoJogo = req.SegundoJogo,
             balizaX = req.BalizaX,
             balizaY = req.BalizaY,
+            sistemaDefensivo = req.SistemaDefensivo,
             clienteId = req.ClienteId,
             criadoEm = InstanteEvento.Calcular(req.OcorridoEm, DateTimeOffset.UtcNow)
         }, cancellationToken: ct));

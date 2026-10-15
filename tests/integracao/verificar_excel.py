@@ -48,8 +48,8 @@ def abrir(nome):
         return None
 
 
-FOLHAS = ["Resumo", "Jogadores", "Por posição", "Por corredor", "Por distância", "Por parte",
-          "Guarda-redes", "Defesas na baliza", "Golos na baliza", "Outros eventos", "Eventos"]
+FOLHAS = ["Resumo", "Jogadores", "Por posição", "Por corredor", "Por distância", "Por parte", "Sistemas defensivos",
+          "Guarda-redes", "Defesas na baliza", "Golos na baliza", "Livro dos 7 metros", "Outros eventos", "Eventos"]
 
 ZONAS = ["Alto à esquerda", "Alto ao centro", "Alto à direita", "Meio à esquerda", "Meio ao centro", "Meio à direita",
          "Baixo à esquerda", "Baixo ao centro", "Baixo à direita"]
@@ -101,8 +101,8 @@ if jogo:
     ok(sum(g["Golos sofridos"] for g in grs) == 15, "Guarda-redes: 15 golos sofridos no total (os 15 golos do jogo)", str(grs))
 
     # Defesas na baliza: uma linha por guarda-redes, uma coluna por zona (os dados de exemplo têm 11 defesas, todas com local)
-    baliza = [l for l in tabela(jogo, "Defesas na baliza") if l.get("Nº") is not None]
-    ok(list(tabela(jogo, "Defesas na baliza")[0].keys())[:3 + 9 + 2] == ["Equipa", "Nº", "Nome", *ZONAS, "Sem local", "Total de defesas"],
+    baliza = [l for l in tabela(jogo, "Defesas na baliza") if l.get("N.º") is not None]
+    ok(list(tabela(jogo, "Defesas na baliza")[0].keys())[:3 + 9 + 2] == ["Equipa", "N.º", "Nome", *ZONAS, "Sem local", "Total de defesas"],
        "Defesas na baliza: cabeçalho com as 9 zonas", str(list(tabela(jogo, "Defesas na baliza")[0].keys())))
     ok(len(baliza) == 4, "Defesas na baliza: 4 linhas (os 4 guarda-redes que defenderam)", str(len(baliza)))
     ok(sum(b["Total de defesas"] for b in baliza) == 11, "Defesas na baliza: 11 defesas no total", str(baliza))
@@ -117,8 +117,8 @@ if jogo:
        f"{defesas_gr} != {defesas_baliza}")
 
     # Golos na baliza: a mesma forma, por guarda-redes que sofreu o golo (os 15 golos de exemplo têm local)
-    golos = [l for l in tabela(jogo, "Golos na baliza") if l.get("Nº") is not None]
-    ok(list(tabela(jogo, "Golos na baliza")[0].keys())[:3 + 9 + 2] == ["Equipa", "Nº", "Nome", *ZONAS, "Sem local", "Total de golos"],
+    golos = [l for l in tabela(jogo, "Golos na baliza") if l.get("N.º") is not None]
+    ok(list(tabela(jogo, "Golos na baliza")[0].keys())[:3 + 9 + 2] == ["Equipa", "N.º", "Nome", *ZONAS, "Sem local", "Total de golos"],
        "Golos na baliza: cabeçalho com as 9 zonas", str(list(tabela(jogo, "Golos na baliza")[0].keys())))
     ok(sum(b["Total de golos"] for b in golos) == 15, "Golos na baliza: 15 golos no total", str(golos))
     ok(all(sum(b[z] for z in ZONAS) + b["Sem local"] == b["Total de golos"] for b in golos),
@@ -130,12 +130,37 @@ if jogo:
     golos_baliza = {(b["Equipa"], b["Nome"]): b["Total de golos"] for b in golos}
     ok(golos_gr == golos_baliza, "Golos na baliza: coincide com os golos sofridos da folha Guarda-redes", f"{golos_gr} != {golos_baliza}")
 
+    # Sistemas defensivos: os remates posicionais de exemplo trazem a defesa do adversário (6:0, 5:1 e alguns sem ela)
+    sistemas = [l for l in tabela(jogo, "Sistemas defensivos") if l.get("Remates") is not None]
+    ok(list(tabela(jogo, "Sistemas defensivos")[0].keys()) == ["Equipa", "Defesa do adversário", "Remates", "Golos", "Defesas", "Fora", "Poste", "Bloqueados", "Eficácia (%)"],
+       "Sistemas defensivos: cabeçalho esperado", str(list(tabela(jogo, "Sistemas defensivos")[0].keys())))
+    linhas_sis = {(l["Equipa"], l["Defesa do adversário"]): (l["Remates"], l["Golos"]) for l in sistemas}
+    ok(linhas_sis == {("Águias do Norte", "6:0"): (9, 3), ("Águias do Norte", "5:1"): (4, 2), ("Águias do Norte", "Sem defesa marcada"): (2, 0),
+                      ("Leões do Sul", "6:0"): (9, 5), ("Leões do Sul", "5:1"): (4, 1), ("Leões do Sul", "Sem defesa marcada"): (2, 2)},
+       "Sistemas defensivos: remates e golos por equipa e defesa", str(linhas_sis))
+    ok(sum(l["Remates"] for l in sistemas) == 30, "Sistemas defensivos: só os 30 remates posicionais (sem contra-ataque nem 7 metros)", str(sum(l["Remates"] for l in sistemas)))
+    ok([l["Defesa do adversário"] for l in sistemas if l["Equipa"] == "Águias do Norte"] == ["6:0", "5:1", "Sem defesa marcada"],
+       "Sistemas defensivos: pela ordem das defesas, com as sem defesa marcada no fim")
+    ok(next(l for l in sistemas if l["Equipa"] == "Leões do Sul" and l["Defesa do adversário"] == "6:0")["Eficácia (%)"] == 55.6, "Sistemas defensivos: eficácia dos Leões contra a 6:0 = 55,6%")
+
+    # Livro dos 7 metros: o jogo de exemplo só tem um 7 metros (golo das Águias, com local na baliza)
+    livro = [l for l in tabela(jogo, "Livro dos 7 metros") if l.get("N.º") is not None]
+    cab_livro = list(tabela(jogo, "Livro dos 7 metros")[0].keys())
+    ok(cab_livro[:10] == ["Equipa", "N.º", "Nome", "Lançamentos", "Golos", "Defendidos", "Fora", "Poste", "Bloqueados", "Eficácia (%)"]
+       and cab_livro[10:19] == ZONAS and cab_livro[19:] == ["Sem local", "Zona mais usada"],
+       "Livro dos 7 metros: cabeçalho com as 9 zonas", str(cab_livro))
+    ok(len(livro) == 1 and livro[0]["Equipa"] == "Águias do Norte" and livro[0]["Lançamentos"] == 1 and livro[0]["Golos"] == 1 and livro[0]["Eficácia (%)"] == 100,
+       "Livro dos 7 metros: um lançador, 1 lançamento, 1 golo", str(livro))
+    ok(sum(livro[0][z] for z in ZONAS) + livro[0]["Sem local"] == livro[0]["Golos"] + livro[0]["Defendidos"],
+       "Livro dos 7 metros: zonas + sem local = golos + defendidos", str(livro))
+    ok(isinstance(livro[0]["Zona mais usada"], str) and livro[0]["Zona mais usada"].endswith("(1)"), "Livro dos 7 metros: a zona mais usada vem com a contagem", str(livro[0]["Zona mais usada"]))
+
     outros = {(l["Equipa"], l["Evento"]): l["Total"] for l in tabela(jogo, "Outros eventos")}
     ok(sum(outros.values()) == 6, "Outros eventos: 6 no total (2 faltas, 2 perdas, 1 dois minutos, 1 timeout)", str(outros))
 
     eventos = tabela(jogo, "Eventos")
     ok(len(eventos) == 39, "Eventos: 39 linhas (33 remates + 6 outros)", str(len(eventos)))
-    ok([e["Nº"] for e in eventos] == list(range(1, 40)), "Eventos: numeração 1..39")
+    ok([e["N.º"] for e in eventos] == list(range(1, 40)), "Eventos: numeração 1..39")
     ok(sum(1 for e in eventos if e["Evento"] == "Remate") == 33, "Eventos: 33 remates")
     ok(sum(1 for e in eventos if e["Resultado"] == "Golo") == 15, "Eventos: 15 golos")
     defesas = [e for e in eventos if e["Resultado"] == "Defesa"]
@@ -149,6 +174,11 @@ if jogo:
        "Eventos: os 15 golos têm a zona da baliza", str([e["Zona da baliza"] for e in golos_ev]))
     ok(all(e["Zona da baliza"] is None and e["Baliza X (%)"] is None for e in eventos if e["Resultado"] not in ("Defesa", "Golo")),
        "Eventos: só as defesas e os golos têm local na baliza")
+    posicionais = [e for e in eventos if e["Situação"] == "Posicional" and e["Resultado"] is not None]
+    ok(sum(1 for e in posicionais if e["Defesa do adversário"] is not None) == 26 and {e["Defesa do adversário"] for e in posicionais} == {"6:0", "5:1", None},
+       "Eventos: a coluna «Defesa do adversário» traz a defesa dos 26 remates posicionais que a têm", str({e["Defesa do adversário"] for e in posicionais}))
+    ok(all(e["Defesa do adversário"] is None for e in eventos if e["Situação"] != "Posicional" or e["Resultado"] is None),
+       "Eventos: só os remates posicionais têm a defesa do adversário")
     ok(all(isinstance(e["Guarda-redes"], str) and e["Guarda-redes"].startswith("#") for e in defesas),
        "Eventos: as defesas indicam o guarda-redes (#nº nome)", str([e["Guarda-redes"] for e in defesas][:3]))
     tempos = [e["Tempo"] for e in eventos]
@@ -174,10 +204,14 @@ if equipa:
        "equipa: por corredor só dos Leões, 16 remates", str(corredores))
     grs = tabela(equipa, "Guarda-redes")
     ok({g["Equipa"] for g in grs} == {"Leões do Sul"}, "equipa: só o guarda-redes dos Leões", str(grs))
-    baliza = [l for l in tabela(equipa, "Defesas na baliza") if l.get("Nº") is not None]
+    baliza = [l for l in tabela(equipa, "Defesas na baliza") if l.get("N.º") is not None]
     ok(len(baliza) >= 1 and {b["Equipa"] for b in baliza} == {"Leões do Sul"}, "equipa: defesas na baliza só dos guarda-redes dos Leões", str(baliza))
     ok(sum(b["Total de defesas"] for b in baliza) == sum(g["Defesas"] for g in grs), "equipa: defesas na baliza = defesas da folha Guarda-redes", str(baliza))
-    golos_baliza = [l for l in tabela(equipa, "Golos na baliza") if l.get("Nº") is not None]
+    sistemas_eq = [l for l in tabela(equipa, "Sistemas defensivos") if l.get("Remates") is not None]
+    ok({l["Equipa"] for l in sistemas_eq} == {"Leões do Sul"} and sum(l["Remates"] for l in sistemas_eq) == 15,
+       "equipa: sistemas defensivos só dos Leões (15 remates posicionais)", str(sistemas_eq))
+    ok([l for l in tabela(equipa, "Livro dos 7 metros") if l.get("N.º") is not None] == [], "equipa: os Leões não têm 7 metros no livro")
+    golos_baliza = [l for l in tabela(equipa, "Golos na baliza") if l.get("N.º") is not None]
     ok({b["Equipa"] for b in golos_baliza} == {"Leões do Sul"}, "equipa: golos na baliza só dos guarda-redes dos Leões", str(golos_baliza))
     ok(sum(b["Total de golos"] for b in golos_baliza) == sum(g["Golos sofridos"] for g in grs), "equipa: golos na baliza = golos sofridos da folha Guarda-redes", str(golos_baliza))
 
@@ -195,7 +229,7 @@ if novo:
        and abs(com_local[0]["Baliza X (%)"] - 83.5) < 0.001 and abs(com_local[0]["Baliza Y (%)"] - 91.2) < 0.001,
        "jogo novo: a defesa com local aparece em 'Baixo à direita' (83,5 / 91,2)", str(com_local))
     ok(sum(1 for e in defesas if e["Zona da baliza"] is None and e["Baliza X (%)"] is None) == 1, "jogo novo: a outra defesa fica sem local")
-    baliza = [l for l in tabela(novo, "Defesas na baliza") if l.get("Nº") is not None]
+    baliza = [l for l in tabela(novo, "Defesas na baliza") if l.get("N.º") is not None]
     gr_b = [b for b in baliza if b["Nome"] == "GR B"]
     ok(len(gr_b) == 1 and gr_b[0]["Baixo à direita"] == 1 and gr_b[0]["Sem local"] == 1 and gr_b[0]["Total de defesas"] == 2,
        "jogo novo: GR B tem 1 defesa em baixo à direita e 1 sem local", str(gr_b))

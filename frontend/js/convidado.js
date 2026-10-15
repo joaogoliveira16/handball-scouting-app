@@ -17,10 +17,10 @@ formulario.addEventListener('submit', (evento) => {
   evento.preventDefault();
   erro.textContent = '';
   const texto = campo.value.trim();
-  if (!texto) { erro.textContent = 'Cola o link do jogo.'; return; }
+  if (!texto) { erro.textContent = 'Cola a ligação do jogo.'; return; }
   const jogo = lerLinkDoJogo(texto);
   if (!jogo) {
-    erro.textContent = 'Isto não parece o link de um jogo. Pede ao treinador para o copiar outra vez em «Copiar link».';
+    erro.textContent = 'Isto não parece a ligação de um jogo. Pede ao treinador para a copiar outra vez em «Copiar ligação».';
     return;
   }
   location.assign(enderecoDoJogo(jogo));

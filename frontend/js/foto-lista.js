@@ -59,11 +59,11 @@ export function abrirLeituraDeFoto({ equipaNome, plantel, maximo, convocadosAtua
           h('div', { class: 'janela-acoes' }, h('button', { type: 'button', class: 'botao suave', onclick: () => fechar(null) }, 'Fechar')));
         return;
       }
-      const escolher = h('button', { type: 'button', class: 'botao primario', onclick: () => entrada.click() }, 'Escolher foto ou print');
+      const escolher = h('button', { type: 'button', class: 'botao primario', onclick: () => entrada.click() }, 'Escolher foto ou captura de ecrã');
       substituir(corpo,
         mensagem && h('p', { class: 'aviso-inline erro', role: 'alert' }, mensagem),
-        h('p', {}, 'Escolhe uma foto ou um print da convocatória. Lê-se melhor com texto impresso, bem iluminado e de frente, sem sombras.'),
-        h('p', { class: 'suave' }, 'Também podes arrastar a imagem para aqui ou colar um print com Ctrl+V. A imagem fica no teu dispositivo: não é enviada para lado nenhum.'),
+        h('p', {}, 'Escolhe uma foto ou uma captura de ecrã da convocatória. Lê-se melhor com texto impresso, bem iluminado e de frente, sem sombras.'),
+        h('p', { class: 'suave' }, 'Também podes arrastar a imagem para aqui ou colar uma captura de ecrã com Ctrl+V. A imagem fica no teu dispositivo: não é enviada para lado nenhum.'),
         entrada,
         h('div', { class: 'janela-acoes' },
           h('button', { type: 'button', class: 'botao suave', onclick: () => fechar(null) }, 'Cancelar'),
@@ -234,7 +234,7 @@ export function abrirLeituraDeFoto({ equipaNome, plantel, maximo, convocadosAtua
         h('p', {}, 'Confirma o que foi lido. Corrige o que estiver mal e tira a marca a quem não joga. Os jogadores que ainda não existem na equipa são adicionados.'),
         h('div', { class: 'tabela-rolagem' },
           h('table', { class: 'tabela lista-foto' },
-            h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Nº'), h('th', {}, 'Nome'), h('th', {}, 'Posição'), h('th', {}, 'Estado'))),
+            h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'N.º'), h('th', {}, 'Nome'), h('th', {}, 'Posição'), h('th', {}, 'Estado'))),
             corpoTabela)),
         h('p', { class: 'suave pequeno-texto' }, `Jogadores novos sem posição na imagem ficam como ${POSICOES.find((p) => p.codigo === POSICAO_POR_OMISSAO).rotulo.toLowerCase()}: muda-a aqui ou depois em Equipas.`),
         resumo, erros,

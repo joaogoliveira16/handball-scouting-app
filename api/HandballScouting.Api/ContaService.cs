@@ -31,8 +31,8 @@ public class ContaService(
     public const string CodigoLinkInvalido = "link_invalido";
     private const string ViolacaoUnicidade = "23505";
     private const string MensagemEntrada = "Email ou palavra-passe errados.";
-    private const string MensagemLinkInvalido = "O link é inválido ou já expirou. Pede um novo email de confirmação.";
-    private const string MensagemRedefinicaoInvalida = "O link é inválido, já foi usado ou já expirou. Pede um novo link para escolher a palavra-passe.";
+    private const string MensagemLinkInvalido = "A ligação é inválida ou já expirou. Pede um novo email de confirmação.";
+    private const string MensagemRedefinicaoInvalida = "A ligação é inválida, já foi usada ou já expirou. Pede uma nova ligação para escolher a palavra-passe.";
     /// <summary>Prefixo do limite de pedidos de recuperação: cada endereço tem um limite à parte do dos emails de confirmação.</summary>
     private const string ChaveRedefinicao = "redefinir:";
 
@@ -216,7 +216,7 @@ public class ContaService(
 
         // Palavra-passe certa, mas o email ainda não foi confirmado: sem sessão (e sem dizer isto a quem só adivinha)
         if (!conta.EmailVerificado)
-            return ResultadoConta.Falha(403, "Confirma o teu email para entrar. Enviámos-te um link quando criaste a conta.", CodigoPorConfirmar);
+            return ResultadoConta.Falha(403, "Confirma o teu email para entrar. Enviámos-te uma ligação quando criaste a conta.", CodigoPorConfirmar);
 
         limite.Limpar(email);
         var token = await CriarSessaoAsync(con, conta.Id, ct);

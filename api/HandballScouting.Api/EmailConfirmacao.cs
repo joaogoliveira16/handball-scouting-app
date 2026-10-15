@@ -21,11 +21,11 @@ public static partial class EmailConfirmacao
         $"""
         Olá {Linha(nome)},
 
-        Para ativares a tua conta no Scouting de Andebol, confirma o teu email neste link:
+        Para ativares a tua conta no Scouting de Andebol, confirma o teu email nesta ligação:
 
         {link}
 
-        O link é válido durante 24 horas. Se não criaste esta conta, ignora este email.
+        A ligação é válida durante 24 horas. Se não criaste esta conta, ignora este email.
         """;
 
     public static string Html(string nome, string link)
@@ -45,7 +45,7 @@ public static partial class EmailConfirmacao
             </p>
             <p style="margin:0 0 8px;font-size:13px;color:#5b6577">Se o botão não funcionar, copia este endereço para o browser:</p>
             <p style="margin:0 0 20px;font-size:13px;word-break:break-all"><a href="{linkHtml}" style="color:#1f4fd8">{linkHtml}</a></p>
-            <p style="margin:0;font-size:13px;color:#5b6577">O link é válido durante 24 horas. Se não criaste esta conta, ignora este email.</p>
+            <p style="margin:0;font-size:13px;color:#5b6577">A ligação é válida durante 24 horas. Se não criaste esta conta, ignora este email.</p>
           </div>
         </body>
         </html>

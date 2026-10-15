@@ -61,7 +61,7 @@ const blocoEscudo = h('div', { class: 'bloco-escudo', id: 'bloco-escudo' },
   zonaEscudo,
   h('div', { class: 'texto' },
     nomeEscudo,
-    h('small', {}, 'PNG, JPEG, WebP ou SVG. Aparece no placar e nas listas de jogos; a imagem fica reduzida a 256 px.'),
+    h('small', {}, 'PNG, JPEG, WebP ou SVG. Aparece no marcador e nas listas de jogos; a imagem fica reduzida a 256 px.'),
     h('div', { class: 'acoes-linha' }, botaoEscudo, botaoRemoverEscudo, campoEscudo),
     erroEscudo));
 
@@ -182,7 +182,7 @@ function desenharPlantel() {
       }, '✕')))));
 
   substituir(zonaTabela, h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela' },
-    h('thead', {}, h('tr', {}, h('th', { class: 'num' }, 'Nº'), h('th', {}, 'Nome'), h('th', {}, 'Posição'), h('th', { class: 'num' }, 'Eventos'), h('th', {}, ''))),
+    h('thead', {}, h('tr', {}, h('th', { class: 'num' }, 'N.º'), h('th', {}, 'Nome'), h('th', {}, 'Posição'), h('th', { class: 'num' }, 'Eventos'), h('th', {}, ''))),
     h('tbody', {}, linhas))));
 }
 

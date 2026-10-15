@@ -9,6 +9,8 @@ public static class EventoValidador
     public static readonly string[] Situacoes = { "POSICIONAL", "CONTRA_ATAQUE", "SETE_METROS" };
     /// <summary>Resultados em que se marca na baliza o sítio da bola: onde o guarda-redes defendeu ou onde entrou o golo.</summary>
     public static readonly string[] ResultadosComLocalNaBaliza = { "DEFESA", "GOLO" };
+    /// <summary>Defesa que o adversário jogava (ver db/init/17_sistema_defensivo.sql); só num remate em ataque posicional.</summary>
+    public static readonly string[] SistemasDefensivos = { "6_0", "5_1", "3_2_1", "4_2", "INDIVIDUAL" };
 
     public static List<string> Validar(NovoEventoRequest r, bool eRemate)
     {
@@ -38,9 +40,9 @@ public static class EventoValidador
                 erros.Add("x e y são obrigatórios num remate e têm de estar entre 0 e 100.");
         }
         else if (r.Resultado is not null || r.X is not null || r.Y is not null || r.GuardaRedesId is not null
-                 || r.BalizaX is not null || r.BalizaY is not null)
+                 || r.BalizaX is not null || r.BalizaY is not null || r.SistemaDefensivo is not null)
         {
-            erros.Add("eventos que não são remates não levam resultado, coordenadas nem guarda-redes.");
+            erros.Add("eventos que não são remates não levam resultado, coordenadas, guarda-redes nem sistema defensivo.");
         }
 
         // Um vermelho direto é de um jogador (é ele que fica desqualificado)
@@ -55,6 +57,15 @@ public static class EventoValidador
                 erros.Add("balizaX e balizaY vêm juntos e têm de estar entre 0 e 100.");
             if (r.Resultado is null || !ResultadosComLocalNaBaliza.Contains(r.Resultado))
                 erros.Add("o local na baliza só existe numa defesa ou num golo.");
+        }
+
+        // Sistema defensivo: um dos conhecidos e só contra uma defesa montada (ataque posicional)
+        if (eRemate && r.SistemaDefensivo is not null)
+        {
+            if (!SistemasDefensivos.Contains(r.SistemaDefensivo))
+                erros.Add($"sistemaDefensivo inválido (usar {string.Join(", ", SistemasDefensivos)}).");
+            if ((r.Situacao ?? "POSICIONAL") != "POSICIONAL")
+                erros.Add("o sistema defensivo só existe num remate em ataque posicional.");
         }
 
         return erros;

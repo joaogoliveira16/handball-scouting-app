@@ -97,8 +97,8 @@ function mostrarConfirmar(email, { enviado = true, mensagem = null } = {}) {
   subtitulo.textContent = 'Falta só um passo para ativares a conta.';
   document.title = 'Confirma o teu email · Scouting de Andebol';
   textoConfirmar.replaceChildren(
-    'Enviámos um link para ', h('b', {}, email),
-    '. Abre-o (neste ou noutro dispositivo) e depois volta aqui para entrar. Se não o vires, procura no spam.');
+    'Enviámos uma ligação para ', h('b', {}, email),
+    '. Abre-a (neste ou noutro dispositivo) e depois volta aqui para entrar. Se não a vires, procura no spam.');
   if (mensagem) dizerEstado(mensagem, { erro: !enviado });
   else dizerEstado(enviado ? null : 'Não conseguimos enviar o email agora. Carrega em «Reenviar email» daqui a pouco.', { erro: !enviado });
   document.getElementById('dica-teste').hidden = !['localhost', '127.0.0.1'].includes(location.hostname);
@@ -141,11 +141,11 @@ function mostrarEsqueci(email) {
   painelConfirmar.hidden = true;
   painelEsqueci.hidden = false;
   titulo.textContent = 'Recuperar a palavra-passe';
-  subtitulo.textContent = 'Escreve o email da conta e enviamos-te um link para escolheres outra.';
+  subtitulo.textContent = 'Escreve o email da conta e enviamos-te uma ligação para escolheres outra.';
   document.title = 'Recuperar a palavra-passe · Scouting de Andebol';
   erroEsqueci.textContent = '';
   okEsqueci.hidden = true;
-  botaoEsqueci.textContent = 'Enviar link';
+  botaoEsqueci.textContent = 'Enviar ligação';
   document.getElementById('esqueci-email').value = email;
   document.getElementById('dica-teste-esqueci').hidden = true;
   document.getElementById('esqueci-email').focus();
@@ -170,7 +170,7 @@ formEsqueci.addEventListener('submit', async (evento) => {
   try {
     await enviar('POST', '/api/conta/esqueci-palavra-passe', { email });
     // A resposta é a mesma exista a conta ou não: não se revela quem tem conta
-    okEsqueci.textContent = `Se existir uma conta com ${email}, enviámos-lhe um link para escolher a palavra-passe nova. Vale 1 hora. Se não o vires, procura no spam.`;
+    okEsqueci.textContent = `Se existir uma conta com ${email}, enviámos-lhe uma ligação para escolher a palavra-passe nova. Vale 1 hora. Se não a vires, procura no spam.`;
     okEsqueci.hidden = false;
     botaoEsqueci.textContent = 'Enviar outra vez';
     document.getElementById('dica-teste-esqueci').hidden = !['localhost', '127.0.0.1'].includes(location.hostname);

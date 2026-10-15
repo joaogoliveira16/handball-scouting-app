@@ -2,6 +2,7 @@
 import { h, substituir, avisar } from './dom.js';
 import {
   obter, enviar, formatarTempo, RESULTADOS, ROTULO_RESULTADO, SITUACOES, ROTULO_ZONA_BALIZA, zonaBaliza,
+  SISTEMAS_DEFENSIVOS,
 } from './api.js';
 import { criarCampo } from './campo.js';
 import { criarBaliza } from './baliza.js';
@@ -30,18 +31,21 @@ const PONTO_SETE_METROS = { x: 50, y: 35 }; // marca de 7 m
 const fila = criarFila();
 const CONFIRMADO_ATE_CHEGAR_MS = 8000;
 
+const CHAVE_SISTEMAS = `sistema-defensivo-${jogoId}`;   // a defesa do adversário escolhida no banco (ver mais abaixo)
+
 const estado = {
   jogo: null,
   tipos: [],
   estatisticasServidor: null,  // o que o servidor mandou
   estatisticas: null,          // o que o banco mostra: o do servidor + os eventos ainda por enviar
-  confirmados: [],             // enviados há pouco, ainda não nas estatísticas do servidor (para não "desaparecerem" do placar)
+  confirmados: [],             // enviados há pouco, ainda não nas estatísticas do servidor (para não "desaparecerem" do marcador)
   codigoLigacao: 'espera',
   lado: 'casa',          // equipa que ataca: 'casa' | 'fora'
   jogadorId: null,
   ponto: null,           // { x, y } do clique no mapa
   situacao: 'POSICIONAL',
   grPorEquipa: {},       // equipaId -> id do guarda-redes adversário escolhido
+  sistemaPorEquipa: lerSistemas(),   // equipaId de quem defende -> defesa que está a jogar (6_0, 5_1...); fica até a mudarem
   aEnviar: false,
   aEscolherBaliza: false, // janela da baliza aberta
   ligado: false,
@@ -216,6 +220,7 @@ function desenharTudo() {
   desenharSeletorEquipa();
   desenharJogadores();
   desenharSituacoes();
+  desenharSistemas();
   desenharGuardaRedes();
   desenharResultados();
   desenharOutros();
@@ -296,6 +301,39 @@ function desenharSituacoes() {
       if (s.codigo === 'SETE_METROS') estado.ponto = { ...PONTO_SETE_METROS };
       desenharTudo();
     },
+  }, s.rotulo)));
+}
+
+// ---------------------------------------------------------------------
+// Defesa do adversário (guardada no tablet: sobrevive a recarregar a página)
+// ---------------------------------------------------------------------
+function lerSistemas() {
+  try {
+    const guardado = JSON.parse(localStorage.getItem(CHAVE_SISTEMAS));
+    if (guardado && typeof guardado === 'object' && !Array.isArray(guardado)) return guardado;
+  } catch { /* sem armazenamento */ }
+  return {};
+}
+function guardarSistemas() {
+  try { localStorage.setItem(CHAVE_SISTEMAS, JSON.stringify(estado.sistemaPorEquipa)); } catch { /* ignora */ }
+}
+/** A defesa que a equipa adversária (a que defende) está a jogar, ou null se ainda não foi escolhida. */
+const sistemaAtual = () => estado.sistemaPorEquipa[equipaAdversaria()] ?? null;
+
+function escolherSistema(codigo) {
+  const defensora = equipaAdversaria();
+  if (estado.sistemaPorEquipa[defensora] === codigo) delete estado.sistemaPorEquipa[defensora];   // tocar outra vez tira
+  else estado.sistemaPorEquipa[defensora] = codigo;
+  guardarSistemas();
+  desenharSistemas();
+}
+
+function desenharSistemas() {
+  const atual = sistemaAtual();
+  substituir(document.getElementById('sistemas'), SISTEMAS_DEFENSIVOS.map((s) => h('button', {
+    type: 'button', class: atual === s.codigo ? 'ativo' : '', 'aria-pressed': String(atual === s.codigo), 'data-sistema': s.codigo,
+    title: atual === s.codigo ? 'Toca outra vez para tirar' : `O adversário defende em ${s.rotulo}. Só conta nos remates em ataque posicional.`,
+    onclick: () => escolherSistema(s.codigo),
   }, s.rotulo)));
 }
 
@@ -480,6 +518,8 @@ async function registarRemate(resultado) {
     x: ponto.x,
     y: ponto.y,
   };
+  // A defesa do adversário só conta contra uma defesa montada: no contra-ataque e nos 7 metros não se envia
+  if (estado.situacao === 'POSICIONAL' && sistemaAtual()) corpo.sistemaDefensivo = sistemaAtual();
   let descricao = `${ROTULO_RESULTADO[resultado]} · #${jogador.numero} ${jogador.nome}`;
 
   // Num golo ou numa defesa, abre a baliza para marcar onde a bola entrou ou onde o guarda-redes a defendeu

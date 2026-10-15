@@ -177,4 +177,51 @@ public class EventoValidadorTests
         var invalido = new NovoEventoRequest("VERMELHO", 1, 5, null, null, null, 50, 50, 2, 2100);
         Assert.NotEmpty(EventoValidador.Validar(invalido, eRemate: false));
     }
+
+    // ------------------------- Sistema defensivo do adversário -------------------------
+
+    [Theory]
+    [InlineData("6_0")]
+    [InlineData("5_1")]
+    [InlineData("3_2_1")]
+    [InlineData("4_2")]
+    [InlineData("INDIVIDUAL")]
+    public void Todos_os_sistemas_defensivos_conhecidos_sao_aceites_num_remate_posicional(string sistema)
+    {
+        Assert.Empty(EventoValidador.Validar(Remate(situacao: "POSICIONAL") with { SistemaDefensivo = sistema }, eRemate: true));
+        // sem situação conta como posicional
+        Assert.Empty(EventoValidador.Validar(Remate() with { SistemaDefensivo = sistema }, eRemate: true));
+    }
+
+    [Fact]
+    public void Sistema_defensivo_e_opcional()
+    {
+        Assert.Empty(EventoValidador.Validar(Remate(), eRemate: true));
+    }
+
+    [Theory]
+    [InlineData("6:0")]
+    [InlineData("ZONA")]
+    [InlineData("")]
+    public void Sistema_defensivo_desconhecido_e_invalido(string sistema)
+    {
+        var erros = EventoValidador.Validar(Remate() with { SistemaDefensivo = sistema }, eRemate: true);
+        Assert.Contains(erros, e => e.Contains("sistemaDefensivo"));
+    }
+
+    [Theory]
+    [InlineData("CONTRA_ATAQUE")]
+    [InlineData("SETE_METROS")]
+    public void Sistema_defensivo_so_existe_em_ataque_posicional(string situacao)
+    {
+        var erros = EventoValidador.Validar(Remate(situacao: situacao) with { SistemaDefensivo = "6_0" }, eRemate: true);
+        Assert.Contains(erros, e => e.Contains("ataque posicional"));
+    }
+
+    [Fact]
+    public void Evento_que_nao_e_remate_nao_aceita_sistema_defensivo()
+    {
+        var invalido = new NovoEventoRequest("PERDA_BOLA", 1, 5, null, null, null, null, null, 1, 450) { SistemaDefensivo = "6_0" };
+        Assert.NotEmpty(EventoValidador.Validar(invalido, eRemate: false));
+    }
 }
