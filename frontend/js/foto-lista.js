@@ -1,5 +1,6 @@
 // Janela "Ler a lista de uma foto": escolher a imagem, ler o texto, rever os jogadores e confirmar.
 // Devolve (promessa) os jogadores confirmados, ou null se a pessoa cancelar. Quem chama é que grava.
+// Serve a convocatória (os jogadores da imagem ficam convocados) e o plantel (só se juntam os que ainda não existem).
 import { POSICOES } from './api.js';
 import { h, substituir } from './dom.js';
 import { nomesParecidos } from './lista-jogadores.js';
@@ -8,11 +9,15 @@ import { encerrarLeitor, leituraDisponivel, lerImagem } from './ocr.js';
 const POSICAO_POR_OMISSAO = 'CE';   // as listas quase nunca trazem a posição: a pessoa ajusta aqui ou em Equipas
 
 /**
- * @param {{equipaNome: string, plantel: {id:number, numero:number, nome:string, posicao:string}[], maximo: number, convocadosAtuais: Set<number>}} opcoes
+ * @param {{equipaNome: string, plantel: {id:number, numero:number, nome:string, posicao:string}[], maximo?: number,
+ *   convocadosAtuais?: Set<number>, modo?: 'convocatoria' | 'plantel'}} opcoes
+ *   modo 'convocatoria' (a omissão): quem está na imagem fica convocado; "maximo" e "convocadosAtuais" são os da convocatória.
+ *   modo 'plantel': só se juntam à equipa os jogadores que ainda não existem; os que já estão ficam como estão.
  * @returns {Promise<null | {jogadores: {jogadorId: number|null, numero: number, nome: string, posicao: string}[]}>}
  *   um jogador com jogadorId já está na equipa (só fica convocado); sem jogadorId é para criar.
  */
-export function abrirLeituraDeFoto({ equipaNome, plantel, maximo, convocadosAtuais }) {
+export function abrirLeituraDeFoto({ equipaNome, plantel, maximo = 99, convocadosAtuais = new Set(), modo = 'convocatoria' }) {
+  const soPlantel = modo === 'plantel';
   return new Promise((resolver) => {
     const anteriorFoco = document.activeElement;
     const corpo = h('div', { class: 'foto-corpo' });
@@ -55,14 +60,14 @@ export function abrirLeituraDeFoto({ equipaNome, plantel, maximo, convocadosAtua
       leitura += 1;
       if (!leituraDisponivel()) {
         substituir(corpo,
-          h('p', { class: 'aviso-inline erro' }, 'Este browser não consegue ler imagens. Atualiza o browser, ou escreve os jogadores em Equipas.'),
+          h('p', { class: 'aviso-inline erro' }, `Este browser não consegue ler imagens. Atualiza o browser, ou escreve os jogadores ${soPlantel ? 'no formulário' : 'em Equipas'}.`),
           h('div', { class: 'janela-acoes' }, h('button', { type: 'button', class: 'botao suave', onclick: () => fechar(null) }, 'Fechar')));
         return;
       }
       const escolher = h('button', { type: 'button', class: 'botao primario', onclick: () => entrada.click() }, 'Escolher foto ou captura de ecrã');
       substituir(corpo,
         mensagem && h('p', { class: 'aviso-inline erro', role: 'alert' }, mensagem),
-        h('p', {}, 'Escolhe uma foto ou uma captura de ecrã da convocatória. Lê-se melhor com texto impresso, bem iluminado e de frente, sem sombras.'),
+        h('p', {}, `Escolhe uma foto ou uma captura de ecrã ${soPlantel ? 'da lista de jogadores (uma convocatória, uma ficha de jogo...)' : 'da convocatória'}. Lê-se melhor com texto impresso, bem iluminado e de frente, sem sombras.`),
         h('p', { class: 'suave' }, 'Também podes arrastar a imagem para aqui ou colar uma captura de ecrã com Ctrl+V. A imagem fica no teu dispositivo: não é enviada para lado nenhum.'),
         entrada,
         h('div', { class: 'janela-acoes' },
@@ -137,7 +142,7 @@ export function abrirLeituraDeFoto({ equipaNome, plantel, maximo, convocadosAtua
       const repetidos = [...new Set(numeros.filter((n, i) => numeros.indexOf(n) !== i))];
       if (repetidos.length) erros.push(`Número repetido: ${repetidos.map((n) => `#${n}`).join(', ')}. Muda o número ou tira um dos dois.`);
       if (incluidas.some((l) => !existenteDe(l) && !String(l.nome).trim())) erros.push('Escreve o nome dos jogadores novos.');
-      if (incluidas.length > maximo) erros.push(`Só cabem ${maximo} convocados por equipa: tira ${incluidas.length - maximo}.`);
+      if (!soPlantel && incluidas.length > maximo) erros.push(`Só cabem ${maximo} convocados por equipa: tira ${incluidas.length - maximo}.`);
       return erros;
     }
 
@@ -171,12 +176,21 @@ export function abrirLeituraDeFoto({ equipaNome, plantel, maximo, convocadosAtua
         }).length;
         const lista = problemas();
         erros.textContent = lista.join(' ');
-        resumo.textContent = incluidas.length === 0
-          ? 'Nenhum jogador escolhido.'
-          : `Ficam convocados ${incluidas.length} jogador${incluidas.length === 1 ? '' : 'es'}${novos ? `, ${novos} deles novo${novos === 1 ? '' : 's'} na equipa` : ''}.`
-            + (saem ? ` Saem da convocatória ${saem} que estava${saem === 1 ? '' : 'm'} marcado${saem === 1 ? '' : 's'} e não vêm na imagem.` : '');
+        if (soPlantel) {
+          const jaExistem = linhas.filter((l) => numeroValido(numeroDe(l)) && existenteDe(l)).length;
+          const jaDiz = jaExistem ? ` ${jaExistem} já ${jaExistem === 1 ? 'está' : 'estão'} na equipa e ${jaExistem === 1 ? 'fica' : 'ficam'} como ${jaExistem === 1 ? 'está' : 'estão'}.` : '';
+          resumo.textContent = incluidas.length === 0
+            ? `Nenhum jogador novo para adicionar.${jaDiz}`
+            : `Vão ser adicionados ${incluidas.length} jogador${incluidas.length === 1 ? '' : 'es'} à equipa.${jaDiz}`;
+        } else {
+          resumo.textContent = incluidas.length === 0
+            ? 'Nenhum jogador escolhido.'
+            : `Ficam convocados ${incluidas.length} jogador${incluidas.length === 1 ? '' : 'es'}${novos ? `, ${novos} deles novo${novos === 1 ? '' : 's'} na equipa` : ''}.`
+              + (saem ? ` Saem da convocatória ${saem} que estava${saem === 1 ? '' : 'm'} marcado${saem === 1 ? '' : 's'} e não vêm na imagem.` : '');
+        }
         confirmar.disabled = lista.length > 0 || linhas.filter((l) => l.incluir).length === 0;
-        confirmar.textContent = incluidas.length ? `Convocar ${incluidas.length}` : 'Convocar';
+        const acao = soPlantel ? 'Adicionar' : 'Convocar';
+        confirmar.textContent = incluidas.length ? `${acao} ${incluidas.length}` : acao;
       }
 
       function desenharLinha(l) {
@@ -190,6 +204,14 @@ export function abrirLeituraDeFoto({ equipaNome, plantel, maximo, convocadosAtua
 
         l.atualizarCelulas = () => {
           const existente = existenteDe(l);
+          if (soPlantel) {
+            // No plantel quem já existe não tem nada a acrescentar; se o número mudar para um livre, passa a ser um novo
+            if (existente) { l.incluir = false; caixa.checked = false; caixa.disabled = true; l.jaExistia = true; }
+            else {
+              caixa.disabled = false;
+              if (l.jaExistia) { l.jaExistia = false; l.incluir = true; caixa.checked = true; }
+            }
+          }
           if (existente) {
             substituir(celulaNome, h('span', {}, existente.nome),
               l.nome && !nomesParecidos(l.nome, existente.nome) ? h('small', { class: 'nome-lido' }, ` (na imagem: ${l.nome})`) : null);
@@ -231,12 +253,14 @@ export function abrirLeituraDeFoto({ equipaNome, plantel, maximo, convocadosAtua
 
       substituir(corpo,
         mensagem && h('p', { class: 'aviso-inline' }, mensagem),
-        h('p', {}, 'Confirma o que foi lido. Corrige o que estiver mal e tira a marca a quem não joga. Os jogadores que ainda não existem na equipa são adicionados.'),
+        h('p', {}, soPlantel
+          ? 'Confirma o que foi lido. Corrige o que estiver mal e tira a marca a quem não queres adicionar. Os jogadores que já estão na equipa ficam como estão.'
+          : 'Confirma o que foi lido. Corrige o que estiver mal e tira a marca a quem não joga. Os jogadores que ainda não existem na equipa são adicionados.'),
         h('div', { class: 'tabela-rolagem' },
           h('table', { class: 'tabela lista-foto' },
             h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'N.º'), h('th', {}, 'Nome'), h('th', {}, 'Posição'), h('th', {}, 'Estado'))),
             corpoTabela)),
-        h('p', { class: 'suave pequeno-texto' }, `Jogadores novos sem posição na imagem ficam como ${POSICOES.find((p) => p.codigo === POSICAO_POR_OMISSAO).rotulo.toLowerCase()}: muda-a aqui ou depois em Equipas.`),
+        h('p', { class: 'suave pequeno-texto' }, `Jogadores novos sem posição na imagem ficam como ${POSICOES.find((p) => p.codigo === POSICAO_POR_OMISSAO).rotulo.toLowerCase()}: muda-a aqui ou depois ${soPlantel ? 'com «Editar»' : 'em Equipas'}.`),
         resumo, erros,
         textoLido && h('details', { class: 'texto-lido' }, h('summary', {}, 'Ver o texto lido na imagem'), h('pre', {}, textoLido)),
         h('div', { class: 'janela-acoes' },

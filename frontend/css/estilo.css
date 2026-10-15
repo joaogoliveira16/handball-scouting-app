@@ -749,7 +749,10 @@ table.tabela td.suave { color: var(--suave); }
 .janela-acoes { display: flex; gap: 10px; justify-content: space-between; margin-top: 16px; flex-wrap: wrap; }
 .janela-acoes .botao { flex: 1; min-width: 150px; }
 
-/* ---------- Ler a lista de uma foto (janela da convocatória) ---------- */
+/* ---------- Plantel: título e botão «Ler de uma foto» ---------- */
+.cabecalho-plantel { display: flex; align-items: baseline; justify-content: space-between; gap: 0 14px; flex-wrap: wrap; }
+
+/* ---------- Ler a lista de uma foto (janela da convocatória e do plantel) ---------- */
 .janela-foto { width: min(760px, 100%); }
 .foto-corpo { display: grid; gap: 12px; }
 .foto-corpo p { margin: 0; }

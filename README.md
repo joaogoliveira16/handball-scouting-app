@@ -62,9 +62,11 @@ Por omissão o `docker compose` junta uma caixa de correio de teste (**Mailpit**
 2. **Novo jogo** (lista de jogos, *Novo jogo*): escreve o nome do adversário (os que já usaste aparecem como sugestão), diz se a tua equipa joga em casa ou fora e, se quiseres, o local e a data e hora. Depois de criar, abre-se a convocatória.
 3. **Convocatória** (`convocatoria.html?jogo=ID`): toca nos jogadores que vão ao jogo, até **16 por equipa**. *Todos* e *Nenhum* aceleram a escolha e há um aviso se não houver guarda-redes convocado. Fica guardada no servidor; podes voltar a alterá-la a qualquer momento. Em vez de tocar um a um, *Ler de uma foto* (por baixo do nome de cada equipa) deixa-te escolher uma foto ou uma captura de ecrã da convocatória, ver mais abaixo.
 
-### Ler a convocatória de uma foto
+### Ler a convocatória (ou o plantel) de uma foto
 
 Na convocatória, cada equipa tem o botão **Ler de uma foto**. Escolhe uma foto (da câmara, no telemóvel ou tablet) ou uma captura de ecrã, **ou arrasta a imagem / cola uma captura de ecrã com Ctrl+V**. A app lê o texto e mostra uma lista para **rever**: cada linha tem o número, o nome e a posição, e podes corrigir, tirar a marca a quem não joga ou *Adicionar jogador*. Quem já existe na equipa (mesmo número) fica ligado a esse jogador; os outros são **adicionados à equipa** ao confirmar. Depois é só *Guardar convocatória*. Cancelar não muda nada.
+
+O mesmo botão está na página **Equipas**, ao lado do título do plantel, para **montar o plantel de uma vez** a partir de uma foto ou captura de ecrã da lista de jogadores (uma convocatória, uma ficha de jogo...). Aí só se juntam à equipa os jogadores que **ainda não existem**: quem já está no plantel (mesmo número) aparece como «Já está na equipa» e fica como está. Os novos sem posição na imagem entram como central; muda-se depois com *Editar*. Serve também para o plantel de um adversário aberto a partir da convocatória.
 
 - **A imagem não sai do dispositivo**: a leitura (OCR, Tesseract) corre no próprio browser, sem chave, sem custos e sem enviar nada para a internet. O leitor (cerca de 5 MB, em `frontend/lib/tesseract/`) só se descarrega quando alguém lê a primeira foto e o browser guarda-o.
 - **Formatos que entende**, uma linha por jogador: `7 João Silva`, `7 - João Silva (GR)`, `#7 JOÃO SILVA GR`, `Nº 7 | JOÃO SILVA | 123456`, `João Silva 7`. Ignora cabeçalhos, horas e datas, e os números das licenças. A posição só é lida se vier escrita (`GR`, `PE`, `LD`, «guarda-redes»...); senão fica *Central* para ajustares aqui ou em Equipas.

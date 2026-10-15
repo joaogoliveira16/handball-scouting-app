@@ -709,6 +709,68 @@ await passo('Convocatória: ler a lista de uma foto', async () => {
   await p2.close();
 });
 
+// ======================= Equipas: ler o plantel de uma foto =======================
+await passo('Equipas: juntar ao plantel os jogadores lidos de uma foto', async () => {
+  // A mesma ficha desenhada no passo da convocatória; aqui só se juntam à equipa os jogadores que ainda não existem
+  const ficheiroFicha = path.join(E2E_DIR, 'e2e-foto-ficha.png');
+  const [eq] = await q('INSERT INTO equipas (nome, dono_id) VALUES ($1, $2) RETURNING id', [`Corvos ${sufixo}`, donoId]);
+  for (const [n, nome, pos] of [[1, 'Rui Mesquita', 'GR'], [7, 'André Fonseca', 'LE']]) {
+    await q('INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1,$2,$3,$4)', [eq.id, n, nome, pos]);
+  }
+  const toleradas = ['Error in ', 'Estimating resolution', 'Invalid resolution'];   // o leitor escreve avisos na consola
+  const p = await pagina(`/equipas.html?equipa=${eq.id}`, { tolerar: toleradas });
+  await p.waitForSelector('#plantel table.tabela');
+  ok((await p.locator('#plantel .cabecalho-plantel #ler-foto').count()) === 1 && (await p.locator('#ler-foto').isVisible()), 'plantel: botão "Ler de uma foto" ao lado do título do plantel');
+  await p.click('#ler-foto');
+  const janela = p.locator('.janela-foto');
+  await janela.waitFor();
+  ok(((await janela.textContent()) ?? '').includes('lista de jogadores'), 'plantel: a janela fala da lista de jogadores (não da convocatória)');
+  await janela.locator('input[type=file]').setInputFiles(ficheiroFicha);
+  await janela.locator('table.lista-foto').waitFor({ timeout: 120000 });
+  const lidas = await janela.locator('table.lista-foto tbody tr').evaluateAll((trs) => trs.map((tr) => ({
+    numero: Number(tr.querySelector('.campo-numero').value), incluir: tr.querySelector('input[type=checkbox]').checked, desativada: tr.querySelector('input[type=checkbox]').disabled,
+    nome: (tr.children[2].querySelector('input')?.value ?? '').trim(), estado: tr.children[4].textContent.trim() })));
+  const jaExistem = lidas.filter((l) => l.estado === 'Já está na equipa');
+  const novas = lidas.filter((l) => l.estado === 'Novo na equipa');
+  ok(jaExistem.every((l) => [1, 7].includes(l.numero) && !l.incluir && l.desativada), `plantel: quem já está na equipa não se volta a adicionar (${jaExistem.map((l) => l.numero)})`);
+  ok(novas.length >= 5 && novas.every((l) => l.incluir && !l.desativada), `plantel: os outros vêm marcados para adicionar (${novas.length})`);
+  const resumo = (await janela.locator('.resumo-foto').textContent()) ?? '';
+  ok(resumo.includes(`Vão ser adicionados ${novas.length} jogadores à equipa`) && /já estão? na equipa/.test(resumo), `plantel: o resumo diz quantos se juntam e quantos já existiam (${resumo})`);
+  ok(((await janela.locator('.botao.primario').last().textContent()) ?? '') === `Adicionar ${novas.length}`, 'plantel: o botão de confirmar diz «Adicionar» e quantos');
+  await captura(p, 'equipas-foto');
+
+  // Tirar o último e confirmar
+  const ultima = janela.locator('table.lista-foto tbody tr').last();
+  const numeroUltimo = Number(await ultima.locator('.campo-numero').inputValue());
+  const estadoUltima = ((await ultima.locator('td').nth(4).textContent()) ?? '').trim();
+  if (estadoUltima === 'Novo na equipa') await ultima.locator('input[type=checkbox]').uncheck();
+  const juntar = novas.filter((l) => l.numero !== numeroUltimo);
+  await janela.locator('.botao.primario', { hasText: 'Adicionar' }).click();
+  await janela.waitFor({ state: 'detached' });
+  await p.waitForFunction(() => document.getElementById('aviso').textContent.includes('adicionado'));
+  ok(((await p.locator('#aviso').textContent()) ?? '').includes(`${juntar.length} jogadores adicionados ao plantel`), 'plantel: avisa quantos jogadores foram adicionados');
+  const bd = await q('SELECT numero, nome, posicao_codigo FROM jogadores WHERE equipa_id = $1 ORDER BY numero', [eq.id]);
+  ok(bd.length === 2 + juntar.length, `plantel: ficaram ${bd.length} jogadores na equipa (2 + ${juntar.length})`);
+  ok(juntar.every((n) => bd.some((j) => j.numero === n.numero && j.nome === n.nome)), 'plantel: os novos entraram com o número e o nome do ecrã de rever');
+  ok(bd.find((j) => j.numero === 7)?.nome === 'André Fonseca' && bd.find((j) => j.numero === 1)?.nome === 'Rui Mesquita', 'plantel: os jogadores que já existiam ficaram como estavam');
+  ok(juntar.every((n) => bd.find((j) => j.numero === n.numero)?.posicao_codigo === 'CE'), 'plantel: os novos sem posição na imagem ficam como central');
+  ok((await p.locator('#plantel table.tabela tbody tr').count()) === bd.length, 'plantel: a tabela do plantel já mostra os novos jogadores');
+  ok(((await p.locator('.item-equipa[aria-current="true"] small').textContent()) ?? '').startsWith(`${bd.length} jog`), 'plantel: a lista de equipas atualiza o número de jogadores');
+
+  // Ler outra vez a mesma imagem: já não há nada de novo para adicionar (o que ficou de fora é o único novo)
+  await p.click('#ler-foto');
+  await janela.waitFor();
+  await janela.locator('input[type=file]').setInputFiles(ficheiroFicha);
+  await janela.locator('table.lista-foto').waitFor({ timeout: 120000 });
+  const novasDeNovo = await janela.locator('table.lista-foto tbody tr', { hasText: 'Novo na equipa' }).count();
+  ok(novasDeNovo <= 1, `plantel: ao ler outra vez só sobra o jogador que tinha ficado de fora (${novasDeNovo})`);
+  // Cancelar não mexe em nada
+  await janela.getByRole('button', { name: 'Cancelar' }).click();
+  await janela.waitFor({ state: 'detached' });
+  ok((await q('SELECT 1 FROM jogadores WHERE equipa_id = $1', [eq.id])).length === bd.length, 'plantel: cancelar não adiciona ninguém');
+  await p.close();
+});
+
 // ======================= Banco: só convocados, registar remates =======================
 await passo('Banco: só os convocados', async () => {
   const p = await pagina(`/banco.html?jogo=${novoJogoId}`);

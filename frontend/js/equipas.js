@@ -4,6 +4,7 @@ import { h, substituir, avisar } from './dom.js';
 import { obter, enviar, enviarFicheiro, POSICOES, ROTULO_POSICAO } from './api.js';
 import { exigirConta } from './conta.js';
 import { escudo, iniciais, prepararEscudo } from './escudo.js';
+import { abrirLeituraDeFoto } from './foto-lista.js';
 
 await exigirConta();
 
@@ -43,6 +44,11 @@ const formJogador = h('form', { class: 'formulario formulario-jogador', novalida
   h('div', { class: 'largo acoes-formulario' }, botaoGuardar, botaoCancelar));
 
 const tituloPlantel = h('h2', {}, 'Plantel');
+const botaoFoto = h('button', {
+  type: 'button', id: 'ler-foto', class: 'botao suave pequeno', onclick: () => lerDeFoto(),
+  title: 'Escolhe uma foto ou uma captura de ecrã com a lista de jogadores e a app lê-os',
+}, 'Ler de uma foto');
+const cabecalhoPlantel = h('div', { class: 'cabecalho-plantel' }, tituloPlantel, botaoFoto);
 const zonaTabela = h('div', {});
 
 // ---------------------------------------------------------------------
@@ -65,7 +71,7 @@ const blocoEscudo = h('div', { class: 'bloco-escudo', id: 'bloco-escudo' },
     h('div', { class: 'acoes-linha' }, botaoEscudo, botaoRemoverEscudo, campoEscudo),
     erroEscudo));
 
-cartaoPlantel.replaceChildren(blocoEscudo, tituloPlantel, zonaTabela, formJogador);
+cartaoPlantel.replaceChildren(blocoEscudo, cabecalhoPlantel, zonaTabela, formJogador);
 
 const equipaAtual = () => estado.equipas.find((e) => e.id === estado.equipaId) ?? null;
 const equipaDaConta = () => estado.equipas.find((e) => e.propria) ?? null;
@@ -157,6 +163,7 @@ function desenharPlantel() {
   cartaoPlantel.hidden = false;
   desenharEscudo();
   formJogador.hidden = !equipa;
+  botaoFoto.hidden = !equipa;
   tituloPlantel.textContent = equipa ? `Plantel · ${equipa.nome}` : 'Plantel';
 
   if (!equipa) {
@@ -164,7 +171,7 @@ function desenharPlantel() {
     return;
   }
   if (!estado.jogadores.length) {
-    substituir(zonaTabela, h('p', { class: 'vazio' }, 'Esta equipa ainda não tem jogadores. Adiciona o primeiro abaixo.'));
+    substituir(zonaTabela, h('p', { class: 'vazio' }, 'Esta equipa ainda não tem jogadores. Adiciona o primeiro abaixo ou lê a lista de uma foto.'));
     return;
   }
 
@@ -237,6 +244,43 @@ async function guardarJogador(evento) {
   } finally {
     botaoGuardar.disabled = false;
   }
+}
+
+let aLerFoto = false;
+
+/** Lê a lista de uma foto ou de um print e junta ao plantel os jogadores que ainda não existem. */
+async function lerDeFoto() {
+  const equipa = equipaAtual();
+  if (!equipa || aLerFoto) return;
+  const resultado = await abrirLeituraDeFoto({ modo: 'plantel', equipaNome: equipa.nome, plantel: estado.jogadores });
+  if (!resultado?.jogadores.length) return;
+
+  aLerFoto = true;
+  botaoFoto.disabled = true;
+  const falhas = [];
+  let novos = 0;
+  try {
+    for (const j of resultado.jogadores) {
+      try {
+        await enviar('POST', `/api/equipas/${equipa.id}/jogadores`, { numero: j.numero, nome: j.nome, posicao: j.posicao });
+        novos += 1;
+      } catch (erro) {
+        falhas.push(`#${j.numero} ${j.nome} (${erro.message})`);
+      }
+    }
+  } finally {
+    aLerFoto = false;
+    botaoFoto.disabled = false;
+    try {
+      await Promise.all([carregarJogadores(), carregarEquipas()]);
+      iniciarFormulario(null);
+    } catch (erro) {
+      avisar(`Não foi possível atualizar o plantel: ${erro.message}`, { erro: true });
+    }
+  }
+  const adicionados = `${novos} jogador${novos === 1 ? '' : 'es'} adicionado${novos === 1 ? '' : 's'} ao plantel`;
+  if (falhas.length) avisar(`${adicionados}. Não foi possível adicionar: ${falhas.join('; ')}.`, { erro: true, duracao: 8000 });
+  else avisar(`${adicionados}.`);
 }
 
 async function apagarJogador(jogador) {
