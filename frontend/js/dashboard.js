@@ -425,6 +425,7 @@ function desenhar() {
   const equipas = estado.dados.equipas;
   if (!equipas.some((e) => e.equipaId === estado.equipaId)) estado.equipaId = equipas[0].equipaId;
   const selecionada = equipaPorId(estado.equipaId);
+  atualizarLigacaoIntervalo();
 
   const abas = h('div', { class: 'separador-abas largo' },
     equipas.map((e) => h('button', {
@@ -500,6 +501,7 @@ function mostrarSemAcesso(conta) {
   document.querySelector('.placar').hidden = true;
   document.getElementById('partilhar').hidden = true;
   document.getElementById('excel-jogo').hidden = true;
+  document.getElementById('intervalo').hidden = true;
   substituir(document.querySelector('main'),
     h('section', { class: 'sem-acesso' },
       h('h1', {}, 'Este jogo não está disponível'),
@@ -558,5 +560,13 @@ if (codigo) {
 }
 
 document.getElementById('excel-jogo').href = urlExcel(jogoId, null, codigo);
+
+/** O relatório do intervalo abre já para a equipa que se está a ver aqui. */
+function atualizarLigacaoIntervalo() {
+  const parametrosRelatorio = new URLSearchParams({ jogo: jogoId });
+  if (codigo) parametrosRelatorio.set('c', codigo);
+  if (estado.equipaId != null) parametrosRelatorio.set('equipa', estado.equipaId);
+  document.getElementById('intervalo').href = `intervalo.html?${parametrosRelatorio}`;
+}
 
 ligar(jogoId, codigo, receber, mostrarEstadoLigacao);

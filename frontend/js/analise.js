@@ -9,7 +9,7 @@ export const MINIMO_REMATES_SISTEMA = 4;
 export const MINIMO_COM_LOCAL = 3;
 
 /** Golos / remates em percentagem com 1 casa decimal (como o servidor), ou null sem remates. */
-const eficaciaDe = (golos, remates) => (remates ? Math.round((1000 * golos) / remates) / 10 : null);
+export const eficaciaDe = (golos, remates) => (remates ? Math.round((1000 * golos) / remates) / 10 : null);
 const contar = (lista, resultado) => lista.filter((r) => r.resultado === resultado).length;
 
 /**

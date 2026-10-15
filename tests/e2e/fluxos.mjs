@@ -1300,6 +1300,107 @@ await passo('Dashboard: contra que defesa se marca mais e o livro dos 7 metros',
   await sem.close();
 });
 
+// ======================= Relatório do intervalo =======================
+await passo('Relatório do intervalo: os pontos a corrigir e a manter na 2.ª parte, para ver, copiar e imprimir', async () => {
+  const NOME_AGUIAS = 'Águias do Norte';
+  const NOME_LEOES = 'Leões do Sul';
+  const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  const [jogA, jogB] = await q("SELECT id, numero, nome FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 2", [aguias.id]);
+  const [jogF] = await q("SELECT id, numero, nome FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [leoes.id]);
+  let segundo = 0;
+  const remate = (equipa, jogador, resultado, parte = 1) => q(
+    `INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, resultado, situacao, x, y, parte, segundo_jogo)
+     VALUES ($1, $2, 'REMATE', $3, $4, 'POSICIONAL', 50, 40, $5, $6)`, [jogoId, equipa, jogador, resultado, parte, (segundo += 20)]);
+  // 1.ª parte. Águias: o jogador A falha (1 golo em 7), o B marca (4 em 5); o jogador dos Leões marca 4 em 5 e já levou 2 exclusões
+  for (const r of ['GOLO', 'FORA', 'FORA', 'FORA', 'DEFESA', 'DEFESA', 'DEFESA']) await remate(aguias.id, jogA.id, r);
+  for (const r of ['GOLO', 'GOLO', 'GOLO', 'GOLO', 'FORA']) await remate(aguias.id, jogB.id, r);
+  for (const r of ['GOLO', 'GOLO', 'GOLO', 'GOLO', 'FORA']) await remate(leoes.id, jogF.id, r);
+  await q("INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, parte, segundo_jogo) VALUES ($1, $2, 'DOIS_MINUTOS', $3, 1, 300), ($1, $2, 'DOIS_MINUTOS', $3, 1, 900)", [jogoId, aguias.id, jogA.id]);
+  // 2.ª parte: um golo dos Leões (não conta nos números do intervalo)
+  await remate(leoes.id, jogF.id, 'GOLO', 2);
+  ok((await q('SELECT 1 FROM v_remates WHERE jogo_id = $1 AND parte = 1 AND corredor IS NOT NULL AND distancia IS NOT NULL', [jogoId])).length === 17, 'intervalo: a vista dos remates traz a parte, o corredor e a distância');
+
+  // O botão do dashboard abre o relatório da equipa que se está a ver (o dono leva o código do jogo)
+  const [{ codigo: codigoJogo }] = await q('SELECT codigo FROM jogos WHERE id = $1', [jogoId]);
+  const dash = await pagina(`/dashboard.html?jogo=${jogoId}`);
+  await dash.waitForSelector('#painel .cartao');
+  ok((await dash.locator('#intervalo').getAttribute('href')) === `intervalo.html?jogo=${jogoId}&c=${codigoJogo}&equipa=${aguias.id}`, 'intervalo: o botão do dashboard leva a equipa escolhida');
+  await dash.locator('.separador-abas button', { hasText: NOME_LEOES }).click();
+  ok((await dash.locator('#intervalo').getAttribute('href')) === `intervalo.html?jogo=${jogoId}&c=${codigoJogo}&equipa=${leoes.id}`, 'intervalo: o botão acompanha a equipa escolhida no dashboard');
+  await dash.locator('.separador-abas button', { hasText: NOME_AGUIAS }).click();
+  await Promise.all([dash.waitForURL(/intervalo\.html/), dash.locator('#intervalo').click()]);
+  await dash.waitForSelector('.folha');
+
+  // A folha das Águias
+  const p = dash;
+  const golos = async () => (await p.locator('.folha-placar strong').allTextContents()).join('-');
+  const pontos = (tipo) => p.locator(`.pontos.${tipo} li`);
+  const titulos = (tipo) => p.locator(`.pontos.${tipo} li strong`).allTextContents();
+  ok((await golos()) === '5-4', `intervalo: o resultado é o da 1.ª parte, sem o golo da 2.ª (${await golos()})`);
+  ok((await p.title()).startsWith('Intervalo 5–4'), `intervalo: o título do separador leva o resultado (${await p.title()})`);
+  ok(((await p.locator('.folha-sub').textContent()) ?? '') === `Intervalo · relatório da 1.ª parte para ${NOME_AGUIAS}`, 'intervalo: diz de que equipa é o relatório');
+  ok((await p.locator('.aviso-inline').count()) === 0, 'intervalo: com remates que cheguem não há aviso');
+  ok((await pontos('corrigir').count()) === 3, 'intervalo: três pontos a corrigir');
+  const corrigir = await titulos('corrigir');
+  ok(corrigir[0] === `Cuidado com o #${jogA.numero} ${jogA.nome}` && corrigir[1] === `Rever o #${jogA.numero} ${jogA.nome}` && corrigir[2] === `Marcar o #${jogF.numero} ${jogF.nome}`,
+    `intervalo: por gravidade, o risco de expulsão, o jogador a falhar e o do adversário (${corrigir})`);
+  ok(((await pontos('corrigir').nth(1).textContent()) ?? '').includes('1 golo em 7 remates (3 fora, 3 defendidos)'), 'intervalo: o ponto diz o que correu mal');
+  ok((await pontos('manter').count()) === 1 && (await titulos('manter'))[0] === `Procurar o #${jogB.numero} ${jogB.nome}`, 'intervalo: um ponto a manter (o jogador em forma)');
+
+  const numeros = await p.locator('table.numeros-intervalo tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent)));
+  const linhaNumeros = (rotulo) => numeros.find((l) => l[0] === rotulo)?.slice(1).join('|');
+  ok(linhaNumeros('Golos') === '5|4' && linhaNumeros('Remates') === '12|5' && linhaNumeros('Eficácia') === '42%|80%', `intervalo: golos, remates e eficácia da 1.ª parte (${JSON.stringify(numeros)})`);
+  ok(await p.locator('table.numeros-intervalo tbody tr').first().locator('td').nth(1).evaluate((td) => td.classList.contains('vantagem')), 'intervalo: a equipa que está melhor numa linha fica destacada');
+  ok((await p.locator('.folha-bloco', { has: p.locator('h2', { hasText: `Remates de ${NOME_AGUIAS}` }) }).locator('tbody tr').count()) === 2, 'intervalo: os dois jogadores que rematam');
+  await captura(p, 'intervalo');
+
+  // Copiar como texto
+  await p.click('#copiar');
+  const copiado = await p.evaluate(() => navigator.clipboard.readText());
+  const linhasCopiadas = copiado.split('\n');
+  ok(linhasCopiadas[0] === `Intervalo · ${NOME_AGUIAS} 5–4 ${NOME_LEOES}` && linhasCopiadas[1] === `Relatório da 1.ª parte, para ${NOME_AGUIAS}`, `intervalo: o texto copiado começa pelo resultado (${linhasCopiadas.slice(0, 2)})`);
+  ok(copiado.includes(`1. Cuidado com o #${jogA.numero} ${jogA.nome}: Já tem 2 exclusões de 2 minutos`) && copiado.includes('A manter:') && copiado.includes('Golos: 5 – 4'), 'intervalo: o texto copiado leva os pontos e os números');
+  ok(((await p.locator('#aviso').textContent()) ?? '').includes('Texto copiado'), 'intervalo: avisa que o texto foi copiado');
+
+  // Imprimir: só a folha
+  await p.emulateMedia({ media: 'print' });
+  ok(await p.locator('.topo').isHidden() && await p.locator('.separador-abas').isHidden() && await p.locator('.folha').isVisible(), 'intervalo: ao imprimir só fica a folha (sem cabeçalho nem botões)');
+  await p.emulateMedia({ media: 'screen' });
+
+  // A outra equipa, e a 2.ª parte
+  await p.locator('.separador-abas button', { hasText: `Para: ${NOME_LEOES}` }).click();
+  ok(((await p.locator('.folha-sub').textContent()) ?? '').endsWith(`para ${NOME_LEOES}`), 'intervalo: o relatório muda para a outra equipa');
+  const numerosLeoes = await p.locator('table.numeros-intervalo tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent)));
+  ok(numerosLeoes.find((l) => l[0] === 'Golos')?.slice(1).join('|') === '4|5', 'intervalo: do lado dos Leões os golos são 4 contra 5');
+  ok(((await pontos('corrigir').first().textContent()) ?? '').includes(`Marcar o #${jogB.numero} ${jogB.nome}`), 'intervalo: os Leões veem quem têm de marcar nas Águias');
+  await p.locator('.separador-abas button', { hasText: '2.ª parte' }).click();
+  ok(((await p.locator('.folha-sub').textContent()) ?? '') === `Relatório da 2.ª parte para ${NOME_LEOES}` && (await golos()) === '0-1', 'intervalo: a 2.ª parte tem os seus números');
+  ok(((await p.locator('.aviso-inline').textContent()) ?? '') === 'Só 1 remate registado nesta parte: os pontos podem enganar.', 'intervalo: com poucos remates avisa que os pontos podem enganar');
+  await p.close();
+
+  // O link de partilha também abre o relatório (sem conta), do lado da casa
+  const visitante = await pagina(`/intervalo.html?jogo=${jogoId}&c=${codigoJogo}`, { contexto: ctxVisitante, tolerar: ['401'] });
+  await visitante.waitForSelector('.folha');
+  ok(((await visitante.locator('.folha-sub').textContent()) ?? '').endsWith(`para ${NOME_AGUIAS}`) && (await visitante.locator('.pontos.corrigir li').count()) === 3, 'intervalo: quem só tem a ligação vê o relatório');
+  ok((await visitante.locator('#voltar').getAttribute('href')) === `dashboard.html?jogo=${jogoId}&c=${codigoJogo}`, 'intervalo: a seta volta ao dashboard do mesmo jogo');
+  await visitante.close();
+  // (um jogo de há mais de 24 horas, como o jogo 2, só abre com o código; os de hoje estão abertos a convidados)
+  const semCodigo = await pagina('/intervalo.html?jogo=2', { contexto: ctxVisitante, tolerar: ['401', '404'] });
+  ok(await esperarPor(async () => (await semCodigo.locator('.sem-acesso').count()) === 1) && (await semCodigo.locator('#ligacao').textContent()) === 'sem acesso' && (await semCodigo.locator('#copiar').isHidden()),
+    'intervalo: sem a ligação, um jogo antigo não está disponível (e não há botões para copiar nem imprimir)');
+  ok((await semCodigo.locator('.sem-acesso a[href^="entrar.html?voltar="]').count()) === 1, 'intervalo: sem acesso oferece entrar na conta');
+  await semCodigo.close();
+
+  // Um jogo ainda sem remates
+  const [{ id: vazioId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  const vazio = await pagina(`/intervalo.html?jogo=${vazioId}`);
+  await vazio.waitForSelector('.folha');
+  ok(((await vazio.locator('.aviso-inline').textContent()) ?? '') === 'Ainda sem remates registados nesta parte.' && ((await vazio.locator('.folha-bloco .vazio').textContent()) ?? '').includes('Ainda não há remates que cheguem'),
+    'intervalo: sem remates diz que ainda não há dados em vez de elogiar');
+  ok((await vazio.locator('.pontos').count()) === 0 && (await vazio.locator('.folha-placar strong').allTextContents()).join('-') === '0-0', 'intervalo: sem remates não há pontos e o resultado é 0–0');
+  await vazio.close();
+});
+
 await passo('Superioridade: a eficácia por situação (igualdade, superioridade, inferioridade, 7×6) no dashboard', async () => {
   const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
   const [{ id: jogCasa }] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [aguias.id]);

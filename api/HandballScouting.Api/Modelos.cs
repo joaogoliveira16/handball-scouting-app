@@ -308,6 +308,15 @@ public class OutroEvento
     public long Total { get; set; }
 }
 
+/// <summary>Os eventos que não são remates, por equipa, tipo e parte (o relatório do intervalo só conta a 1.ª parte).</summary>
+public class OutroEventoParte
+{
+    public int EquipaId { get; set; }
+    public string Tipo { get; set; } = "";
+    public short Parte { get; set; }
+    public long Total { get; set; }
+}
+
 public class EventoResumo
 {
     public long Id { get; set; }
@@ -342,6 +351,11 @@ public class RemateMapa
     public string? BalizaZona { get; set; }
     public string? SistemaDefensivo { get; set; }
     public int SegundoJogo { get; set; }
+    public short Parte { get; set; }
+    public string? Corredor { get; set; }
+    public string? Distancia { get; set; }
+    /// <summary>O guarda-redes que defendia a baliza (null se não foi escolhido).</summary>
+    public int? GuardaRedesId { get; set; }
 }
 
 /// <summary>Resultado das consultas com filtros (eficácia de remate)</summary>
@@ -380,6 +394,7 @@ public class EstatisticasJogo
     public int ParcialMinutos { get; set; }
     public List<ParcialEquipa> Parcial { get; set; } = new();
     public List<OutroEvento> OutrosEventos { get; set; } = new();
+    public List<OutroEventoParte> OutrosEventosPorParte { get; set; } = new();
     public List<SancaoJogador> Sancoes { get; set; } = new();
     public List<EventoResumo> UltimosEventos { get; set; } = new();
     public List<RemateMapa> Remates { get; set; } = new();

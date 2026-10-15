@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0e1b33">
+  <!-- Como o dashboard: o link de partilha leva o código secreto do jogo -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Relatório do intervalo · Scouting de Andebol</title>
+  <link rel="stylesheet" href="css/estilo.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+</head>
+<body>
+  <header class="topo topo-jogo">
+    <a class="voltar" id="voltar" href="./" aria-label="Voltar ao dashboard">←</a>
+    <strong class="titulo-topo">Relatório do intervalo</strong>
+    <button type="button" class="botao-topo" id="copiar" title="Copiar o relatório como texto, para colar no WhatsApp ou no email" disabled>Copiar texto</button>
+    <button type="button" class="botao-topo" id="imprimir" title="Imprimir o relatório (ou guardar em PDF)" disabled>Imprimir</button>
+    <span class="ligacao" id="ligacao">a ligar…</span>
+  </header>
+
+  <main class="intervalo" id="intervalo">
+    <p class="vazio">A aguardar dados do jogo…</p>
+  </main>
+
+  <div id="aviso" class="aviso" role="status"></div>
+  <script src="lib/signalr.min.js"></script>
+  <script type="module" src="js/intervalo.js"></script>
+</body>
+</html>

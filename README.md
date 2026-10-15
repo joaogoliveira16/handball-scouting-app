@@ -105,6 +105,16 @@ Dois quadros do dashboard saem da escolha da equipa («Ver: …») e dos remates
 - **Contra que defesa** compara a eficácia da equipa em ataque posicional contra cada defesa do adversário (6:0, 5:1...), com os remates sem defesa marcada à parte. Diz contra que defesa marca mais e menos, mas só quando há pelo menos duas defesas com 4 remates cada e eficácias diferentes: poucos remates enganam.
 - **Livro dos 7 metros** tem uma ficha por lançador (do que mais lançou para o que menos): lançamentos, golos, defendidos e uma baliza 3×3 com para onde bateu. Só se fala de uma zona preferida («Tende a bater baixo à direita (3 de 4)») com pelo menos 3 lançamentos com local e uma zona que ganhe às outras. Serve para o guarda-redes preparar o jogo: vê-se a equipa que se vai defrontar. O local na baliza só existe nos golos e nas defesas, por isso os remates fora, ao poste ou bloqueados contam nos lançamentos mas não numa zona.
 
+### Relatório do intervalo
+
+No cabeçalho do dashboard, o botão **Intervalo** abre `intervalo.html?jogo=ID` (com `&c=CÓDIGO` para quem só tem a ligação, e `&equipa=ID` para abrir já do lado da equipa que se estava a ver): uma folha para o treinador ler no tablet durante o intervalo, **imprimir** (A4, sem cabeçalho nem botões) ou **copiar como texto** (para colar no WhatsApp ou no email). Qualquer pessoa que veja o jogo a pode abrir. Tem:
+
+- **A corrigir na 2.ª parte**: no máximo 3 pontos, os mais graves primeiro, cada um com os números que o justificam (por exemplo «Rever o #9 Miguel Sousa: 1 golo em 7 remates (3 fora, 3 defendidos)»).
+- **A manter**: no máximo 2 pontos (o jogador em forma, a zona que rende, o guarda-redes deles a ceder...).
+- **A 1.ª parte em números** das duas equipas lado a lado (golos, remates, eficácia, perdas de bola, defesas do guarda-redes e, quando aconteceram, contra-ataques, 7 metros, exclusões e time-outs), com destaque para quem está melhor, e os remates de cada jogador.
+
+Os pontos vêm de regras simples sobre o que o banco registou, sem adivinhar nada: jogador com duas exclusões (a terceira desqualifica), guarda-redes em apuros ou em forma, finalização, jogador que falha ou que marca, perdas de bola, distância ou corredor de onde se falha ou se marca, corredor e jogador por onde o adversário faz mal, contra-ataques, defesa do adversário (6:0, 5:1...) e disciplina. Com menos de 8 remates na parte a folha avisa que os pontos podem enganar. Há um botão por equipa («Para: …») e, depois de a 2.ª parte começar, outro para ver o relatório dela. As contas são feitas no browser (`frontend/js/relatorio-intervalo.js`, testado em `tests/unidade/relatorio-intervalo.test.mjs`) a partir do mesmo estado que o dashboard recebe: cada remate traz agora `parte`, `corredor`, `distancia` e `guardaRedesId`, e `outrosEventosPorParte` conta perdas de bola, faltas ofensivas, 2 minutos, vermelhos e time-outs por equipa e parte.
+
 ### Treinador-assistente
 
 No topo do dashboard do **dono do jogo** há um painel com os time-outs de cada equipa (`0/3 usados · pode pedir 2`) e até 6 sugestões, as mais importantes primeiro. Cada uma diz **porquê**, com os números (por exemplo «4 golos em 5 remates (80%)»), para o treinador confiar ou discordar: a decisão é sempre dele. Vêm de regras simples sobre os dados que já existem, sem adivinhar nada, e só disparam a partir de um número mínimo de remates, golos ou eventos (poucos remates enganam em qualquer percentagem):
@@ -211,7 +221,7 @@ As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas
 | POST | `/api/conta/sair` | Termina a sessão |
 | GET | `/api/conta` | A conta da sessão (401 sem sessão) |
 | GET | `/api/jogos/{id}` | Jogo e jogadores das duas equipas (com `convocado`); o `codigo` da ligação de partilha só vem para o dono, para os outros é `null` *(dono, `?c=` ou jogo aberto a convidados)* |
-| GET | `/api/jogos/{id}/estatisticas` | Estado completo (o mesmo que o dashboard recebe) *(dono, `?c=` ou jogo aberto a convidados)* |
+| GET | `/api/jogos/{id}/estatisticas` | Estado completo (o mesmo que o dashboard e o relatório do intervalo recebem; cada item de `remates` traz `parte`, `corredor`, `distancia` e `guardaRedesId`, e `outrosEventosPorParte` conta os eventos que não são remates por equipa e parte) *(dono, `?c=` ou jogo aberto a convidados)* |
 | GET | `/api/jogos/{id}/estatisticas/eficacia` | Eficácia com filtros *(dono, `?c=` ou jogo aberto a convidados)* |
 | GET | `/api/jogos/{id}/estatisticas/guarda-redes` | Defesas com filtros *(dono, `?c=` ou jogo aberto a convidados)* |
 | GET | `/api/jogos/{id}/exportar.xlsx` | Estatísticas em Excel (`?equipaId=` para uma só equipa) *(dono, `?c=` ou jogo aberto a convidados)* |

@@ -433,6 +433,17 @@ await passo('Estatísticas (GROUP BY / COUNT) sobre os dados de exemplo', async 
   ok(est.json?.relogio?.aCorrer === false && est.json.relogio.segundo >= 1900, 'superioridade: sem relógio avisado pelo banco, o relógio é o do último evento e está parado', JSON.stringify(est.json?.relogio));
   ok(est.json?.remates?.every((r) => Number.isInteger(r.segundoJogo)), 'superioridade: cada remate do mapa traz o segundo de jogo');
 
+  // relatório do intervalo: cada remate traz a parte, o corredor, a distância e o guarda-redes; os outros eventos vêm também por parte
+  const corredoresApi = ['PONTA_ESQ', 'LATERAL_ESQ', 'CENTRAL', 'LATERAL_DIR', 'PONTA_DIR'];
+  const distanciasApi = ['ATE_6M', 'DE_6_A_9M', 'LINHA_9M', 'MAIS_9M'];
+  ok(est.json.remates.every((r) => [1, 2].includes(r.parte) && corredoresApi.includes(r.corredor) && distanciasApi.includes(r.distancia) && (r.guardaRedesId == null || Number.isInteger(r.guardaRedesId))),
+    'intervalo: cada remate do mapa traz a parte, o corredor, a distância e o guarda-redes', JSON.stringify(est.json.remates[0]));
+  ok(est.json.remates.some((r) => r.parte === 1) && est.json.remates.some((r) => r.parte === 2), 'intervalo: o jogo de exemplo tem remates nas duas partes');
+  const totalPorTipo = (lista) => Object.entries(Object.groupBy(lista, (o) => o.tipo)).map(([tipo, itens]) => `${tipo}=${itens.reduce((t, o) => t + Number(o.total), 0)}`).sort().join(',');
+  ok(Array.isArray(est.json.outrosEventosPorParte) && est.json.outrosEventosPorParte.every((o) => [1, 2].includes(o.parte) && Number.isInteger(o.equipaId))
+    && totalPorTipo(est.json.outrosEventosPorParte) === totalPorTipo(est.json.outrosEventos),
+    'intervalo: os outros eventos por parte somam os mesmos totais que os outros eventos', JSON.stringify(est.json.outrosEventosPorParte?.slice(0, 3)));
+
   // treinador-assistente: no jogo de exemplo o adversário marcou 4 golos seguidos depois do time-out da casa
   const assistenteExemplo = est.json?.assistente;
   const sugestaoTimeout = assistenteExemplo?.sugestoes?.find((x) => x.codigo === 'TIMEOUT');
