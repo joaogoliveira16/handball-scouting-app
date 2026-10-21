@@ -56,6 +56,7 @@ public class CadastroValidadorTests
     [InlineData("LD")]
     [InlineData("PD")]
     [InlineData("PV")]
+    [InlineData("UN")]
     public void Todas_as_posicoes_sao_aceites(string posicao)
     {
         Assert.Empty(CadastroValidador.ValidarJogador(new JogadorRequest(7, "Nome", posicao)));

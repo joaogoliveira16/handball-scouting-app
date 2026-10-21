@@ -7,7 +7,8 @@ INSERT INTO posicoes (codigo, nome) VALUES
     ('CE', 'Central'),
     ('LD', 'Lateral direito'),
     ('PD', 'Ponta direita'),
-    ('PV', 'Pivot');
+    ('PV', 'Pivot'),
+    ('UN', 'Universal');
 
 INSERT INTO tipos_evento (codigo, nome, e_remate, ordem) VALUES
     ('REMATE',         'Remate',         TRUE,  1),

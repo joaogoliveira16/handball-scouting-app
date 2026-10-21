@@ -3,7 +3,7 @@ namespace HandballScouting.Api;
 /// <summary>Regras de validação de equipas, jogadores, jogos e convocatórias (sem base de dados).</summary>
 public static class CadastroValidador
 {
-    public static readonly string[] Posicoes = { "GR", "PE", "LE", "CE", "LD", "PD", "PV" };
+    public static readonly string[] Posicoes = { "GR", "PE", "LE", "CE", "LD", "PD", "PV", "UN" };
 
     /// <summary>Máximo de jogadores convocados por equipa num jogo de andebol.</summary>
     public const int MaxConvocados = 16;

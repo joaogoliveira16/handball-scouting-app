@@ -4,7 +4,7 @@
 // Formatos que entende, uma linha por jogador:
 //   "7 João Silva"   "7 - João Silva (GR)"   "#7 JOÃO SILVA GR"   "Nº 7 | JOÃO SILVA | 123456"   "João Silva 7"
 
-const POSICOES_CODIGOS = ['GR', 'PE', 'LE', 'CE', 'LD', 'PD', 'PV'];
+const POSICOES_CODIGOS = ['GR', 'PE', 'LE', 'CE', 'LD', 'PD', 'PV', 'UN'];
 
 /** Palavras que, sozinhas, não são nome de ninguém (cabeçalhos e rodapés das fichas de jogo). */
 const NAO_SAO_NOMES = new Set([
@@ -28,12 +28,13 @@ function tirarPosicao(texto) {
     [/lateral[\s-]*direito/i, 'LD'],
     [/\bpiv(?:ot|[oô])(?![\p{L}])/iu, 'PV'],   // (\b não vê o «ô» como letra)
     [/\bcentral\b/i, 'CE'],
+    [/\buniversal\b/i, 'UN'],
   ];
   for (const [regex, codigo] of palavras) {
     if (regex.test(texto)) return { posicao: codigo, texto: texto.replace(regex, ' ') };
   }
   // Códigos: só em maiúsculas e sozinhos (ou entre parênteses), para não confundir com partes de nomes
-  const codigo = /(?:^|[\s(\[\-–—/,;])((?:G\.?R|P\.?E|L\.?E|C\.?E|L\.?D|P\.?D|P\.?V))\.?(?=$|[\s)\]\-–—/,;])/.exec(texto);
+  const codigo = /(?:^|[\s(\[\-–—/,;])((?:G\.?R|P\.?E|L\.?E|C\.?E|L\.?D|P\.?D|P\.?V|U\.?N))\.?(?=$|[\s)\]\-–—/,;])/.exec(texto);
   if (codigo) {
     const sigla = codigo[1].replace(/\./g, '');
     if (POSICOES_CODIGOS.includes(sigla)) {

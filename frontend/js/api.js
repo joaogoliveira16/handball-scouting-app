@@ -113,6 +113,7 @@ export const POSICOES = [
   { codigo: 'LD', rotulo: 'Lateral direito' },
   { codigo: 'PD', rotulo: 'Ponta direita' },
   { codigo: 'PV', rotulo: 'Pivot' },
+  { codigo: 'UN', rotulo: 'Universal' },   // joga em qualquer posição de campo
 ];
 export const ROTULO_POSICAO = Object.fromEntries(POSICOES.map((p) => [p.codigo, p.rotulo]));
 

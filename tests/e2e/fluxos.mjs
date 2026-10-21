@@ -469,6 +469,7 @@ await passo('Equipas e jogadores', async () => {
   ok((await p.locator('#plantel .vazio').count()) === 1, 'equipas: o plantel novo está vazio');
   await captura(p, 'equipas');
 
+  ok((await p.locator('#posicao option').allTextContents()).at(-1) === 'UN · Universal' && (await p.locator('#posicao option').count()) === 8, 'jogadores: a posição «Universal» está entre as opções');
   ok((await p.inputValue('#numero')) === '1', 'jogadores: número sugerido = 1');
   await p.fill('#nome', 'Rui Lopes'); await p.selectOption('#posicao', 'GR');
   await p.click('.formulario-jogador button[type=submit]');

@@ -12,7 +12,7 @@ public static class ExportadorExcel
     private static readonly Dictionary<string, string> RotuloPosicao = new()
     {
         ["GR"] = "Guarda-redes", ["PE"] = "Ponta esquerda", ["LE"] = "Lateral esquerdo", ["CE"] = "Central",
-        ["LD"] = "Lateral direito", ["PD"] = "Ponta direita", ["PV"] = "Pivot"
+        ["LD"] = "Lateral direito", ["PD"] = "Ponta direita", ["PV"] = "Pivot", ["UN"] = "Universal"
     };
 
     private static readonly Dictionary<string, string> RotuloCorredor = new()

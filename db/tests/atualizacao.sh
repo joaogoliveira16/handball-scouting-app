@@ -19,6 +19,8 @@ INSERT INTO equipas (nome, dono_id) SELECT 'Equipa da antiga', id FROM utilizado
 INSERT INTO equipas (nome, dono_id) SELECT 'Adversária da antiga', id FROM utilizadores WHERE email = 'antiga@exemplo.pt';
 -- e a posição ainda tinha o nome de antes do português de Portugal
 UPDATE posicoes SET nome = 'Pivô' WHERE codigo = 'PV';
+-- e ainda não existia a posição «Universal»
+DELETE FROM posicoes WHERE codigo = 'UN';
 SQL
 
 # É o que o serviço "migrar" do docker compose faz em cada arranque: corre outra vez os scripts 05 em diante
@@ -46,6 +48,8 @@ BEGIN
     ASSERT (SELECT COUNT(*) = 2 FROM information_schema.columns
             WHERE table_name = 'v_remates' AND column_name IN ('baliza_zona', 'sistema_defensivo')),
         'a vista v_remates devia ter o local na baliza e o sistema defensivo depois de repetir os scripts';
+    ASSERT (SELECT nome FROM posicoes WHERE codigo = 'UN') = 'Universal',
+        'a posição Universal devia ser acrescentada à base antiga (e repetir os scripts não a duplica)';
     ASSERT (SELECT nome FROM posicoes WHERE codigo = 'PV') = 'Pivot',
         'a posição PV devia chamar-se Pivot (português de Portugal)';
     ASSERT (SELECT COUNT(*) > 0 FROM eventos WHERE jogo_id = 2 AND sistema_defensivo IS NOT NULL),

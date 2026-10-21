@@ -523,7 +523,8 @@ await passo('Equipas e jogadores (cadastro)', async () => {
   ok((await http('PUT', `/api/jogadores/${jogadorId}`, { numero: 3, nome: 'X', posicao: '??' })).status === 400, 'editar com posição inválida = 400');
 
   // apagar
-  const extra = await http('POST', `/api/equipas/${equipaA}/jogadores`, { numero: 33, nome: 'Para apagar', posicao: 'PV' });
+  const extra = await http('POST', `/api/equipas/${equipaA}/jogadores`, { numero: 33, nome: 'Para apagar', posicao: 'UN' });
+  ok(extra.status === 201 && (await http('GET', `/api/equipas/${equipaA}/jogadores`)).json?.find((j) => j.id === extra.json?.id)?.posicao === 'UN', 'a posição «Universal» (UN) é aceite e fica guardada', descricao(extra));
   ok((await http('DELETE', `/api/jogadores/${extra.json?.id}`)).status === 204, 'DELETE jogador sem eventos = 204');
   ok((await http('DELETE', `/api/jogadores/${extra.json?.id}`)).status === 404, 'apagar outra vez = 404');
   const comEventos = await http('DELETE', '/api/jogadores/4');

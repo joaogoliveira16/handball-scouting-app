@@ -8,7 +8,7 @@
 -- Tabelas de referência
 -- ---------------------------------------------------------------------
 CREATE TABLE posicoes (
-    codigo VARCHAR(2)  PRIMARY KEY,          -- GR, PE, LE, CE, LD, PD, PV
+    codigo VARCHAR(2)  PRIMARY KEY,          -- GR, PE, LE, CE, LD, PD, PV, UN
     nome   VARCHAR(40) NOT NULL
 );
 
