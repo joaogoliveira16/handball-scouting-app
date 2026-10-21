@@ -48,6 +48,8 @@ BEGIN
     ASSERT (SELECT COUNT(*) = 2 FROM information_schema.columns
             WHERE table_name = 'v_remates' AND column_name IN ('baliza_zona', 'sistema_defensivo')),
         'a vista v_remates devia ter o local na baliza e o sistema defensivo depois de repetir os scripts';
+    ASSERT (SELECT COUNT(*) > 0 AND COUNT(terminado_em) = 0 FROM jogos),
+        'os jogos que já existiam ficam por terminar (a coluna terminado_em foi acrescentada à base antiga)';
     ASSERT (SELECT nome FROM posicoes WHERE codigo = 'UN') = 'Universal',
         'a posição Universal devia ser acrescentada à base antiga (e repetir os scripts não a duplica)';
     ASSERT (SELECT nome FROM posicoes WHERE codigo = 'PV') = 'Pivot',

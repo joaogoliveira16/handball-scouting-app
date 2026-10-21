@@ -416,6 +416,7 @@ function desenharPlacar() {
   document.getElementById('golos-casa').textContent = casa.golos;
   document.getElementById('golos-fora').textContent = fora.golos;
   document.title = `${casa.golos}–${fora.golos} · ${casa.nome} vs ${fora.nome}`;
+  document.getElementById('terminado-dash').hidden = !estado.dados.terminadoEm;
 }
 
 function desenhar() {

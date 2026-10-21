@@ -27,6 +27,7 @@
       <button id="btn-relogio" type="button" title="Iniciar / pausar o relógio">▶</button>
       <button id="btn-ajustar" type="button" title="Ajustar o minuto de jogo">✎</button>
     </div>
+    <button type="button" class="botao-topo" id="btn-terminar" title="Marcar o fim do jogo: o banco deixa de registar eventos">Terminar jogo</button>
     <span class="pendentes" id="pendentes" role="status" hidden title="Eventos guardados neste tablet que ainda não chegaram ao servidor: seguem sozinhos quando houver rede"></span>
     <span class="ligacao" id="ligacao">a ligar…</span>
   </header>
@@ -41,6 +42,13 @@
     <b class="timeout-tempo" id="timeout-tempo">1:00</b>
     <span class="timeout-nota" id="timeout-nota">relógio de jogo parado</span>
     <button id="btn-fim-timeout" type="button" title="Acabar o time-out e pôr o relógio de jogo a andar">Retomar o jogo</button>
+  </div>
+
+  <!-- Aparece quando o jogo foi terminado: o registo fica fechado até o reabrirem -->
+  <div class="faixa-terminado" id="faixa-terminado" role="status" hidden>
+    <b>Jogo terminado</b>
+    <span class="terminado-nota">O registo está fechado.</span>
+    <button id="btn-reabrir" type="button" title="Voltar a registar neste jogo">Reabrir o jogo</button>
   </div>
 
   <main class="banco">

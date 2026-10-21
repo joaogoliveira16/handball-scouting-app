@@ -692,6 +692,26 @@ table.tabela td.suave { color: var(--suave); }
 .sem-acesso h1 { font: 700 2.4rem/1 var(--fonte-num); margin-bottom: 10px; }
 .sem-acesso p { color: var(--suave); margin: 0 0 18px; }
 
+/* Jogo terminado: faixa por baixo do marcador e registo fechado no banco */
+.faixa-terminado {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding: 8px 16px;
+  background: var(--alerta-fundo); border-bottom: 1px solid #ecc766; color: var(--alerta); font-weight: 600;
+}
+.faixa-terminado[hidden] { display: none; }
+.faixa-terminado .terminado-nota { flex: 1; font-weight: 500; }
+.faixa-terminado button {
+  min-height: 44px; padding: 0 16px; border-radius: var(--raio-controlo);
+  border: 1px solid var(--tinta); background: var(--tinta); color: #fff; font-weight: 600;
+}
+.banco.fechado { opacity: 0.45; pointer-events: none; }
+.topo .botao-topo[hidden] { display: none; }
+.selo-terminado { padding: 4px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.16); font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+.selo-terminado[hidden] { display: none; }
+
+/* ---------- Corrigir um jogo ---------- */
+.jogo-linha .editar-jogo { grid-column: 1 / -1; padding: 14px; background: var(--realce); border-radius: var(--raio-controlo); }
+.etiqueta.terminado { margin-left: 10px; color: var(--suave); background: var(--realce); border: 1px solid var(--linha-forte); }
+
 /* ---------- Estatísticas dos jogadores ---------- */
 .sub-equipa { display: flex; align-items: center; gap: 10px; }
 .sub-equipa .escudo { flex: none; }

@@ -95,7 +95,8 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
             OutrosEventosPorParte = (await Consulta<OutroEventoParte>(con, "outros_eventos_por_parte", p, ct)).ToList(),
             Sancoes = (await Consulta<SancaoJogador>(con, "sancoes", p, ct)).ToList(),
             UltimosEventos = (await Consulta<EventoResumo>(con, "ultimos_eventos", new { jogoId, limite = 15 }, ct)).ToList(),
-            Remates = (await Consulta<RemateMapa>(con, "remates_mapa", p, ct)).ToList()
+            Remates = (await Consulta<RemateMapa>(con, "remates_mapa", p, ct)).ToList(),
+            TerminadoEm = await con.ExecuteScalarAsync<DateTime?>(new CommandDefinition(sql["jogo_terminado"], p, cancellationToken: ct))
         };
 
         // Relógio: o que o tablet do banco avisou; sem aviso (jogos antigos), vale o último evento registado

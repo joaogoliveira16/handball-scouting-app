@@ -69,6 +69,98 @@ async function mudarVisibilidade(jogo, caixa) {
   }
 }
 
+let jogosAtuais = [];
+const aEditar = new Set();   // jogos com o formulário de correção aberto
+
+const comoValorLocal = (iso) => {   // para o campo «data e hora» (hora local do tablet)
+  const d = new Date(iso);
+  const dois = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}T${dois(d.getHours())}:${dois(d.getMinutes())}`;
+};
+
+/** O dono marca o fim do jogo (o banco fecha o registo) ou volta a abri-lo. */
+async function terminarJogo(jogo, terminado) {
+  const nome = `${jogo.casaNome} vs ${jogo.foraNome}`;
+  if (terminado && !confirm(`Terminar o jogo ${nome}? O banco deixa de registar eventos (podes reabri-lo).`)) return;
+  try {
+    await enviar('PUT', `/api/jogos/${jogo.id}/terminado`, { terminado });
+    jogo.terminadoEm = terminado ? new Date().toISOString() : null;
+    desenharJogos();
+    avisar(terminado ? 'Jogo terminado.' : 'Jogo reaberto.');
+  } catch (erro) {
+    avisar(`Não foi possível mudar: ${erro.message}`, { erro: true });
+  }
+}
+
+async function apagarJogo(jogo) {
+  if (!confirm(`Apagar o jogo ${jogo.casaNome} vs ${jogo.foraNome} e todos os seus eventos? Não dá para desfazer.`)) return;
+  try {
+    await enviar('DELETE', `/api/jogos/${jogo.id}`);
+    jogosAtuais = jogosAtuais.filter((j) => j.id !== jogo.id);
+    aEditar.delete(jogo.id);
+    desenharJogos();
+    avisar('Jogo apagado.');
+  } catch (erro) {
+    avisar(`Não foi possível apagar: ${erro.message}`, { erro: true });
+  }
+}
+
+/** Formulário de correção de um jogo: adversário e lado (só sem eventos, o lado sempre), data e hora e local. */
+function formularioEdicao(jogo) {
+  const minha = equipasDaConta.find((e) => e.propria);
+  const nossa = Boolean(minha) && [jogo.casaId, jogo.foraId].includes(minha.id);
+  const emCasa = nossa && jogo.casaId === minha.id;
+  const adversarioAtual = nossa ? (emCasa ? jogo.foraNome : jogo.casaNome) : null;
+
+  const campoAdv = h('input', { maxlength: 80, value: adversarioAtual ?? '', autocomplete: 'off', required: true, list: 'adversarios', 'data-campo': 'adversario' });
+  const campoLado = h('select', { 'data-campo': 'lado' },
+    h('option', { value: 'casa', selected: emCasa }, 'Em casa'),
+    h('option', { value: 'fora', selected: !emCasa }, 'Fora'));
+  const campoData = h('input', { type: 'datetime-local', value: comoValorLocal(jogo.dataHora), 'data-campo': 'data' });
+  const campoLocal = h('input', { maxlength: 120, value: jogo.local ?? '', placeholder: 'Pavilhão, cidade…', 'data-campo': 'local' });
+  const erro = h('p', { class: 'erro-formulario largo', role: 'alert' });
+  const guardar = h('button', { class: 'botao primario pequeno', type: 'submit' }, 'Guardar');
+
+  return h('form', {
+    class: 'formulario editar-jogo', novalidate: true, 'data-jogo': jogo.id,
+    onsubmit: async (evento) => {
+      evento.preventDefault();
+      erro.textContent = '';
+      const data = campoData.value ? new Date(campoData.value) : null;
+      if (data && Number.isNaN(data.getTime())) { erro.textContent = 'Data e hora inválidas.'; return; }
+      let casaId = jogo.casaId;
+      let foraId = jogo.foraId;
+      guardar.disabled = true;
+      try {
+        if (nossa) {
+          const nome = campoAdv.value.trim();
+          if (!nome) { erro.textContent = 'Escreve o nome do adversário.'; return; }
+          if (mesmoNome(nome, minha.nome)) { erro.textContent = 'O adversário tem de ser outra equipa.'; return; }
+          const adversarioId = nome === adversarioAtual ? (emCasa ? jogo.foraId : jogo.casaId) : await equipaAdversaria(nome, equipasDaConta);
+          [casaId, foraId] = campoLado.value === 'casa' ? [minha.id, adversarioId] : [adversarioId, minha.id];
+        }
+        await enviar('PUT', `/api/jogos/${jogo.id}`, { casaId, foraId, local: campoLocal.value.trim() || null, dataHora: data ? data.toISOString() : null });
+        aEditar.delete(jogo.id);
+        equipasDaConta = await carregarEquipas();
+        prepararFormulario(equipasDaConta);
+        await carregarJogos(equipasDaConta);
+        avisar('Jogo atualizado.');
+      } catch (falha) {
+        erro.textContent = falha.message;
+      } finally {
+        guardar.disabled = false;
+      }
+    },
+  },
+    nossa && h('label', {}, 'Adversário', campoAdv),
+    nossa && h('label', {}, 'A tua equipa joga', campoLado),
+    h('label', {}, 'Data e hora', campoData),
+    h('label', {}, 'Local', campoLocal),
+    erro,
+    h('div', { class: 'largo acoes-formulario' }, guardar,
+      h('button', { class: 'botao suave pequeno', type: 'button', onclick: () => { aEditar.delete(jogo.id); desenharJogos(); } }, 'Cancelar')));
+}
+
 function linhaJogo(jogo) {
   const caixaVisivel = h('input', { type: 'checkbox', checked: jogo.visivelConvidados !== false });
   caixaVisivel.addEventListener('change', () => mudarVisibilidade(jogo, caixaVisivel));
@@ -79,7 +171,8 @@ function linhaJogo(jogo) {
         h('span', { class: 'equipa-nome' }, escudo(jogo.casaId, jogo.casaEscudo), jogo.casaNome),
         h('span', { class: 'contra' }, 'vs'),
         h('span', { class: 'equipa-nome' }, escudo(jogo.foraId, jogo.foraEscudo), jogo.foraNome)),
-      h('div', { class: 'meta' }, [data, jogo.local].filter(Boolean).join(' · '))),
+      h('div', { class: 'meta' }, [data, jogo.local].filter(Boolean).join(' · '),
+        jogo.terminadoEm ? h('span', { class: 'etiqueta terminado' }, 'Terminado') : null)),
     h('div', { class: 'resultado', 'aria-label': `Resultado ${jogo.golosCasa} a ${jogo.golosFora}` }, `${jogo.golosCasa} – ${jogo.golosFora}`),
     h('div', { class: 'acoes-jogo' },
       h('a', { class: 'botao-link primario pequeno', href: `banco.html?jogo=${jogo.id}` }, 'Banco'),
@@ -89,7 +182,13 @@ function linhaJogo(jogo) {
         onclick: () => partilhar(jogo),
       }, 'Copiar ligação'),
       h('a', { class: 'botao-link suave pequeno', href: `convocatoria.html?jogo=${jogo.id}` }, 'Convocatória'),
-      h('a', { class: 'botao-link suave pequeno', href: urlExcel(jogo.id), download: '' }, '⬇ Excel')),
+      h('a', { class: 'botao-link suave pequeno', href: urlExcel(jogo.id), download: '' }, '⬇ Excel'),
+      h('button', { type: 'button', class: 'botao suave pequeno', 'data-acao': 'editar', onclick: () => { aEditar.add(jogo.id); desenharJogos(); } }, 'Editar'),
+      jogo.terminadoEm
+        ? h('button', { type: 'button', class: 'botao suave pequeno', 'data-acao': 'reabrir', title: 'Voltar a deixar o banco registar', onclick: () => terminarJogo(jogo, false) }, 'Reabrir')
+        : h('button', { type: 'button', class: 'botao suave pequeno', 'data-acao': 'terminar', title: 'Marcar o fim do jogo: o banco deixa de registar', onclick: () => terminarJogo(jogo, true) }, 'Terminar jogo'),
+      h('button', { type: 'button', class: 'botao perigo pequeno', 'data-acao': 'apagar', onclick: () => apagarJogo(jogo) }, 'Apagar')),
+    aEditar.has(jogo.id) && formularioEdicao(jogo),
     h('label', {
       class: 'opcao-jogo',
       title: 'Quem não tem conta vê este jogo na área de convidado durante 24 horas, sem precisar da ligação',
@@ -111,13 +210,17 @@ function estadoVazio(equipas) {
       : h('a', { class: 'botao-link primario', href: 'equipas.html' }, 'Criar a minha equipa'));
 }
 
+function desenharJogos() {
+  tituloJogos.hidden = jogosAtuais.length === 0;
+  substituir(contentor, jogosAtuais.length
+    ? h('ul', { class: 'lista-jogos' }, jogosAtuais.map(linhaJogo))
+    : estadoVazio(equipasDaConta));
+}
+
 async function carregarJogos(equipas) {
   try {
-    const jogos = await obter('/api/jogos');
-    tituloJogos.hidden = jogos.length === 0;
-    substituir(contentor, jogos.length
-      ? h('ul', { class: 'lista-jogos' }, jogos.map(linhaJogo))
-      : estadoVazio(equipas));
+    jogosAtuais = await obter('/api/jogos');
+    desenharJogos();
   } catch (erro) {
     const guardados = erro.status == null ? jogosGuardados() : [];
     if (guardados.length === 0) {
@@ -209,7 +312,7 @@ formulario.addEventListener('submit', async (evento) => {
   }
 });
 
-const equipasDaConta = await carregarEquipas();
+let equipasDaConta = await carregarEquipas();
 prepararFormulario(equipasDaConta);
 await carregarJogos(equipasDaConta);
 

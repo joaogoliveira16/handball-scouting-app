@@ -48,6 +48,9 @@ public record ConvocatoriaRequest(List<int>? JogadorIds);
 /// <summary>Mostrar (true) ou esconder (false) o jogo na lista de jogos da área de convidado.</summary>
 public record VisibilidadeRequest(bool? Visivel);
 
+/// <summary>Marcar o jogo como terminado (true) ou voltar a abri-lo (false).</summary>
+public record TerminarJogoRequest(bool? Terminado);
+
 public record ResultadoRegisto(bool Ok, int Status, string? Erro, long? Id, bool Repetido = false)
 {
     public static ResultadoRegisto Sucesso(long id) => new(true, 201, null, id);
@@ -176,6 +179,7 @@ public class JogoLinha
     public DateTime DataHora { get; set; }
     public string? Local { get; set; }
     public bool VisivelConvidados { get; set; } = true;   // pode aparecer na área de convidado durante 24 horas
+    public DateTime? TerminadoEm { get; set; }   // quando o dono marcou o fim do jogo; null = por terminar
     public int CasaId { get; set; }
     public string CasaNome { get; set; } = "";
     public long? CasaEscudo { get; set; }   // versão do escudo; null = sem escudo
@@ -209,6 +213,7 @@ public class JogoDetalhe
     public string? Codigo { get; set; } = "";   // código do link de partilha do dashboard (só o dono o recebe)
     public DateTime DataHora { get; set; }
     public string? Local { get; set; }
+    public DateTime? TerminadoEm { get; set; }   // quando o dono marcou o fim do jogo; null = por terminar
     public int CasaId { get; set; }
     public string CasaNome { get; set; } = "";
     public long? CasaEscudo { get; set; }
@@ -431,6 +436,7 @@ public class EstatisticasJogo
 {
     public int JogoId { get; set; }
     public DateTimeOffset AtualizadoEm { get; set; }
+    public DateTime? TerminadoEm { get; set; }   // o jogo já acabou (o banco fecha o registo)
     public List<ResumoEquipa> Equipas { get; set; } = new();
     public List<EstatJogador> Jogadores { get; set; } = new();
     public List<EstatZona> PorCorredor { get; set; } = new();

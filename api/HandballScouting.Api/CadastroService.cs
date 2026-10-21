@@ -151,6 +151,53 @@ public class CadastroService(NpgsqlDataSource dados, SqlLoader sql)
         return ResultadoRegisto.Sucesso(id);
     }
 
+    /// <summary>O dono marca o jogo como terminado ou volta a abri-lo.</summary>
+    public async Task<ResultadoRegisto> TerminarJogoAsync(int donoId, int jogoId, TerminarJogoRequest pedido, CancellationToken ct = default)
+    {
+        if (pedido.Terminado is not { } terminado) return ResultadoRegisto.Falha(400, "terminado é obrigatório (true ou false).");
+        await using var con = await dados.OpenConnectionAsync(ct);
+        var id = await con.QuerySingleOrDefaultAsync<int?>(Cmd(sql["terminar_jogo"], new { jogoId, donoId, terminado }, ct));
+        return id is null ? ResultadoRegisto.Falha(404, "Jogo não encontrado.") : ResultadoRegisto.Atualizado();
+    }
+
+    /// <summary>
+    /// Corrige um jogo: a data, o local e as equipas. Trocar a casa e a de fora entre si é sempre possível; mudar de
+    /// adversário só enquanto o jogo não tem eventos (os eventos são de uma equipa e ficariam sem jogo).
+    /// </summary>
+    public async Task<ResultadoRegisto> AtualizarJogoAsync(int donoId, int jogoId, NovoJogoRequest pedido, CancellationToken ct = default)
+    {
+        var erros = CadastroValidador.ValidarJogo(pedido);
+        if (erros.Count > 0) return ResultadoRegisto.Falha(400, string.Join(" ", erros));
+
+        await using var con = await dados.OpenConnectionAsync(ct);
+        var atual = await con.QuerySingleOrDefaultAsync<JogoEquipas>(Cmd(sql["jogo_equipas"], new { jogoId, donoId }, ct));
+        if (atual is null) return ResultadoRegisto.Falha(404, "Jogo não encontrado.");
+        foreach (var equipaId in new[] { pedido.CasaId, pedido.ForaId })
+        {
+            if (!await con.ExecuteScalarAsync<bool>(Cmd(sql["equipa_existe"], new { equipaId, donoId }, ct)))
+                return ResultadoRegisto.Falha(400, $"a equipa {equipaId} não existe.");
+        }
+
+        var mesmasEquipas = new HashSet<int> { atual.CasaId, atual.ForaId }.SetEquals(new[] { pedido.CasaId, pedido.ForaId });
+        if (!mesmasEquipas && await con.ExecuteScalarAsync<bool>(Cmd(sql["jogo_tem_eventos"], new { jogoId }, ct)))
+            return ResultadoRegisto.Falha(409, "O jogo já tem eventos registados: não dá para mudar de equipa. Apaga o jogo e cria outro.");
+
+        var local = string.IsNullOrWhiteSpace(pedido.Local) ? null : pedido.Local.Trim();
+        var dataHora = pedido.DataHora?.ToUniversalTime();
+        await con.ExecuteAsync(Cmd(sql["atualizar_jogo"], new { jogoId, donoId, casaId = pedido.CasaId, foraId = pedido.ForaId, dataHora, local }, ct));
+        if (!mesmasEquipas)   // a convocatória de quem deixou de ser do jogo já não serve
+            await con.ExecuteAsync(Cmd(sql["limpar_convocados_alheios"], new { jogoId, casaId = pedido.CasaId, foraId = pedido.ForaId }, ct));
+        return ResultadoRegisto.Atualizado();
+    }
+
+    /// <summary>Apaga o jogo e tudo o que é dele (eventos, convocatória, relógio).</summary>
+    public async Task<ResultadoRegisto> ApagarJogoAsync(int donoId, int jogoId, CancellationToken ct = default)
+    {
+        await using var con = await dados.OpenConnectionAsync(ct);
+        var id = await con.QuerySingleOrDefaultAsync<int?>(Cmd(sql["apagar_jogo"], new { jogoId, donoId }, ct));
+        return id is null ? ResultadoRegisto.Falha(404, "Jogo não encontrado.") : ResultadoRegisto.Atualizado();
+    }
+
     public async Task<List<int>?> ConvocadosAsync(int donoId, int jogoId, CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);

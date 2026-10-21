@@ -2193,6 +2193,102 @@ await passo('Estatísticas: os números de cada jogador da equipa da conta, soma
   ok((await ctx.request.get(`${servidor.url}/api/equipas/999999/estatisticas`)).status() === 404, 'estatísticas (API): uma equipa que não existe dá 404');
 });
 
+await passo('Jogos: corrigir (adversário, casa ou fora, data e local), terminar (o banco fecha o registo) e apagar', async () => {
+  const [{ equipa_id: propriaId }] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [donoId]);
+  const [{ nome: nomePropria }] = await q('SELECT nome FROM equipas WHERE id = $1', [propriaId]);
+  const localA = `Pavilhão A ${sufixo}`;
+  const localB = `Pavilhão B ${sufixo}`;
+  const novoJogo = async (casa, fora, local, dataHora) => (await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, local, data_hora) VALUES ($1,$2,$3,$4,$5) RETURNING id', [casa, fora, donoId, local, dataHora]))[0];
+  const jogoA = await novoJogo(propriaId, aguias.id, localA, '2026-10-10T18:00:00Z');   // ainda sem eventos
+  const jogoB = await novoJogo(propriaId, leoes.id, localB, '2026-10-11T18:00:00Z');    // com um golo
+  const [meu] = await q('SELECT id FROM jogadores WHERE equipa_id = $1 ORDER BY numero LIMIT 1', [propriaId]);
+  const [deles] = await q('SELECT id FROM jogadores WHERE equipa_id = $1 ORDER BY numero LIMIT 1', [aguias.id]);
+  await q('INSERT INTO convocados (jogo_id, jogador_id) VALUES ($1,$2), ($1,$3)', [jogoA.id, meu.id, deles.id]);
+  await q("INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, resultado, situacao, x, y, parte, segundo_jogo) VALUES ($1,$2,'REMATE',$3,'GOLO','POSICIONAL',50,40,1,60)", [jogoB.id, propriaId, meu.id]);
+  const jogoNaBase = async (id) => (await q('SELECT j.*, c.nome AS casa_nome, f.nome AS fora_nome FROM jogos j JOIN equipas c ON c.id = j.equipa_casa_id JOIN equipas f ON f.id = j.equipa_fora_id WHERE j.id = $1', [id]))[0];
+
+  const p = await pagina('/');
+  const linha = (local) => p.locator('.jogo-linha', { hasText: local });
+  const botoes = async (local) => (await linha(local).locator('.acoes-jogo button[data-acao]').evaluateAll((b) => b.map((x) => x.dataset.acao))).join();
+  await linha(localA).waitFor();
+  ok((await botoes(localA)) === 'editar,terminar,apagar' && (await linha(localA).locator('.etiqueta.terminado').count()) === 0, `jogos: cada jogo tem Editar, Terminar jogo e Apagar (${await botoes(localA)})`);
+  await captura(p, 'jogos-acoes');
+
+  // Corrigir um jogo sem eventos: adversário novo, fora de casa, outra data e outro local
+  await linha(localA).locator('button[data-acao="editar"]').click();
+  const form = linha(localA).locator('form.editar-jogo');
+  const valores = async (f) => [await f.locator('[data-campo="adversario"]').inputValue(), await f.locator('[data-campo="lado"]').inputValue(), await f.locator('[data-campo="data"]').inputValue(), await f.locator('[data-campo="local"]').inputValue()];
+  ok(JSON.stringify(await valores(form)) === JSON.stringify(['Águias do Norte', 'casa', '2026-10-10T18:00', localA]), `jogos: o formulário abre com o que o jogo tem (${await valores(form)})`);
+  const adversarioNovo = `Falcões ${sufixo}`;
+  const novoLocalA = `Pavilhão Novo ${sufixo}`;
+  await form.locator('[data-campo="adversario"]').fill(adversarioNovo);
+  await form.locator('[data-campo="lado"]').selectOption('fora');
+  await form.locator('[data-campo="data"]').fill('2026-12-05T20:00');
+  await form.locator('[data-campo="local"]').fill(novoLocalA);
+  await form.locator('button[type=submit]').click();
+  await linha(novoLocalA).waitFor();
+  let a = await jogoNaBase(jogoA.id);
+  ok(a.casa_nome === adversarioNovo && a.equipa_fora_id === propriaId && a.local === novoLocalA && new Date(a.data_hora).toISOString() === '2026-12-05T20:00:00.000Z',
+    `jogos: o jogo ficou com o adversário novo (criado), a equipa da conta fora, a data e o local (${a.casa_nome} vs ${a.fora_nome}, ${a.local})`);
+  ok(((await linha(novoLocalA).locator('.equipas').textContent()) ?? '').includes(adversarioNovo) && ((await linha(novoLocalA).locator('.meta').textContent()) ?? '').includes('20:00'),
+    'jogos: a lista mostra o jogo corrigido (adversário e hora)');
+  ok((await q('SELECT jogador_id FROM convocados WHERE jogo_id = $1', [jogoA.id])).map((x) => x.jogador_id).join() === String(meu.id), 'jogos: ao mudar de adversário saem da convocatória os jogadores do adversário que saiu');
+  ok(await p.evaluate(() => [...document.querySelectorAll('#adversarios option')].some((o) => o.value.startsWith('Falcões'))), 'jogos: o adversário novo passa a ser sugerido no formulário de novo jogo');
+
+  // Um jogo com eventos: trocar casa e fora pode-se, mudar de adversário não
+  await linha(localB).locator('button[data-acao="editar"]').click();
+  const formB = linha(localB).locator('form.editar-jogo');
+  await formB.locator('[data-campo="adversario"]').fill(adversarioNovo);
+  await formB.locator('button[type=submit]').click();
+  await formB.locator('.erro-formulario', { hasText: 'já tem eventos' }).waitFor();
+  ok((await jogoNaBase(jogoB.id)).equipa_fora_id === leoes.id, 'jogos: com eventos registados não se muda de adversário (409, nada muda)');
+  await formB.locator('[data-campo="adversario"]').fill('Leões do Sul');
+  await formB.locator('[data-campo="lado"]').selectOption('fora');
+  await formB.locator('button[type=submit]').click();
+  await p.waitForFunction(() => !document.querySelector('form.editar-jogo'));
+  const b = await jogoNaBase(jogoB.id);
+  ok(b.casa_nome === 'Leões do Sul' && b.equipa_fora_id === propriaId, 'jogos: com eventos registados dá para passar a jogar fora (a equipa da conta e o adversário trocam)');
+  ok(((await q('SELECT count(*)::int AS n FROM eventos WHERE jogo_id = $1', [jogoB.id]))[0].n) === 1, 'jogos: e os eventos continuam lá');
+
+  // Terminar o jogo A: etiqueta na lista e «Reabrir»
+  await linha(novoLocalA).locator('button[data-acao="terminar"]').click();
+  await linha(novoLocalA).locator('.etiqueta.terminado').waitFor();
+  ok((await botoes(novoLocalA)) === 'editar,reabrir,apagar' && (await jogoNaBase(jogoA.id)).terminado_em !== null, `jogos: terminar marca o jogo e a lista passa a oferecer «Reabrir» (${await botoes(novoLocalA)})`);
+
+  // O banco de um jogo terminado fica fechado, e reabre-se (ou termina-se) dali
+  const banco = await pagina(`/banco.html?jogo=${jogoA.id}`);
+  await banco.waitForSelector('#faixa-terminado:not([hidden])');
+  ok(await banco.locator('#btn-terminar').isHidden() && (await banco.locator('main.banco.fechado').count()) === 1, 'banco: um jogo terminado mostra a faixa «Jogo terminado», esconde «Terminar jogo» e fecha o registo');
+  await captura(banco, 'banco-terminado');
+  await banco.click('#btn-reabrir');
+  await banco.waitForSelector('#faixa-terminado', { state: 'hidden' });
+  ok(await banco.locator('#btn-terminar').isVisible() && (await banco.locator('main.banco.fechado').count()) === 0 && (await jogoNaBase(jogoA.id)).terminado_em === null, 'banco: reabrir volta a abrir o registo (e a base de dados fica sem fim de jogo)');
+  await banco.click('#btn-terminar');
+  await banco.waitForSelector('#faixa-terminado:not([hidden])');
+  ok((await jogoNaBase(jogoA.id)).terminado_em !== null, 'banco: «Terminar jogo» marca o fim do jogo');
+  await banco.close();
+
+  // O dashboard diz que o jogo terminou (e deixa de dizer quando se reabre)
+  const dash = await pagina(`/dashboard.html?jogo=${jogoA.id}`);
+  await empurrar(dash, jogoA.id);
+  ok(await esperarPor(async () => await dash.locator('#terminado-dash').isVisible()), 'dashboard: um jogo terminado mostra «Jogo terminado»');
+  await linha(novoLocalA).locator('button[data-acao="reabrir"]').click();
+  await linha(novoLocalA).locator('button[data-acao="terminar"]').waitFor();
+  await empurrar(dash, jogoA.id);
+  ok(await esperarPor(async () => await dash.locator('#terminado-dash').isHidden()), 'dashboard: reabrir o jogo tira o «Jogo terminado»');
+  await dash.close();
+
+  // Apagar: o jogo sai da lista e leva os eventos e a convocatória
+  await linha(novoLocalA).locator('button[data-acao="apagar"]').click();
+  await p.waitForFunction((t) => ![...document.querySelectorAll('.jogo-linha')].some((l) => l.textContent.includes(t)), novoLocalA);
+  ok((await q('SELECT 1 FROM jogos WHERE id = $1', [jogoA.id])).length === 0 && (await q('SELECT 1 FROM convocados WHERE jogo_id = $1', [jogoA.id])).length === 0, 'jogos: apagar tira o jogo e a convocatória');
+  await linha(localB).locator('button[data-acao="apagar"]').click();
+  await p.waitForFunction((t) => ![...document.querySelectorAll('.jogo-linha')].some((l) => l.textContent.includes(t)), localB);
+  ok((await q('SELECT 1 FROM jogos WHERE id = $1', [jogoB.id])).length === 0 && (await q('SELECT 1 FROM eventos WHERE jogo_id = $1', [jogoB.id])).length === 0, 'jogos: apagar um jogo com eventos leva os eventos (e o resultado deixa de contar)');
+  ok(((await q('SELECT 1 FROM jogos WHERE id = 2')).length) === 1, 'jogos: os outros jogos ficam como estavam');
+  await p.close();
+});
+
 await passo('Segunda conta: começa vazia e não vê os dados da primeira', async () => {
   const ctxB = await novoContexto();
   const emailB = `bruno-${sufixo}@exemplo.pt`;

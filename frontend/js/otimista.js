@@ -131,6 +131,6 @@ export function aplicarPendentes(estatisticas, pendentes, { jogo, tipos = [] }) 
  */
 export function resumoParaGuardar(estatisticas) {
   if (!estatisticas) return null;
-  const { jogoId, equipas, sancoes, ultimosEventos, relogio, numerica } = estatisticas;
-  return { jogoId, equipas, sancoes, ultimosEventos, relogio, numerica };
+  const { jogoId, equipas, sancoes, ultimosEventos, relogio, numerica, terminadoEm } = estatisticas;
+  return { jogoId, equipas, sancoes, ultimosEventos, relogio, numerica, terminadoEm };
 }

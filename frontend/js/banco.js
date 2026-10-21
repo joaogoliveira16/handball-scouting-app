@@ -214,8 +214,39 @@ const campo = criarCampo(document.getElementById('campo'), {
   },
 });
 
+/** O jogo está terminado? O que o servidor diz agora vale mais do que o que o jogo dizia ao abrir a página. */
+const jogoTerminado = () => Boolean(estado.estatisticasServidor ? estado.estatisticasServidor.terminadoEm : estado.jogo?.terminadoEm);
+
+/** Terminado: faixa com «Reabrir», sem botão «Terminar» e o registo fechado. */
+function desenharTerminado() {
+  const fechado = jogoTerminado();
+  document.getElementById('faixa-terminado').hidden = !fechado;
+  document.getElementById('btn-terminar').hidden = fechado;
+  document.querySelector('main.banco')?.classList.toggle('fechado', fechado);
+}
+
+async function terminarOuReabrir(terminado) {
+  if (terminado) {
+    if (fila.doJogo(jogoId).length > 0) { avisar('Ainda há eventos por enviar. Espera que sigam e tenta outra vez.', { erro: true }); return; }
+    if (!confirm('Terminar o jogo? O banco deixa de registar eventos (podes reabrir).')) return;
+  }
+  try {
+    await enviar('PUT', `/api/jogos/${jogoId}/terminado`, { terminado });
+    const quando = terminado ? new Date().toISOString() : null;
+    estado.jogo.terminadoEm = quando;
+    if (estado.estatisticasServidor) estado.estatisticasServidor.terminadoEm = quando;
+    if (terminado) { pausarRelogio(); relogio.timeout = null; guardarRelogio(); desenharRelogio(); sincronizarRelogio(); }
+    guardarCache();
+    desenharTerminado();
+    avisar(terminado ? 'Jogo terminado.' : 'Jogo reaberto.');
+  } catch (erro) {
+    avisar(erro.status == null ? 'Sem ligação ao servidor: tenta outra vez quando houver rede.' : `Não foi possível mudar: ${erro.message}`, { erro: true });
+  }
+}
+
 function desenharTudo() {
   if (!estado.jogo) return;
+  desenharTerminado();
   desenharPlacar();
   desenharSeletorEquipa();
   desenharJogadores();
@@ -482,6 +513,7 @@ const BLOQUEIO_MS = 250;
  * (sem rede, espera e segue sozinho quando ela voltar). `limpar` desfaz a escolha de mapa, jogador e situação.
  */
 function registar(corpo, mensagem, { limpar = true } = {}) {
+  if (jogoTerminado()) { avisar('O jogo está terminado. Reabre-o para registar.', { erro: true }); return; }
   fila.adicionar(jogoId, corpo);
   if (limpar) {
     estado.jogadorId = null;
@@ -678,6 +710,8 @@ document.getElementById('btn-relogio').addEventListener('click', alternarRelogio
 document.getElementById('btn-fim-timeout').addEventListener('click', () => terminarTimeout({ retomar: true }));
 document.getElementById('btn-parte').addEventListener('click', alternarParte);
 document.getElementById('btn-ajustar').addEventListener('click', ajustarRelogio);
+document.getElementById('btn-terminar').addEventListener('click', () => terminarOuReabrir(true));
+document.getElementById('btn-reabrir').addEventListener('click', () => terminarOuReabrir(false));
 document.getElementById('btn-desfazer').addEventListener('click', () => {
   const ultimo = estado.estatisticas?.ultimosEventos?.[0];
   if (ultimo) apagarEvento(ultimo);

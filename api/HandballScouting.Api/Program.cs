@@ -319,6 +319,33 @@ protegido.MapPut("/jogos/{id:int}/visibilidade", async (int id, VisibilidadeRequ
     return r.Ok ? Results.NoContent() : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
 });
 
+// Corrigir um jogo (equipas, data, local), marcá-lo como terminado ou apagá-lo. Só o dono.
+protegido.MapPut("/jogos/{id:int}", async (
+    int id, NovoJogoRequest pedido, HttpContext http,
+    CadastroService cadastro, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+{
+    var r = await cadastro.AtualizarJogoAsync(http.ContaAtual().Id, id, pedido, ct);
+    if (!r.Ok) return Results.Json(new { erro = r.Erro }, statusCode: r.Status);
+    await EmitirEstadoAsync(id, est, hub);
+    return Results.NoContent();
+});
+
+protegido.MapPut("/jogos/{id:int}/terminado", async (
+    int id, TerminarJogoRequest pedido, HttpContext http,
+    CadastroService cadastro, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+{
+    var r = await cadastro.TerminarJogoAsync(http.ContaAtual().Id, id, pedido, ct);
+    if (!r.Ok) return Results.Json(new { erro = r.Erro }, statusCode: r.Status);
+    await EmitirEstadoAsync(id, est, hub);   // os bancos e dashboards abertos passam a mostrar «terminado»
+    return Results.NoContent();
+});
+
+protegido.MapDelete("/jogos/{id:int}", async (int id, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
+{
+    var r = await cadastro.ApagarJogoAsync(http.ContaAtual().Id, id, ct);
+    return r.Ok ? Results.NoContent() : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
+});
+
 protegido.MapGet("/jogos/{id:int}/convocados", async (int id, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
     await cadastro.ConvocadosAsync(http.ContaAtual().Id, id, ct) is { } ids
         ? Results.Ok(new { jogadorIds = ids, maximoPorEquipa = CadastroValidador.MaxConvocados })

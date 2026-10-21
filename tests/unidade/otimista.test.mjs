@@ -148,8 +148,9 @@ test('sem estatísticas do servidor (nunca houve rede) os pendentes vêm sobre u
 });
 
 test('só se guarda no tablet o que o banco usa', () => {
-  const grande = { ...servidor(), remates: new Array(500).fill({}), porCorredor: [1], parcial: [2], assistente: {} };
+  const grande = { ...servidor(), terminadoEm: '2026-10-21T20:00:00Z', remates: new Array(500).fill({}), porCorredor: [1], parcial: [2], assistente: {} };
   const resumo = resumoParaGuardar(grande);
-  assert.deepEqual(Object.keys(resumo).sort(), ['equipas', 'jogoId', 'numerica', 'relogio', 'sancoes', 'ultimosEventos']);
+  assert.deepEqual(Object.keys(resumo).sort(), ['equipas', 'jogoId', 'numerica', 'relogio', 'sancoes', 'terminadoEm', 'ultimosEventos']);
+  assert.equal(resumo.terminadoEm, '2026-10-21T20:00:00Z', 'sem rede o banco continua a saber que o jogo terminou');
   assert.equal(resumoParaGuardar(null), null);
 });
