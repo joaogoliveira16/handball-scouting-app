@@ -1,7 +1,7 @@
 // Estatísticas dos jogadores da equipa da conta, somadas em todos os jogos registados. Clicar num jogador mostra jogo a jogo.
 // As contas estão em estatisticas-jogadores.js (testado à parte); aqui só se desenha.
 import { h, substituir, avisar } from './dom.js';
-import { obter, ROTULO_POSICAO } from './api.js';
+import { obter, ROTULO_POSICAO, urlExcelEquipa } from './api.js';
 import { exigirConta } from './conta.js';
 import { escudo } from './escudo.js';
 import {
@@ -153,7 +153,7 @@ function grupoFiltro(rotulo, opcoes) {
     }, texto))));
 }
 
-function filtros() {
+function filtros(comJogos) {
   const e = estado;
   return h('div', { class: 'filtros-estatisticas', id: 'filtros-estatisticas' },
     grupoFiltro('Jogos', [
@@ -169,7 +169,12 @@ function filtros() {
     grupoFiltro('Período', [
       { texto: 'Toda a época', ativo: e.ultimos === null, filtro: 'ultimos-todos', aoClicar: () => escolher({ ultimos: null }) },
       { texto: `Últimos ${ULTIMOS} jogos`, ativo: e.ultimos === ULTIMOS, filtro: 'ultimos-5', aoClicar: () => escolher({ ultimos: ULTIMOS }) },
-    ]));
+    ]),
+    // O Excel leva o que os filtros deixam ver
+    comJogos && h('a', {
+      class: 'botao-link suave pequeno exportar-excel', id: 'exportar-excel', download: '', title: 'Exportar o que está a ver para Excel',
+      href: urlExcelEquipa(e.equipa.id, { local: e.local, parte: e.parte, ultimos: e.ultimos }),
+    }, '⬇ Excel'));
 }
 
 function notaDosFiltros() {
@@ -210,7 +215,7 @@ function desenhar() {
   const semJogosNoFiltro = r.resumo.jogos === 0;
   substituir(raiz,
     h('p', { class: 'sub sub-equipa' }, escudo(equipa.id, equipa.escudo), h('span', {}, 'Números de ', h('strong', {}, equipa.nome), ' somados nos jogos registados. Clica num jogador para ver jogo a jogo.')),
-    filtros(),
+    filtros(!semJogosNoFiltro),
     notaDosFiltros(),
     semJogosNoFiltro
       ? h('p', { class: 'vazio', id: 'sem-jogos-no-filtro' }, 'Nenhum jogo com estes filtros.')

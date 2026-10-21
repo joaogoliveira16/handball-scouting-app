@@ -44,6 +44,13 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
         };
     }
 
+    /// <summary>O nome de uma equipa da conta; null se a equipa não existir ou for de outra conta.</summary>
+    public async Task<string?> NomeDaEquipaAsync(int donoId, int equipaId, CancellationToken ct = default)
+    {
+        await using var con = await dados.OpenConnectionAsync(ct);
+        return await con.ExecuteScalarAsync<string?>(new CommandDefinition(sql["equipa_nome"], new { equipaId, donoId }, cancellationToken: ct));
+    }
+
     /// <summary>Os jogos que estão a ser registados agora e que o dono não escondeu (para a área de convidado).</summary>
     public async Task<List<JogoEmDireto>> JogosEmDiretoAsync(CancellationToken ct = default)
     {

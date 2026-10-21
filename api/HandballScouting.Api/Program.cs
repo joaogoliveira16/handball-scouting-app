@@ -304,6 +304,24 @@ protegido.MapGet("/equipas/{id:int}/estatisticas", async (int id, short? parte, 
         : Results.NotFound(new { erro = "Equipa não encontrada." });
 });
 
+// O Excel da página Estatísticas, com os mesmos filtros: ?local=casa|fora, ?parte=1|2 e ?ultimos=N (os N jogos mais recentes)
+protegido.MapGet("/equipas/{id:int}/estatisticas.xlsx", async (
+    int id, string? local, short? parte, int? ultimos, HttpContext http, EstatisticasService est, CancellationToken ct) =>
+{
+    var filtros = new FiltrosEstatisticas(local ?? "todos", parte, ultimos);
+    if (filtros.Erro() is { } erro)
+        return Results.BadRequest(new { erro });
+
+    var donoId = http.ContaAtual().Id;
+    if (await est.NomeDaEquipaAsync(donoId, id, ct) is not { } nome ||
+        await est.EquipaAsync(donoId, id, parte, ct) is not { } dados)
+        return Results.NotFound(new { erro = "Equipa não encontrada." });
+
+    http.Response.Headers.CacheControl = "no-store";
+    var ficheiro = ExportadorEstatisticasEquipa.Gerar(nome, dados, filtros, fusoExportacao);
+    return Results.File(ficheiro, ExportadorEstatisticasEquipa.TipoMime, ExportadorEstatisticasEquipa.NomeFicheiro(nome, filtros));
+});
+
 protegido.MapPost("/equipas/{id:int}/jogadores", async (int id, JogadorRequest pedido, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
 {
     var r = await cadastro.CriarJogadorAsync(http.ContaAtual().Id, id, pedido, ct);

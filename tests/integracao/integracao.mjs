@@ -1601,6 +1601,43 @@ await passo('Exportação para Excel', async () => {
   ok((await bruto('/api/jogos/2/exportar.xlsx?equipaId=999')).status === 400, 'equipa que não joga neste jogo = 400');
   ok((await bruto('/api/jogos/99999/exportar.xlsx')).status === 404, 'jogo inexistente = 404');
 
+  // O Excel da página Estatísticas (a equipa da conta), com os mesmos filtros da página (?local, ?parte, ?ultimos).
+  // Guardam-se também os números que a API dá para os mesmos filtros: o verificar_excel.py confere o Excel contra eles.
+  if (jogoNovo) {
+    const base = `/api/equipas/${jogoNovo.casaId}/estatisticas`;
+    const tipoXlsx = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const exportar = async (filtros, ficheiro) => {
+      const d = await descarregar(`${base}.xlsx${filtros}`, ficheiro);
+      return { ...d, nome: d.r.headers.get('content-disposition') ?? '' };
+    };
+    const todos = await exportar('', 'equipa-estatisticas.xlsx');
+    ok(todos.r.status === 200 && todos.r.headers.get('content-type') === tipoXlsx && todos.bytes[0] === 0x50 && todos.bytes[1] === 0x4b && /no-store/.test(todos.r.headers.get('cache-control') ?? ''),
+      'GET /api/equipas/{id}/estatisticas.xlsx = 200 (tipo .xlsx, ZIP, sem cache)', `HTTP ${todos.r.status} ${todos.r.headers.get('content-type')}`);
+    ok(/attachment/i.test(todos.nome) && /estatisticas-[a-z0-9-]+\.xlsx/.test(todos.nome) && !/em-casa|parte|ultimos/.test(todos.nome), 'Excel das estatísticas: descarrega como estatisticas-<equipa>.xlsx', todos.nome);
+    const casa = await exportar('?local=casa', 'equipa-estatisticas-casa.xlsx');
+    ok(casa.r.status === 200 && casa.nome.includes('-em-casa.xlsx'), 'Excel das estatísticas: ?local=casa leva «em-casa» no nome', casa.nome);
+    const fora = await exportar('?local=fora&parte=1&ultimos=3', 'equipa-estatisticas-fora.xlsx');
+    ok(fora.r.status === 200 && fora.nome.includes('-fora-1-parte-ultimos-3-jogos.xlsx'), 'Excel das estatísticas: os filtros somam-se no nome do ficheiro', fora.nome);
+    const parte2 = await exportar('?parte=2', 'equipa-estatisticas-parte-2.xlsx');
+    ok(parte2.r.status === 200 && parte2.nome.includes('-2-parte.xlsx'), 'Excel das estatísticas: ?parte=2', parte2.nome);
+    const ultimos = await exportar('?ultimos=2', 'equipa-estatisticas-ultimos-2.xlsx');
+    ok(ultimos.r.status === 200 && ultimos.nome.includes('-ultimos-2-jogos.xlsx'), 'Excel das estatísticas: ?ultimos=2', ultimos.nome);
+    fs.writeFileSync(path.join(EXCEL_DIR, 'equipa-estatisticas.json'), JSON.stringify((await http('GET', base)).json));
+    fs.writeFileSync(path.join(EXCEL_DIR, 'equipa-estatisticas-parte-2.json'), JSON.stringify((await http('GET', `${base}?parte=2`)).json));
+    fs.writeFileSync(path.join(EXCEL_DIR, 'equipa-estatisticas-parte-1.json'), JSON.stringify((await http('GET', `${base}?parte=1`)).json));
+
+    for (const mau of ['?local=lado', '?parte=3', '?parte=0', '?ultimos=0', '?ultimos=201', '?ultimos=-1', '?parte=x', '?ultimos=x']) {
+      const recusa = await bruto(`${base}.xlsx${mau}`);
+      ok(recusa.status === 400, `Excel das estatísticas: ${mau} = 400`, `HTTP ${recusa.status}`);
+    }
+    ok((await bruto('/api/equipas/99999/estatisticas.xlsx')).status === 404, 'Excel das estatísticas: equipa que não existe = 404');
+    ok((await bruto(`${base}.xlsx`, segunda)).status === 404, 'Excel das estatísticas: a equipa de outra conta = 404');
+    ok((await bruto(`${base}.xlsx`, anonima)).status === 401, 'Excel das estatísticas: sem sessão = 401');
+    const vazia = await bruto(`/api/equipas/${(await http('GET', '/api/equipas', undefined, segunda)).json?.find((e) => e.propria)?.id}/estatisticas.xlsx`, segunda);
+    const bytesVazia = Buffer.from(await vazia.arrayBuffer());
+    ok(vazia.status === 200 && bytesVazia[0] === 0x50, 'Excel das estatísticas: uma equipa sem jogos também descarrega (folhas só com os cabeçalhos)', `HTTP ${vazia.status}`);
+  }
+
   if (jogoNovo?.id) {
     const novo = await descarregar(`/api/jogos/${jogoNovo.id}/exportar.xlsx`, 'jogo-novo.xlsx');
     ok(novo.r.status === 200 && novo.bytes[0] === 0x50, 'exportar um jogo com poucos eventos também funciona', `HTTP ${novo.r.status}`);

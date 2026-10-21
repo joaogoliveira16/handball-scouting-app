@@ -9,7 +9,7 @@ public static class ExportadorExcel
     public const string TipoMime = LivroXlsx.TipoMime;
     public const string FusoPorDefeito = "Europe/Lisbon";
 
-    private static readonly Dictionary<string, string> RotuloPosicao = new()
+    internal static readonly Dictionary<string, string> RotuloPosicao = new()
     {
         ["GR"] = "Guarda-redes", ["PE"] = "Ponta esquerda", ["LE"] = "Lateral esquerdo", ["CE"] = "Central",
         ["LD"] = "Lateral direito", ["PD"] = "Ponta direita", ["PV"] = "Pivot", ["UN"] = "Universal"

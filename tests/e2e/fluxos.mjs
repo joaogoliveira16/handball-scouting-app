@@ -2333,8 +2333,26 @@ await passo('Estatísticas: filtros (em casa, fora, parte, últimos jogos) e gr�
   await escolher('local-fora');
   ok((await p.locator('#sem-jogos-no-filtro').textContent()) === 'Nenhum jogo com estes filtros.' && (await p.locator('.filtros-estatisticas').count()) === 1 && (await p.locator('#tabela-estatisticas').count()) === 0,
     'filtros: sem nenhum jogo (2.ª parte, fora) diz «Nenhum jogo com estes filtros.» e os filtros continuam lá');
+  ok((await p.locator('#exportar-excel').count()) === 0, 'excel: sem nenhum jogo não há Excel para descarregar');
   await escolher('local-todos'); await escolher('parte-todas');
   ok((await resumo()) === '6 | 3-1-2 | 15 | 12' && (await ativos()) === 'Todos|Jogo todo|Toda a época', 'filtros: voltar a tudo repõe os números do início');
+
+  // O Excel leva o que os filtros deixam ver: a ligação acompanha-os e o ficheiro vem com o nome certo
+  const excel = p.locator('#exportar-excel');
+  const hrefExcel = async () => excel.getAttribute('href');
+  const caminhoExcel = `/api/equipas/${propriaId}/estatisticas.xlsx`;
+  ok((await hrefExcel()) === caminhoExcel && (await excel.textContent()) === '⬇ Excel' && (await excel.getAttribute('download')) !== null, `excel: sem filtros a ligação não leva parâmetros (${await hrefExcel()})`);
+  await escolher('local-casa');
+  ok((await hrefExcel()) === `${caminhoExcel}?local=casa`, `excel: «Em casa» acrescenta local=casa (${await hrefExcel()})`);
+  await escolher('parte-2'); await escolher('ultimos-5');
+  ok((await hrefExcel()) === `${caminhoExcel}?local=casa&parte=2&ultimos=5`, `excel: os três filtros vão na ligação (${await hrefExcel()})`);
+  const [descarga] = await Promise.all([p.waitForEvent('download'), excel.click()]);
+  ok(/^estatisticas-.+-em-casa-2-parte-ultimos-5-jogos\.xlsx$/.test(descarga.suggestedFilename()), `excel: o ficheiro diz a equipa e os filtros no nome (${descarga.suggestedFilename()})`);
+  await descarga.saveAs(path.join(E2E_DIR, 'e2e-estatisticas-equipa.xlsx'));
+  const bytesExcel = fs.readFileSync(path.join(E2E_DIR, 'e2e-estatisticas-equipa.xlsx'));
+  ok(bytesExcel.length > 2000 && bytesExcel[0] === 0x50 && bytesExcel[1] === 0x4b, `excel: o ficheiro descarregado é um .xlsx (ZIP, ${bytesExcel.length} bytes)`);
+  await escolher('parte-todas'); await escolher('ultimos-todos'); await escolher('local-todos');
+  ok((await hrefExcel()) === caminhoExcel && (await ativos()) === 'Todos|Jogo todo|Toda a época', 'excel: voltar a tudo tira os parâmetros da ligação');
 
   // A evolução de um jogador (só com 2 jogos ou mais), na vista escolhida
   await p.locator('tr.linha-jogador', { hasText: 'Bruno Remata' }).locator('button.abrir-jogador').click();
@@ -2365,6 +2383,8 @@ await passo('Estatísticas: filtros (em casa, fora, parte, últimos jogos) e gr�
   ok((await api('?parte=2')).status() === 200 && segunda.jogos.length === 1 && segunda.jogos[0].golos === 1 && segunda.jogos[0].golosAdversario === 1, 'estatísticas (API): ?parte=2 só traz os jogos com registos na 2.ª parte e os golos dela');
   const mau = await api('?parte=3');
   ok(mau.status() === 400 && ((await mau.json()).erro ?? '').includes('1 ou 2'), 'estatísticas (API): ?parte=3 = 400 com a explicação');
+  ok((await api('.xlsx?local=lado')).status() === 400 && (await api('.xlsx?ultimos=0')).status() === 400 && (await api('.xlsx?parte=3')).status() === 400, 'estatísticas (API): o Excel recusa filtros que não existem (400)');
+  ok((await ctxVisitante.request.get(`${servidor.url}/api/equipas/${propriaId}/estatisticas.xlsx`)).status() === 401, 'estatísticas (API): o Excel sem sessão = 401');
 
   // Arrumar: os jogos e os eventos de mais saem, para os passos seguintes ficarem como estavam
   await q('DELETE FROM jogos WHERE id = ANY($1)', [[c1, c2, c3, c4]]);

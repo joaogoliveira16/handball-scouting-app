@@ -234,6 +234,118 @@ if novo:
     ok(len(gr_b) == 1 and gr_b[0]["Baixo à direita"] == 1 and gr_b[0]["Sem local"] == 1 and gr_b[0]["Total de defesas"] == 2,
        "jogo novo: GR B tem 1 defesa em baixo à direita e 1 sem local", str(gr_b))
 
+# ----------------------------------------------------------------------------- Excel das Estatísticas da equipa
+# Cada ficheiro é conferido contra os números que a API dá para os mesmos filtros (guardados pelo teste de integração em
+# equipa-estatisticas*.json): as somas são refeitas aqui, de forma independente do código do exportador.
+import json
+
+FOLHAS_EQUIPA = ["Resumo", "Jogos", "Ataque", "Guarda-redes", "Bola e disciplina", "Jogo a jogo"]
+CONTADORES = ["remates", "golos", "defendidos", "fora", "poste", "bloqueados", "seteMetros", "golosSeteMetros", "contraAtaques",
+              "golosContraAtaque", "perdasBola", "faltasOfensivas", "doisMinutos", "vermelhos", "defesas", "golosSofridos",
+              "seteMetrosSofridos", "defesasSeteMetros"]
+
+
+def ler_json(nome):
+    caminho = pasta / nome
+    ok(caminho.exists(), f"{nome} existe", str(caminho))
+    return json.loads(caminho.read_text(encoding="utf-8")) if caminho.exists() else None
+
+
+def jogos_do_filtro(dados, local="todos", ultimos=None):
+    jogos = sorted(dados["jogos"], key=lambda j: (j["dataHora"], j["jogoId"]))
+    if local == "casa":
+        jogos = [j for j in jogos if j["emCasa"]]
+    elif local == "fora":
+        jogos = [j for j in jogos if not j["emCasa"]]
+    return jogos[-ultimos:] if ultimos else jogos
+
+
+def verificar_equipa(ficheiro, dados, local="todos", ultimos=None):
+    livro = abrir(ficheiro)
+    if not livro or not dados:
+        return
+    jogos = jogos_do_filtro(dados, local, ultimos)
+    ids = {j["jogoId"] for j in jogos}
+    linhas_filtradas = [l for l in dados["linhas"] if l["jogoId"] in ids]
+    plantel = {p["id"]: p for p in dados["plantel"]}
+    totais = {}
+    for l in linhas_filtradas:
+        t = totais.setdefault(l["jogadorId"], {c: 0 for c in CONTADORES} | {"jogos": 0})
+        t["jogos"] += 1
+        for c in CONTADORES:
+            t[c] += l[c]
+    soma = lambda c: sum(t[c] for t in totais.values())  # noqa: E731
+    nome = f"{ficheiro}:"
+
+    ok(livro.sheetnames == FOLHAS_EQUIPA, f"{nome} folhas na ordem esperada", str(livro.sheetnames))
+
+    resumo = linhas(livro, "Resumo")
+    cabecalho = {l[0]: l[1] for l in resumo[:-2] if l[0] and l[1] is not None and not isinstance(l[1], (int, float))}   # sem a tabela do fim
+    ok(str(resumo[0][0]).startswith("Estatísticas de "), f"{nome} Resumo: título com o nome da equipa", str(resumo[0]))
+    esperado_jogos = {"todos": "Todos", "casa": "Em casa", "fora": "Fora"}[local]
+    ok(cabecalho.get("Jogos") == esperado_jogos, f"{nome} Resumo: «Jogos» = {esperado_jogos}", str(cabecalho.get("Jogos")))
+    ok(cabecalho.get("Período") == (f"Últimos {ultimos} jogos" if ultimos else "Toda a época"), f"{nome} Resumo: período", str(cabecalho.get("Período")))
+    resultados = ["V" if j["golos"] > j["golosAdversario"] else "D" if j["golos"] < j["golosAdversario"] else "E" for j in jogos]
+    marcados, sofridos = sum(j["golos"] for j in jogos), sum(j["golosAdversario"] for j in jogos)
+    esperado = [len(jogos), resultados.count("V"), resultados.count("E"), resultados.count("D"), marcados, sofridos, marcados - sofridos]
+    ok(list(resumo[-1][:7]) == esperado, f"{nome} Resumo: jogos, V-E-D, golos marcados e sofridos e diferença = {esperado}", str(resumo[-1]))
+
+    folha_jogos = tabela(livro, "Jogos")
+    ok(len(folha_jogos) == len(jogos), f"{nome} Jogos: {len(jogos)} jogos", str(len(folha_jogos)))
+    ok([l["Adversário"] for l in folha_jogos] == [j["adversarioNome"] for j in jogos], f"{nome} Jogos: os adversários, do mais antigo para o mais recente")
+    ok([l["Golos"] for l in folha_jogos] == [j["golos"] for j in jogos] and [l["Golos sofridos"] for l in folha_jogos] == [j["golosAdversario"] for j in jogos],
+       f"{nome} Jogos: os golos de cada jogo")
+    ok([l["Resultado"] for l in folha_jogos] == resultados and all(l["Casa/Fora"] == ("Casa" if j["emCasa"] else "Fora") for l, j in zip(folha_jogos, jogos)),
+       f"{nome} Jogos: o resultado e o local de cada jogo")
+    ok(sum(l["Remates"] for l in folha_jogos) == soma("remates") and sum(l["Perdas de bola"] for l in folha_jogos) == soma("perdasBola"),
+       f"{nome} Jogos: os remates e as perdas de bola somam o que somam os jogadores")
+
+    ataque = [l for l in tabela(livro, "Ataque") if l["Jogador"] != "Equipa"]
+    equipa = next((l for l in tabela(livro, "Ataque") if l["Jogador"] == "Equipa"), None)
+    por_nome = {p["nome"]: p for p in plantel.values()}
+    certos = all(l["Jogador"] in por_nome and totais.get(por_nome[l["Jogador"]]["id"], {}).get("golos") == l["Golos"]
+                 and totais[por_nome[l["Jogador"]]["id"]]["remates"] == l["Remates"] and totais[por_nome[l["Jogador"]]["id"]]["jogos"] == l["Jogos"]
+                 and l["#"] == por_nome[l["Jogador"]]["numero"] for l in ataque)
+    ok(certos, f"{nome} Ataque: jogos, golos e remates de cada jogador são os somados das linhas", str(ataque))
+    ok([l["Golos"] for l in ataque] == sorted((l["Golos"] for l in ataque), reverse=True), f"{nome} Ataque: o melhor marcador primeiro")
+    ok(all(l["Golos"] <= l["Remates"] for l in ataque) and all((l["Eficácia (%)"] is None) == (l["Remates"] == 0) for l in ataque), f"{nome} Ataque: a eficácia só existe com remates")
+    ok(all(l["Remates"] == 0 or abs(l["Eficácia (%)"] - 100 * l["Golos"] / l["Remates"]) < 0.06 for l in ataque), f"{nome} Ataque: eficácia = golos / remates")
+    ok(equipa is not None and equipa["Golos"] == soma("golos") and equipa["Remates"] == soma("remates") and equipa["Jogos"] == len(jogos),
+       f"{nome} Ataque: a linha da equipa soma os jogadores e conta os jogos da equipa", str(equipa))
+    ok(equipa is not None and equipa["Golos"] == marcados, f"{nome} Ataque: os golos da equipa são os golos dos jogos ({marcados})", str(equipa))
+
+    gr = [l for l in tabela(livro, "Guarda-redes") if l["Jogador"] != "Equipa"]
+    gr_equipa = next((l for l in tabela(livro, "Guarda-redes") if l["Jogador"] == "Equipa"), None)
+    ok(all(l["Defesas"] + l["Golos sofridos"] == l["Remates à baliza"] for l in gr), f"{nome} Guarda-redes: defesas + golos sofridos = remates à baliza")
+    ok(all(totais.get(por_nome[l["Jogador"]]["id"], {}).get("defesas") == l["Defesas"] for l in gr), f"{nome} Guarda-redes: as defesas de cada um são as somadas das linhas", str(gr))
+    ok(gr_equipa is not None and gr_equipa["Defesas"] == soma("defesas") and gr_equipa["Golos sofridos"] == soma("golosSofridos"), f"{nome} Guarda-redes: linha da equipa", str(gr_equipa))
+
+    disciplina = [l for l in tabela(livro, "Bola e disciplina") if l["Jogador"] != "Equipa"]
+    ok(len(disciplina) == len(totais) and sum(l["Perdas de bola"] for l in disciplina) == soma("perdasBola") and sum(l["Vermelhos"] for l in disciplina) == soma("vermelhos"),
+       f"{nome} Bola e disciplina: um jogador por linha e as somas certas", str(disciplina))
+    ok([l["Exclusões de 2 min"] for l in disciplina] == sorted((l["Exclusões de 2 min"] for l in disciplina), reverse=True), f"{nome} Bola e disciplina: por ordem de exclusões")
+
+    jogo_a_jogo = tabela(livro, "Jogo a jogo")
+    ok(len(jogo_a_jogo) == len(linhas_filtradas), f"{nome} Jogo a jogo: uma linha por jogador e jogo ({len(linhas_filtradas)})", str(len(jogo_a_jogo)))
+    ok(sum(l["Golos"] for l in jogo_a_jogo) == soma("golos") and sum(l["Defesas"] for l in jogo_a_jogo) == soma("defesas"), f"{nome} Jogo a jogo: os golos e as defesas somam o mesmo")
+    ok(livro["Jogo a jogo"].auto_filter.ref is not None and livro["Jogo a jogo"].freeze_panes == "A2", f"{nome} Jogo a jogo: filtros e primeira linha fixa")
+
+
+equipa_json = ler_json("equipa-estatisticas.json")
+parte1_json = ler_json("equipa-estatisticas-parte-1.json")
+parte2_json = ler_json("equipa-estatisticas-parte-2.json")
+if equipa_json:
+    ok(len(equipa_json["jogos"]) >= 1 and len(equipa_json["linhas"]) >= 2, "equipa-estatisticas.json: a equipa tem jogos e linhas para conferir", f"{len(equipa_json['jogos'])} jogos")
+    verificar_equipa("equipa-estatisticas.xlsx", equipa_json)
+    verificar_equipa("equipa-estatisticas-casa.xlsx", equipa_json, local="casa")
+    verificar_equipa("equipa-estatisticas-ultimos-2.xlsx", equipa_json, ultimos=2)
+if parte2_json:
+    verificar_equipa("equipa-estatisticas-parte-2.xlsx", parte2_json)
+if parte1_json:
+    verificar_equipa("equipa-estatisticas-fora.xlsx", parte1_json, local="fora", ultimos=3)
+    if equipa_json and parte2_json:
+        ok(len(parte1_json["jogos"]) <= len(equipa_json["jogos"]) and len(parte2_json["jogos"]) <= len(equipa_json["jogos"]), "as partes têm no máximo os jogos do jogo todo")
+
 print()
 if falhas:
     print(f"{len(falhas)} verificação(ões) falharam:")

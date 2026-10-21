@@ -129,6 +129,19 @@ export function urlExcel(jogoId, equipaId = null, codigo = null) {
   return `/api/jogos/${jogoId}/exportar.xlsx${texto ? `?${texto}` : ''}`;
 }
 
+/**
+ * Ligação de descarga do Excel das Estatísticas da equipa da conta, com o que a página está a mostrar:
+ * `local` ('casa' ou 'fora'; 'todos' não leva nada), `parte` (1 ou 2) e `ultimos` (os N jogos mais recentes).
+ */
+export function urlExcelEquipa(equipaId, { local = 'todos', parte = null, ultimos = null } = {}) {
+  const parametros = new URLSearchParams();
+  if (local && local !== 'todos') parametros.set('local', local);
+  if (parte) parametros.set('parte', parte);
+  if (ultimos) parametros.set('ultimos', ultimos);
+  const texto = parametros.toString();
+  return `/api/equipas/${equipaId}/estatisticas.xlsx${texto ? `?${texto}` : ''}`;
+}
+
 /** Ligação de partilha do dashboard em direto (qualquer pessoa com ela vê o jogo, sem conta). */
 export function urlPartilha(jogoId, codigo) {
   return `${location.origin}/dashboard.html?jogo=${jogoId}&c=${encodeURIComponent(codigo)}`;

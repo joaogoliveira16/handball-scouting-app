@@ -720,6 +720,7 @@ table.tabela td.suave { color: var(--suave); }
 .filtros-estatisticas { display: flex; flex-wrap: wrap; gap: 6px 26px; margin: 14px 0 6px; }
 .grupo-filtro { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .grupo-filtro-rotulo { color: var(--suave); font-weight: 600; font-size: 0.95rem; }
+.exportar-excel { align-self: center; margin-left: auto; }
 .grupo-filtro .separador-abas { margin-bottom: 0; }
 .grupo-filtro .separador-abas button { min-height: 38px; padding: 0 14px; }
 #estatisticas.a-carregar { opacity: 0.55; transition: opacity 0.15s; pointer-events: none; }
