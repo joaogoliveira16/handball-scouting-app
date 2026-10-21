@@ -29,12 +29,12 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
     /// Os números dos jogadores de uma equipa da conta: o plantel, os jogos já registados e uma linha por jogador e jogo.
     /// Null se a equipa não existir ou for de outra conta.
     /// </summary>
-    public async Task<EstatisticasEquipa?> EquipaAsync(int donoId, int equipaId, CancellationToken ct = default)
+    public async Task<EstatisticasEquipa?> EquipaAsync(int donoId, int equipaId, short? parte = null, CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);
         if (!await con.ExecuteScalarAsync<bool>(new CommandDefinition(sql["equipa_existe"], new { equipaId, donoId }, cancellationToken: ct)))
             return null;
-        var p = new { equipaId, donoId };
+        var p = new { equipaId, donoId, parte };   // parte: 1 ou 2 conta só essa parte; null conta o jogo todo
         return new EstatisticasEquipa
         {
             EquipaId = equipaId,

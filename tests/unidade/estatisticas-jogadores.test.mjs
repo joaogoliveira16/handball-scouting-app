@@ -3,7 +3,10 @@
 //   node --no-warnings --test unidade/
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { estatisticasDaEquipa, somar, derivados, formatar, ordenar, resultadoDe, zeros, VISTAS } from '../../frontend/js/estatisticas-jogadores.js';
+import {
+  estatisticasDaEquipa, somar, derivados, formatar, ordenar, resultadoDe, zeros, VISTAS,
+  GRAFICOS_EQUIPA, categoriaDoJogo, evolucaoDaEquipa, filtrarJogos, serieDoJogador, seriesDoGrafico,
+} from '../../frontend/js/estatisticas-jogadores.js';
 
 const vista = (codigo) => VISTAS.find((v) => v.codigo === codigo);
 const coluna = (codigo, chave) => vista(codigo).colunas.find((c) => c.chave === chave);
@@ -151,4 +154,93 @@ test('ordenar: pela coluna, com os vazios no fim e os empates pelo número', () 
 test('a ordem inicial de cada vista é uma das suas colunas', () => {
   for (const v of VISTAS) assert.ok(v.colunas.some((c) => c.chave === v.ordemInicial), v.codigo);
   assert.equal(new Set(VISTAS.map((v) => v.codigo)).size, VISTAS.length);
+});
+
+// ---------------------------------------------------------------------
+// Filtros e evolução jogo a jogo
+// ---------------------------------------------------------------------
+test('filtrar os jogos: em casa, fora e os últimos N, e as linhas acompanham', () => {
+  const d = dados();
+  const ids = (f) => filtrarJogos(d, f).jogos.map((j) => j.jogoId);
+  assert.deepEqual(ids({}), [20, 21, 22]);
+  assert.deepEqual(ids({ local: 'casa' }), [20]);
+  assert.deepEqual(ids({ local: 'fora' }), [21, 22]);
+  assert.deepEqual(ids({ ultimos: 2 }), [21, 22], 'os mais recentes');
+  assert.deepEqual(ids({ local: 'fora', ultimos: 1 }), [22], 'o último jogo fora, não o último jogo');
+  assert.deepEqual(ids({ ultimos: 10 }), [20, 21, 22], 'pedir mais do que há não estraga');
+  assert.deepEqual(ids({ local: 'casa', ultimos: 5 }), [20]);
+  const fora = filtrarJogos(d, { local: 'fora' });
+  assert.ok(fora.linhas.every((l) => [21, 22].includes(l.jogoId)), 'as linhas do jogo em casa saem');
+  assert.equal(d.jogos.length, 3, 'não mexe nos dados originais');
+
+  // as contas seguem o filtro: o #7 só jogou o jogo 21 e o 22 fora
+  const r = estatisticasDaEquipa(fora);
+  assert.deepEqual([r.resumo.jogos, r.resumo.vitorias, r.resumo.empates, r.resumo.derrotas], [2, 0, 1, 1]);
+  assert.deepEqual([r.resumo.golosMarcados, r.resumo.golosSofridos], [33, 40]);
+  const sete = r.jogadores.find((j) => j.numero === 7);
+  assert.deepEqual([sete.jogos, sete.remates, sete.golos], [2, 9, 4]);
+  assert.deepEqual(r.jogadores.map((j) => j.numero), [1, 7, 9], 'o #9 só tem o jogo 21 (entrou e não rematou)');
+  // sem jogos no filtro: tudo a zero e os jogadores passam para «ainda sem jogos»
+  const nenhum = estatisticasDaEquipa(filtrarJogos({ ...d, jogos: d.jogos.filter((j) => !j.emCasa) }, { local: 'casa' }));
+  assert.equal(nenhum.resumo.jogos, 0);
+  assert.equal(nenhum.jogadores.length, 0);
+});
+
+test('a evolução da equipa: uma linha por jogo, do mais antigo ao mais recente', () => {
+  const e = evolucaoDaEquipa(dados());
+  assert.deepEqual(e.map((x) => x.jogo.jogoId), [20, 21, 22]);
+  assert.deepEqual(e.map((x) => [x.golos, x.golosAdversario]), [[25, 20], [18, 18], [15, 22]], 'os golos são os do jogo');
+  assert.deepEqual(e.map((x) => x.remates), [9, 5, 4], 'o resto é a soma dos jogadores desse jogo');
+  assert.deepEqual(e.map((x) => x.eficacia), [77.8, 60, 25].map((v) => v), 'golos dos jogadores a dividir pelos remates');
+  assert.deepEqual(e.map((x) => x.percentagemDefesa), [35, null, 22.7], 'sem remates à baliza não há percentagem (e não 0)');
+  assert.deepEqual(e.map((x) => x.perdasBola), [2, 0, 0]);
+  assert.deepEqual(evolucaoDaEquipa({ jogos: [], linhas: [] }), []);
+  // um jogo sem linhas (ninguém convocado) aparece com zeros e sem percentagens
+  const vazio = evolucaoDaEquipa({ jogos: dados().jogos.slice(0, 1), linhas: [] })[0];
+  assert.deepEqual([vazio.golos, vazio.remates, vazio.eficacia, vazio.percentagemDefesa], [25, 0, null, null]);
+});
+
+test('os gráficos da equipa dão as séries certas, sempre com um valor por jogo', () => {
+  const e = evolucaoDaEquipa(dados());
+  const por = (codigo) => seriesDoGrafico(GRAFICOS_EQUIPA.find((g) => g.codigo === codigo), e);
+  assert.deepEqual(por('golos'), [{ nome: 'Marcados', valores: [25, 18, 15] }, { nome: 'Sofridos', valores: [20, 18, 22] }]);
+  assert.deepEqual(por('eficacia'), [{ nome: 'Eficácia', valores: [77.8, 60, 25] }]);
+  assert.deepEqual(por('defesa')[0].valores, [35, null, 22.7]);
+  assert.deepEqual(por('perdas')[0].valores, [2, 0, 0]);
+  for (const g of GRAFICOS_EQUIPA) {
+    assert.ok(g.titulo && g.rotulo && ['inteiro', 'percentagem'].includes(g.formato), g.codigo);
+    assert.ok(g.series.length >= 1 && g.series.length <= 2, 'uma ou duas séries');
+    if (g.formato === 'percentagem') assert.equal(g.maximoFixo, 100, 'as percentagens têm o eixo em 100');
+    for (const s of seriesDoGrafico(g, e)) assert.equal(s.valores.length, 3, `${g.codigo}: um valor por jogo`);
+  }
+  assert.equal(new Set(GRAFICOS_EQUIPA.map((g) => g.codigo)).size, GRAFICOS_EQUIPA.length);
+});
+
+test('o rótulo de cada jogo diz a data, o adversário e o resultado', () => {
+  const c = categoriaDoJogo({ jogoId: 1, dataHora: '2026-10-01T12:00:00Z', adversarioNome: 'Leões do Sul', emCasa: true, golos: 25, golosAdversario: 20 });
+  assert.equal(c.curto, '01/10');
+  assert.equal(c.curto2, 'Leões do…', 'o nome comprido encurta-se no eixo');
+  assert.equal(c.longo, '01/10/2026 · vs Leões do Sul · V 25–20');
+  const fora = categoriaDoJogo({ jogoId: 2, dataHora: '2026-11-15T12:00:00Z', adversarioNome: 'Tigres', emCasa: false, golos: 18, golosAdversario: 18 });
+  assert.equal(fora.curto2, 'Tigres');
+  assert.equal(fora.longo, '15/11/2026 · em Tigres · E 18–18');
+});
+
+test('a evolução de um jogador usa o que a vista mostra', () => {
+  const { jogadores } = estatisticasDaEquipa(dados());
+  const sete = jogadores.find((j) => j.numero === 7);
+  const rui = jogadores.find((j) => j.numero === 1);
+  const vista = (c) => VISTAS.find((v) => v.codigo === c);
+  assert.deepEqual(serieDoJogador(sete, vista('ataque')).valores, [4, 3, 1]);
+  assert.deepEqual(serieDoJogador(sete, vista('disciplina')).valores, [2, 0, 0]);
+  assert.deepEqual(serieDoJogador(rui, vista('guardaRedes')).valores, [35, 22.7]);
+  assert.equal(serieDoJogador(sete, vista('ataque')).categorias.length, 3);
+  assert.equal(serieDoJogador(rui, vista('guardaRedes')).categorias.length, 2, 'só os jogos em que entrou');
+  for (const v of VISTAS) {
+    assert.ok(v.grafico?.nome && v.grafico.titulo && typeof v.grafico.valor === 'function', `${v.codigo} tem gráfico`);
+    assert.ok(['inteiro', 'percentagem'].includes(v.grafico.formato));
+  }
+  // jogo em que não houve remates à baliza: sem valor, para a linha interromper
+  const noVazio = serieDoJogador({ porJogo: [{ jogo: dados().jogos[0], ...derivados(zeros()), ...zeros() }] }, vista('guardaRedes'));
+  assert.deepEqual(noVazio.valores, [null]);
 });

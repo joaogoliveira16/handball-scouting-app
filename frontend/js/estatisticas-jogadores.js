@@ -43,6 +43,19 @@ const completar = (totais) => ({ ...totais, ...derivados(totais) });
 export const resultadoDe = (jogo) => (jogo.golos > jogo.golosAdversario ? 'V' : jogo.golos < jogo.golosAdversario ? 'D' : 'E');
 
 /**
+ * Fica só com os jogos que interessam (e as linhas deles) antes de somar. A lista de jogos vem do mais antigo para o
+ * mais recente. `local`: 'todos', 'casa' ou 'fora'; `ultimos`: os N jogos mais recentes (depois de escolher o local).
+ */
+export function filtrarJogos(dados, { local = 'todos', ultimos = null } = {}) {
+  let jogos = [...(dados.jogos ?? [])];
+  if (local === 'casa') jogos = jogos.filter((j) => j.emCasa);
+  else if (local === 'fora') jogos = jogos.filter((j) => !j.emCasa);
+  if (ultimos) jogos = jogos.slice(-ultimos);
+  const ids = new Set(jogos.map((j) => j.jogoId));
+  return { ...dados, jogos, linhas: (dados.linhas ?? []).filter((l) => ids.has(l.jogoId)) };
+}
+
+/**
  * @param {{plantel: object[], jogos: object[], linhas: object[]}} dados
  * @returns {{resumo: object, equipa: object, jogadores: object[], semJogos: object[]}}
  *   jogadores: os que já entraram em algum jogo, com os totais, os derivados e o "porJogo" (um item por jogo, do mais
@@ -102,6 +115,7 @@ const par = (a, b) => `${a}/${b}`;
 export const VISTAS = [
   {
     codigo: 'ataque', rotulo: 'Ataque', ordemInicial: 'golos',
+    grafico: { nome: 'Golos', titulo: 'Golos em cada jogo', valor: (t) => t.golos, formato: 'inteiro' },
     vazio: 'Ainda não há remates registados.',
     mostrar: (j) => j.remates > 0 || (j.jogos > 0 && j.posicao !== 'GR'),
     colunas: [
@@ -116,6 +130,7 @@ export const VISTAS = [
   },
   {
     codigo: 'guardaRedes', rotulo: 'Guarda-redes', ordemInicial: 'defesas',
+    grafico: { nome: '% de defesa', titulo: 'Percentagem de defesa em cada jogo', valor: (t) => t.percentagemDefesa, formato: 'percentagem', maximoFixo: 100 },
     vazio: 'Ainda não há guarda-redes com jogos registados.',
     mostrar: (j) => j.rematesBaliza > 0 || (j.jogos > 0 && j.posicao === 'GR'),
     colunas: [
@@ -130,6 +145,7 @@ export const VISTAS = [
   },
   {
     codigo: 'disciplina', rotulo: 'Bola e disciplina', ordemInicial: 'doisMinutos',
+    grafico: { nome: 'Perdas de bola', titulo: 'Perdas de bola em cada jogo', valor: (t) => t.perdasBola, formato: 'inteiro' },
     vazio: 'Ainda não há jogos registados.',
     mostrar: (j) => j.jogos > 0,
     colunas: [
@@ -169,4 +185,71 @@ export function ordenar(jogadores, vista, chave, direcao = 'desc') {
     const cmp = typeof va === 'string' ? va.localeCompare(vb, 'pt-PT') : va - vb;
     return cmp !== 0 ? sinal * cmp : a.numero - b.numero;
   });
+}
+
+// ---------------------------------------------------------------------
+// Evolução jogo a jogo (os gráficos)
+// ---------------------------------------------------------------------
+const doisDigitos = (n) => String(n).padStart(2, '0');
+const dataCurta = (dataHora) => { const d = new Date(dataHora); return `${doisDigitos(d.getDate())}/${doisDigitos(d.getMonth() + 1)}`; };
+const dataLonga = (dataHora) => { const d = new Date(dataHora); return `${dataCurta(dataHora)}/${d.getFullYear()}`; };
+const abreviar = (nome, max = 9) => (nome.length > max ? `${nome.slice(0, max - 1).trimEnd()}…` : nome);
+
+/** O rótulo de cada jogo nos gráficos: a data e o adversário (curto, no eixo) e tudo na dica («05/09/2026 · vs Leões · V 25–20»). */
+export function categoriaDoJogo(jogo) {
+  return {
+    curto: dataCurta(jogo.dataHora),
+    curto2: abreviar(jogo.adversarioNome),
+    longo: `${dataLonga(jogo.dataHora)} · ${jogo.emCasa ? 'vs' : 'em'} ${jogo.adversarioNome} · ${resultadoDe(jogo)} ${jogo.golos}–${jogo.golosAdversario}`,
+  };
+}
+
+/**
+ * Os números da equipa em cada jogo (a soma dos jogadores), do mais antigo para o mais recente, para os gráficos.
+ * @returns {object[]} { jogo, golos, golosAdversario, remates, eficacia, percentagemDefesa, perdasBola, ... }
+ */
+export function evolucaoDaEquipa(dados) {
+  const linhasPorJogo = new Map();
+  for (const linha of dados.linhas ?? []) {
+    if (!linhasPorJogo.has(linha.jogoId)) linhasPorJogo.set(linha.jogoId, []);
+    linhasPorJogo.get(linha.jogoId).push(linha);
+  }
+  return (dados.jogos ?? []).map((jogo) => {
+    const t = somar(linhasPorJogo.get(jogo.jogoId) ?? []);
+    return {
+      jogo,
+      ...t,
+      ...derivados(t),
+      golos: Number(jogo.golos),   // os golos do jogo (iguais à soma dos jogadores: todo o remate tem jogador)
+      golosAdversario: Number(jogo.golosAdversario),
+    };
+  });
+}
+
+/** Os gráficos da equipa: cada um tem as suas séries (a chave é um campo de evolucaoDaEquipa) e o formato dos valores. */
+export const GRAFICOS_EQUIPA = [
+  { codigo: 'golos', rotulo: 'Golos', titulo: 'Golos marcados e sofridos em cada jogo', formato: 'inteiro',
+    series: [{ chave: 'golos', nome: 'Marcados' }, { chave: 'golosAdversario', nome: 'Sofridos' }] },
+  { codigo: 'eficacia', rotulo: 'Eficácia', titulo: 'Eficácia de remate em cada jogo (golos a dividir pelos remates)', formato: 'percentagem', maximoFixo: 100,
+    series: [{ chave: 'eficacia', nome: 'Eficácia' }] },
+  { codigo: 'defesa', rotulo: 'Guarda-redes', titulo: 'Defesa dos guarda-redes em cada jogo (defesas a dividir pelos remates à baliza)', formato: 'percentagem', maximoFixo: 100,
+    series: [{ chave: 'percentagemDefesa', nome: '% de defesa' }] },
+  { codigo: 'perdas', rotulo: 'Perdas de bola', titulo: 'Perdas de bola em cada jogo', formato: 'inteiro',
+    series: [{ chave: 'perdasBola', nome: 'Perdas de bola' }] },
+];
+
+/** As séries de um gráfico da equipa prontas para desenhar: [{ nome, valores }] (sem valor = null). */
+export function seriesDoGrafico(grafico, evolucao) {
+  return grafico.series.map((s) => ({ nome: s.nome, valores: evolucao.map((e) => e[s.chave] ?? null) }));
+}
+
+/**
+ * A evolução de um jogador na vista escolhida, jogo a jogo: o que se desenha na vista (ver `grafico` em VISTAS).
+ * @returns {{categorias: object[], valores: (number|null)[]}}
+ */
+export function serieDoJogador(jogador, vista) {
+  return {
+    categorias: jogador.porJogo.map((p) => categoriaDoJogo(p.jogo)),
+    valores: jogador.porJogo.map((p) => vista.grafico.valor(p) ?? null),
+  };
 }

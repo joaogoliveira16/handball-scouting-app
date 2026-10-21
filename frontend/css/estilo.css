@@ -40,6 +40,10 @@
   --casa-claro: #86a5ff;   /* as mesmas cores sobre o azul-escuro do marcador */
   --fora-claro: #ff9d5c;
 
+  /* séries dos gráficos de linhas (azul e laranja de uma paleta validada: distinguem-se mesmo com daltonismo) */
+  --serie-1: #2a78d6;
+  --serie-2: #eb6834;
+
   /* resultados (os mesmos que os marcadores do mapa em js/campo.js) */
   --r-golo: #16a34a;
   --r-defesa: #7c3aed;
@@ -711,6 +715,45 @@ table.tabela td.suave { color: var(--suave); }
 /* ---------- Corrigir um jogo ---------- */
 .jogo-linha .editar-jogo { grid-column: 1 / -1; padding: 14px; background: var(--realce); border-radius: var(--raio-controlo); }
 .etiqueta.terminado { margin-left: 10px; color: var(--suave); background: var(--realce); border: 1px solid var(--linha-forte); }
+
+/* ---------- Filtros e gráficos de evolução (Estatísticas) ---------- */
+.filtros-estatisticas { display: flex; flex-wrap: wrap; gap: 6px 26px; margin: 14px 0 6px; }
+.grupo-filtro { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.grupo-filtro-rotulo { color: var(--suave); font-weight: 600; font-size: 0.95rem; }
+.grupo-filtro .separador-abas { margin-bottom: 0; }
+.grupo-filtro .separador-abas button { min-height: 38px; padding: 0 14px; }
+#estatisticas.a-carregar { opacity: 0.55; transition: opacity 0.15s; pointer-events: none; }
+.cartao-graficos { margin-bottom: 16px; }
+.cartao-graficos .titulo-cartao { margin: 0 0 10px; font-size: 1.15rem; }
+.so-leitor { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.grafico { margin: 0; }
+.grafico-titulo { margin: 4px 0 8px; color: var(--suave); font-size: 0.95rem; font-weight: 500; }
+.grafico-legenda { display: flex; flex-wrap: wrap; gap: 4px 18px; list-style: none; margin: 0 0 6px; padding: 0; font-size: 0.93rem; font-weight: 600; }
+.grafico-legenda li, .dica-linha { display: flex; align-items: center; gap: 8px; }
+.chave-linha { display: inline-block; flex: none; width: 16px; height: 3px; border-radius: 2px; }
+.grafico-area { position: relative; min-height: 240px; }
+.grafico-svg { display: block; max-width: 100%; user-select: none; -webkit-user-select: none; touch-action: pan-y; }
+.grafico-svg:focus-visible { outline: 2px solid var(--foco); outline-offset: 2px; border-radius: 4px; }
+.grafico-grelha line { stroke: var(--linha); stroke-width: 1; }
+.grafico-grelha line.base { stroke: var(--linha-forte); }
+.grafico-grelha text, .grafico-eixo-x text { fill: var(--suave); font: 500 12px var(--fonte); font-variant-numeric: tabular-nums; }
+.grafico-eixo-x text.segunda-linha { font-size: 11px; opacity: 0.85; }
+.grafico-cruz { stroke: var(--linha-forte); stroke-width: 1; pointer-events: none; }
+.grafico-linha { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.grafico-ponto { stroke: var(--superficie); stroke-width: 2; pointer-events: none; }
+.grafico-valor { fill: var(--tinta); font: 700 13px var(--fonte-num); font-variant-numeric: tabular-nums; pointer-events: none; }
+.grafico-alvo { cursor: crosshair; }
+.grafico-dica {
+  position: absolute; z-index: 5; min-width: 150px; max-width: min(300px, 90%); padding: 8px 12px; pointer-events: none;
+  background: var(--superficie); border: 1px solid var(--linha-forte); border-radius: 8px; box-shadow: 0 6px 18px rgba(14, 27, 51, 0.14);
+}
+.grafico-dica .dica-titulo { margin-bottom: 4px; color: var(--suave); font-size: 0.88rem; font-weight: 500; }
+.grafico-dica .dica-linha strong { font: 700 1.05rem var(--fonte-num); font-variant-numeric: tabular-nums; }
+.grafico-dica .dica-nome { color: var(--suave); font-size: 0.9rem; }
+.grafico-rodape { margin-top: 6px; }
+.grafico-tabela { margin-top: 4px; }
+.detalhe-jogador .grafico { margin: 6px 0 10px; }
 
 /* ---------- Eventos do jogo (corrigir) ---------- */
 .mais-eventos { margin: 10px 0 0; text-align: center; font-weight: 600; }

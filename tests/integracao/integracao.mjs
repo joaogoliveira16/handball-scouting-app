@@ -1019,6 +1019,39 @@ await passo('Estatísticas dos jogadores da equipa (uma linha por jogador e jogo
   ok(convocadoSemEventos && convocadoSemEventos.remates === 0 && convocadoSemEventos.golos === 0, 'um convocado sem eventos tem uma linha com zeros (jogou o jogo)', JSON.stringify(convocadoSemEventos));
   await http('PUT', `/api/jogos/${jogoId}/convocados`, { jogadorIds: [] });
 
+  // Só uma parte: ?parte=1|2 conta só o que aconteceu nessa parte (golos do jogo e números dos jogadores)
+  const segundaParte = await remate(casaId, lateralCasa, 'GOLO', { parte: 2, segundoJogo: 2500 });
+  ok(segundaParte.status === 201, 'estatísticas: um golo da casa na 2.ª parte registado', descricao(segundaParte));
+  const todo = await http('GET', caminho);
+  const parte1 = await http('GET', `${caminho}?parte=1`);
+  const parte2 = await http('GET', `${caminho}?parte=2`);
+  const deste = (resposta) => resposta.json?.jogos?.find((j) => j.jogoId === jogoId);
+  const linhaNeste = (resposta, id) => resposta.json?.linhas?.find((x) => x.jogoId === jogoId && x.jogadorId === id);
+  ok(todo.status === 200 && deste(todo)?.golos === 4 && deste(todo)?.golosAdversario === 1 && linhaNeste(todo, lateralCasa)?.remates === 5,
+    'sem ?parte: o jogo todo (4–1, o lateral com 5 remates)', JSON.stringify(deste(todo)));
+  ok(parte1.status === 200 && deste(parte1)?.golos === 3 && deste(parte1)?.golosAdversario === 1 && linhaNeste(parte1, lateralCasa)?.remates === 4 && linhaNeste(parte1, grCasa)?.defesas === 2,
+    '?parte=1: só a 1.ª parte (3–1, o lateral com 4 remates, o guarda-redes com as 2 defesas)', JSON.stringify(deste(parte1)));
+  ok(parte2.status === 200 && deste(parte2)?.golos === 1 && deste(parte2)?.golosAdversario === 0 && linhaNeste(parte2, lateralCasa)?.remates === 1 && linhaNeste(parte2, lateralCasa)?.perdasBola === 0 && !linhaNeste(parte2, grCasa),
+    '?parte=2: só a 2.ª parte (1–0, o lateral com 1 remate e sem a perda de bola; quem não fez nada nessa parte não tem linha)', JSON.stringify(deste(parte2)));
+  ok(parte2.json?.plantel?.length === todo.json?.plantel?.length && parte2.json?.jogos?.every((j) => todo.json.jogos.some((t) => t.jogoId === j.jogoId)),
+    '?parte=2: o plantel é o mesmo e os jogos são alguns dos do jogo todo (só os que têm eventos nessa parte)');
+  // Um jogo só com a 1.ª parte registada: entra no jogo todo e na 1.ª parte, mas não na 2.ª (não seria um 0–0, seria um jogo sem registo)
+  const soPrimeira = await http('POST', '/api/jogos', { casaId, foraId, dataHora: '2026-10-05T18:00:00Z' });
+  const idSoPrimeira = soPrimeira.json?.id;
+  await http('POST', `/api/jogos/${idSoPrimeira}/eventos`, { tipoEvento: 'REMATE', equipaId: casaId, jogadorId: lateralCasa, resultado: 'GOLO', situacao: 'POSICIONAL', x: 50, y: 25, parte: 1, segundoJogo: 90 });
+  const estaEm = async (sufixoPedido) => (await http('GET', `${caminho}${sufixoPedido}`)).json?.jogos?.some((j) => j.jogoId === idSoPrimeira);
+  ok(await estaEm('') && await estaEm('?parte=1') && !(await estaEm('?parte=2')), 'um jogo só com a 1.ª parte registada está no jogo todo e na 1.ª parte, mas não na 2.ª');
+  ok(!(await http('GET', `${caminho}?parte=2`)).json?.linhas?.some((x) => x.jogoId === idSoPrimeira), 'e também não tem linhas de jogadores na 2.ª parte');
+  await http('DELETE', `/api/jogos/${idSoPrimeira}`);
+  for (const mau of ['0', '3', '-1', 'x']) {
+    const recusa = await http('GET', `${caminho}?parte=${mau}`);
+    // um número fora de 1 e 2 leva a explicação; o que nem é número recusa-o o próprio ASP.NET (400 sem corpo)
+    ok(recusa.status === 400 && (mau === 'x' || /parte/.test(recusa.json?.erro ?? '')), `?parte=${mau} = 400`, descricao(recusa));
+  }
+  ok((await http('GET', `/api/equipas/99999/estatisticas?parte=1`)).status === 404 && (await http('GET', `${caminho}?parte=1`, undefined, segunda)).status === 404 && (await http('GET', `${caminho}?parte=1`, undefined, anonima)).status === 401,
+    '?parte=1 respeita o dono: equipa que não existe 404, outra conta 404, sem sessão 401');
+  ok((await http('DELETE', `/api/jogos/${jogoId}/eventos/${segundaParte.json?.id}`)).status === 204, 'e o golo da 2.ª parte apaga-se (os passos seguintes ficam como estavam)');
+
   // Só a dona da equipa lê: outra conta, sem sessão e uma equipa que não existe
   ok((await http('GET', caminho, undefined, segunda)).status === 404, 'outra conta não lê as estatísticas da equipa (404)');
   ok((await http('GET', caminho, undefined, anonima)).status === 401, 'sem sessão = 401');

@@ -499,7 +499,7 @@ await passo('Equipas e jogadores', async () => {
   await p.click('.formulario-jogador button[type=submit]');
   await p.waitForSelector('tbody tr:has-text("Joel Mota Jr.")');
   ok((await p.locator('tbody tr:has-text("Joel Mota Jr.") td').nth(2).textContent()) === 'Ponta direita', 'jogadores: edição guardada (nome e posição)');
-  ok(!(await p.locator('.botao:has-text("Cancelar")').isVisible()), 'jogadores: Cancelar escondido depois de guardar');
+  ok(await esperarPor(async () => !(await p.locator('.botao:has-text("Cancelar")').isVisible())), 'jogadores: Cancelar escondido depois de guardar');
 
   await p.locator('tbody tr', { hasText: 'Joel Mota Jr.' }).locator('.botao.perigo').click();
   await p.waitForFunction(() => document.querySelectorAll('table.tabela tbody tr').length === 2);
@@ -1818,7 +1818,7 @@ await passo('Escudos: carregar, trocar e tirar o escudo da equipa', async () => 
   // Tirar o escudo (a confirmação é aceite pelo teste)
   await p.click('#remover-escudo');
   ok(await esperarPor(async () => (await escudoDe()) === undefined), 'escudos: «Tirar escudo» apaga-o da base de dados');
-  ok(await p.locator('#bloco-escudo .escudo-vazio').isVisible() && (await p.locator('.item-equipa img.escudo').count()) === 0 && await p.locator('#remover-escudo').isHidden(), 'escudos: sem escudo voltam as iniciais');
+  ok(await esperarPor(async () => await p.locator('#bloco-escudo .escudo-vazio').isVisible() && (await p.locator('.item-equipa img.escudo').count()) === 0 && await p.locator('#remover-escudo').isHidden()), 'escudos: sem escudo voltam as iniciais');
   ok((await ctxVisitante.request.get(`${servidor.url}/api/equipas/${propriaId}/escudo`)).status() === 404, 'escudos: sem escudo a imagem dá 404');
   await p.close();
 });
@@ -2137,7 +2137,7 @@ await passo('Estatísticas: os números de cada jogador da equipa da conta, soma
   ok(((await p.locator('.sub-equipa').textContent()) ?? '').includes(nomePropria), 'estatísticas: diz de que equipa são os números (a da conta)');
   const resumo = async () => [await texto(p.locator('#resumo-jogos b')), await texto(p.locator('#resumo-resultados b')), await texto(p.locator('#resumo-golos b')), await texto(p.locator('#resumo-sofridos b'))];
   ok(JSON.stringify(await resumo()) === JSON.stringify(['2', '1-0-1', '8', '8']), `estatísticas: o resumo conta só os jogos com registos: 2 jogos, 1 vitória e 1 derrota, 8 golos marcados e 8 sofridos (${await resumo()})`);
-  ok((await p.locator('.separador-abas button').allTextContents()).join('|') === 'Ataque|Guarda-redes|Bola e disciplina' && (await p.locator('.separador-abas button.ativo').textContent()) === 'Ataque', 'estatísticas: três vistas, a começar pelo ataque');
+  ok((await p.locator('[aria-label="O que ver"] button').allTextContents()).join('|') === 'Ataque|Guarda-redes|Bola e disciplina' && (await p.locator('[aria-label="O que ver"] button.ativo').textContent()) === 'Ataque', 'estatísticas: três vistas, a começar pelo ataque');
 
   const linhas = async () => p.locator('#tabela-estatisticas tbody tr.linha-jogador').evaluateAll((trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent.trim())));
   const rodape = async () => p.locator('#tabela-estatisticas tfoot td').allTextContents();
@@ -2164,7 +2164,7 @@ await passo('Estatísticas: os números de cada jogador da equipa da conta, soma
   const bot = p.locator('tr.linha-jogador', { hasText: 'Bruno Remata' }).locator('button.abrir-jogador');
   ok((await bot.getAttribute('aria-expanded')) === 'false' && (await p.locator('tr.detalhe-jogador').count()) === 0, 'estatísticas: o jogo a jogo começa fechado');
   await bot.click();
-  const jogos = await p.locator('tr.detalhe-jogador tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent.trim())));
+  const jogos = await p.locator('tr.detalhe-jogador table.tabela-jogos tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent.trim())));
   ok(jogos.length === 2 && jogos[0].join('|') === `05/09/2026 · vs Águias do Norte|V 4–3|1|4|7|57%|4,0|1/2|–`, `estatísticas: o 1.º jogo (do mais antigo ao mais recente) (${jogos[0]})`);
   ok(jogos[1]?.join('|') === `12/09/2026 · em Águias do Norte|D 4–5|1|2|5|40%|2,0|–|1/2`, `estatísticas: o 2.º jogo, fora e perdido (${jogos[1]})`);
   ok((await p.locator('tr.linha-jogador', { hasText: 'Bruno Remata' }).locator('button.abrir-jogador').getAttribute('aria-expanded')) === 'true', 'estatísticas: o jogador aberto fica assinalado');
@@ -2173,13 +2173,13 @@ await passo('Estatísticas: os números de cada jogador da equipa da conta, soma
   ok((await p.locator('tr.detalhe-jogador').count()) === 0, 'estatísticas: clicar outra vez fecha o jogo a jogo');
 
   // Guarda-redes
-  await p.locator('.separador-abas button', { hasText: 'Guarda-redes' }).click();
+  await p.locator('[aria-label="O que ver"] button', { hasText: 'Guarda-redes' }).click();
   l = await linhas();
   ok(l.length === 1 && numeros(l[0]) === '91|2|6|8|14|43%|3,0|1/2', `estatísticas: o guarda-redes defendeu 6 e sofreu 8 (43% de defesa), 1 de 2 sete metros (${l.map(numeros)})`);
   ok((await rodape()).slice(1).join('|') === 'Equipa|2|6|8|14|43%|3,0|1/2', `estatísticas: a linha da equipa nos guarda-redes (${(await rodape()).slice(1)})`);
 
   // Bola e disciplina: todos os que jogaram, por ordem de exclusões
-  await p.locator('.separador-abas button', { hasText: 'Bola e disciplina' }).click();
+  await p.locator('[aria-label="O que ver"] button', { hasText: 'Bola e disciplina' }).click();
   l = await linhas();
   ok(l.map((x) => x[0]).join(',') === '92,91,93' && numeros(l[0]) === '92|2|2|0|1|0' && numeros(l[2]) === '93|2|0|1|0|0', `estatísticas: perdas de bola, faltas, 2 minutos e vermelhos (${l.map(numeros)})`);
   await p.close();
@@ -2191,6 +2191,184 @@ await passo('Estatísticas: os números de cada jogador da equipa da conta, soma
     'estatísticas (API): a equipa da conta devolve o plantel, os jogos com registos e uma linha por jogador e jogo');
   ok((await ctxVisitante.request.get(`${servidor.url}/api/equipas/${propriaId}/estatisticas`)).status() === 401, 'estatísticas (API): sem sessão não se lê');
   ok((await ctx.request.get(`${servidor.url}/api/equipas/999999/estatisticas`)).status() === 404, 'estatísticas (API): uma equipa que não existe dá 404');
+});
+
+await passo('Estatísticas: filtros (em casa, fora, parte, últimos jogos) e gráficos de evolução jogo a jogo', async () => {
+  const [{ equipa_id: propriaId }] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [donoId]);
+  const [{ id: bruno }] = await q('SELECT id FROM jogadores WHERE equipa_id = $1 AND numero = 92', [propriaId]);
+  const [{ id: guardaRedes }] = await q('SELECT id FROM jogadores WHERE equipa_id = $1 AND numero = 91', [propriaId]);
+  const [{ id: jogoA }] = await q("SELECT id FROM jogos WHERE dono_id = $1 AND equipa_casa_id = $2 AND data_hora = '2026-09-05T18:00:00Z'", [donoId, propriaId]);
+  const [{ id: deAguias }] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [aguias.id]);
+  const [{ id: deLeoes }] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [leoes.id]);
+
+  const novoJogo = async (casa, fora, dataHora) => (await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, data_hora) VALUES ($1,$2,$3,$4) RETURNING id', [casa, fora, donoId, dataHora]))[0].id;
+  const remates = async (jogoId, equipa, jogador, n, { resultado = 'GOLO', parte = 1 } = {}) => {
+    for (let i = 0; i < n; i++) {
+      await q(`INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, resultado, situacao, x, y, parte, segundo_jogo)
+               VALUES ($1,$2,'REMATE',$3,$4,'POSICIONAL',50,40,$5,$6)`, [jogoId, equipa, jogador, resultado, parte, parte === 1 ? 600 + i : 2400 + i]);
+    }
+  };
+  // Até aqui: A (05/09, em casa, 4–3), B (12/09, fora, 4–5) e um jogo sem registos. Na 2.ª parte do A: 1–1 (o A passa a 5–4).
+  await remates(jogoA, propriaId, bruno, 1, { parte: 2 });
+  await remates(jogoA, aguias.id, deAguias, 1, { parte: 2 });
+  // Mais quatro jogos contra os Leões: C1 em casa 2–0, C2 fora 1–1, C3 em casa 3–0, C4 fora 0–2 (um remate falhado do Bruno)
+  const c1 = await novoJogo(propriaId, leoes.id, '2026-09-20T18:00:00Z');
+  await remates(c1, propriaId, bruno, 2);
+  const c2 = await novoJogo(leoes.id, propriaId, '2026-09-21T18:00:00Z');
+  await remates(c2, propriaId, bruno, 1); await remates(c2, leoes.id, deLeoes, 1);
+  const c3 = await novoJogo(propriaId, leoes.id, '2026-09-22T18:00:00Z');
+  await remates(c3, propriaId, bruno, 3);
+  const c4 = await novoJogo(leoes.id, propriaId, '2026-09-23T18:00:00Z');
+  await remates(c4, propriaId, bruno, 1, { resultado: 'FORA' }); await remates(c4, leoes.id, deLeoes, 2);
+  // Tudo: 6 jogos, 3 vitórias, 1 empate e 2 derrotas, 15 golos marcados e 12 sofridos
+
+  const pedidos = [];
+  const p = await pagina('/estatisticas.html');
+  p.on('request', (r) => { if (/\/estatisticas(\?|$)/.test(r.url())) pedidos.push(new URL(r.url()).search); });
+  await p.reload();
+  await p.waitForSelector('#tabela-estatisticas');
+  const resumo = async () => [await texto(p.locator('#resumo-jogos b')), await texto(p.locator('#resumo-resultados b')), await texto(p.locator('#resumo-golos b')), await texto(p.locator('#resumo-sofridos b'))].join(' | ');
+  const nota = async () => ((await p.locator('#nota-filtros').count()) ? ((await p.locator('#nota-filtros').textContent()) ?? '').trim() : null);
+  // O gráfico desenha-se logo a seguir a entrar na página (quando tem largura): espera-se pelos pontos que se esperam
+  const pontos = async (esperados = null) => {
+    if (esperados !== null) {
+      await p.waitForFunction((n) => document.querySelectorAll('#grafico-equipa .grafico-ponto').length === n, esperados, { timeout: 5000 }).catch(() => {});
+    }
+    return p.locator('#grafico-equipa .grafico-ponto').count();
+  };
+  const escolher = async (filtro) => { await p.click(`[data-filtro="${filtro}"]`); await p.waitForSelector(`[data-filtro="${filtro}"].ativo`); };
+  const ativos = async () => (await p.locator('.filtros-estatisticas button.ativo').allTextContents()).join('|');
+
+  // Os três grupos de filtros começam no jogo todo, em todos os jogos e em toda a época
+  ok((await p.locator('.filtros-estatisticas .grupo-filtro').count()) === 3 && (await ativos()) === 'Todos|Jogo todo|Toda a época', `filtros: três grupos (jogos, parte, período), tudo escolhido à partida (${await ativos()})`);
+  ok((await p.locator('.filtros-estatisticas button.ativo[aria-pressed="true"]').count()) === 3 && (await nota()) === null, 'filtros: o botão escolhido está assinalado (aria-pressed) e não há nota de filtros');
+  ok((await resumo()) === '6 | 3-1-2 | 15 | 12', `filtros: sem filtros contam os 6 jogos com registos: 3-1-2, 15 marcados e 12 sofridos (${await resumo()})`);
+
+  // O gráfico: golos marcados e sofridos, uma bola por jogo e série
+  const grafico = p.locator('#grafico-equipa');
+  ok((await grafico.locator('figcaption').textContent()) === 'Golos marcados e sofridos em cada jogo' && (await grafico.locator('.grafico-legenda li').allTextContents()).join('|') === 'Marcados|Sofridos',
+    'gráfico: o título diz o que mostra e a legenda tem as duas séries (marcados, sofridos)');
+  ok((await pontos(12)) === 12 && (await grafico.locator('.grafico-linha').count()) === 2, `gráfico: 6 jogos × 2 séries = 12 pontos e 2 linhas (${await pontos()})`);
+  ok((await grafico.locator('.grafico-ponto').first().getAttribute('r')) === '4.5', 'gráfico: os pontos têm raio 4,5');
+  ok((await grafico.locator('.grafico-eixo-x text').first().textContent()) === '05/09', 'gráfico: o eixo horizontal começa na data do primeiro jogo');
+  await captura(p, 'estatisticas-graficos');
+
+  // Passar o rato por cima do último jogo: cruz e dica com os valores dele
+  const alvo = await grafico.locator('.grafico-alvo').boundingBox();
+  await p.mouse.move(alvo.x + alvo.width - 2, alvo.y + 30);
+  await grafico.locator('.grafico-dica').waitFor({ state: 'visible' });
+  const dica = await texto(grafico.locator('.grafico-dica'));
+  ok(dica.includes('23/09/2026') && dica.includes('emLeõesdoSul') && dica.includes('D0–2'), `gráfico: a dica diz o jogo, o adversário e o resultado (${dica})`);
+  ok((await grafico.locator('.grafico-dica strong').allTextContents()).join('|') === '0|2', 'gráfico: e os valores das duas séries (0 marcados, 2 sofridos)');
+  ok((await grafico.locator('.grafico-cruz').evaluate((el) => el.style.display)) === '', 'gráfico: aparece a linha vertical sobre o jogo em foco');
+  await captura(p, 'estatisticas-grafico-dica');
+  await p.mouse.move(2, 2);
+  await grafico.locator('.grafico-dica').waitFor({ state: 'hidden' });
+  ok(await grafico.locator('.grafico-dica').isHidden() && (await grafico.locator('.grafico-cruz').evaluate((el) => el.style.display)) === 'none', 'gráfico: ao tirar o rato a dica e a linha vertical desaparecem');
+
+  // Com o teclado: focar o gráfico mostra o último jogo, as setas percorrem os jogos
+  await grafico.locator('svg').focus();
+  ok((await texto(grafico.locator('.grafico-dica'))).includes('23/09/2026'), 'gráfico: ao focar com o teclado mostra o último jogo');
+  await p.keyboard.press('ArrowLeft');
+  ok((await texto(grafico.locator('.grafico-dica'))).includes('22/09/2026'), 'gráfico: a seta para a esquerda vai ao jogo anterior');
+  await p.keyboard.press('Home');
+  ok((await texto(grafico.locator('.grafico-dica'))).includes('05/09/2026'), 'gráfico: Home vai ao primeiro jogo');
+  await p.keyboard.press('Escape');
+  ok(await grafico.locator('.grafico-dica').isHidden(), 'gráfico: Esc fecha a dica');
+
+  // A tabela com os mesmos números
+  await grafico.locator('.grafico-alternar').click();
+  const linhasTabela = await grafico.locator('.grafico-tabela tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent.trim()).join('|')));
+  ok(linhasTabela.length === 6 && linhasTabela[0] === '05/09/2026 · vs Águias do Norte · V 5–4|5|4' && linhasTabela[5] === '23/09/2026 · em Leões do Sul · D 0–2|0|2', `gráfico: «Ver como tabela» mostra os 6 jogos com os mesmos números (${linhasTabela[0]})`);
+  ok(await grafico.locator('.grafico-area').isHidden() && (await grafico.locator('.grafico-alternar').textContent()) === 'Ver gráfico' && (await grafico.locator('.grafico-alternar').getAttribute('aria-pressed')) === 'true', 'gráfico: na vista de tabela o gráfico esconde-se e o botão passa a «Ver gráfico»');
+  await grafico.locator('.grafico-alternar').click();
+  ok(await grafico.locator('.grafico-tabela').isHidden() && (await pontos(12)) === 12, 'gráfico: «Ver gráfico» volta ao gráfico, desenhado outra vez');
+
+  // Os outros gráficos
+  const aba = (codigo) => p.locator(`[data-grafico="${codigo}"]`);
+  await aba('eficacia').click();
+  ok((await p.locator('#grafico-equipa figcaption').textContent()).startsWith('Eficácia de remate') && (await pontos(6)) === 6 && (await p.locator('#grafico-equipa .grafico-legenda').count()) === 0
+    && (await aba('eficacia').getAttribute('aria-pressed')) === 'true', `gráfico: a eficácia tem uma só série (sem legenda) e 6 pontos (${await pontos()})`);
+  ok((await p.locator('#grafico-equipa .grafico-grelha text').last().textContent()) === '100%', 'gráfico: nas percentagens o eixo vai até 100%');
+  await aba('defesa').click();
+  ok((await pontos(2)) === 2, `gráfico: a defesa dos guarda-redes só tem os 2 jogos em que se registou o guarda-redes (${await pontos()})`);
+  await aba('perdas').click();
+  ok((await pontos(6)) === 6 && (await p.locator('#grafico-equipa .grafico-valor').count()) >= 1, 'gráfico: as perdas de bola têm 6 pontos e o valor do último jogo');
+  await aba('golos').click();
+
+  // Em casa / fora
+  await escolher('local-casa');
+  ok((await resumo()) === '3 | 3-0-0 | 10 | 4' && (await nota()) === 'A ver: jogos em casa.' && (await pontos(6)) === 6, `filtros: «Em casa» (A, C1 e C3): 3 vitórias, 10 golos marcados e 4 sofridos (${await resumo()}) e a nota diz o que se vê`);
+  ok((await p.locator('#grafico-equipa .grafico-eixo-x text:not(.segunda-linha)').allTextContents()).join(',') === '05/09,20/09,22/09', 'filtros: o gráfico só tem os jogos em casa');
+  await escolher('local-fora');
+  ok((await resumo()) === '3 | 0-1-2 | 5 | 8' && (await nota()) === 'A ver: jogos fora.', `filtros: «Fora» (B, C2 e C4): 0-1-2, 5 marcados e 8 sofridos (${await resumo()})`);
+  await captura(p, 'estatisticas-filtros');
+  await escolher('local-todos');
+  await escolher('ultimos-5');
+  ok((await resumo()) === '5 | 2-1-2 | 10 | 8' && (await nota()) === 'A ver: os últimos 5 jogos.' && (await pontos(10)) === 10, `filtros: «Últimos 5 jogos» (sem o primeiro): 2-1-2, 10 marcados e 8 sofridos (${await resumo()})`);
+  await escolher('local-casa');
+  ok((await resumo()) === '3 | 3-0-0 | 10 | 4' && (await nota()) === 'A ver: jogos em casa, os últimos 5 jogos.', `filtros: os filtros somam-se, e os últimos 5 contam-se entre os jogos em casa (${await resumo()})`);
+  await escolher('ultimos-todos');
+  // A tabela segue os filtros: em casa (A, C1 e C3) o Bruno soma 3 jogos, 10 golos em 13 remates
+  const linhaDe = async (numero) => (await p.locator('#tabela-estatisticas tbody tr.linha-jogador').evaluateAll((trs, n) => trs.map((tr) => [...tr.cells].map((c) => c.textContent.trim())).find((l) => l[0] === n), String(numero))) ?? [];
+  const numeros = (linha) => [linha[0], ...linha.slice(2)].join('|');
+  ok(numeros(await linhaDe(92)) === '92|3|10|13|77%|3,3|1/2|–', `filtros: a tabela recalcula com os jogos escolhidos: em casa o Bruno soma 3 jogos e 10 golos em 13 remates (${numeros(await linhaDe(92))})`);
+  await escolher('local-fora');
+  ok(numeros(await linhaDe(92)) === '92|3|3|7|43%|1,0|–|1/2', `filtros: fora (B, C2 e C4) o Bruno soma 3 golos em 7 remates (${numeros(await linhaDe(92))})`);
+  await escolher('local-todos');
+
+  // Por parte: os números pedem-se ao servidor (e guardam-se: voltar a uma parte já vista não pede outra vez)
+  ok(pedidos.length === 1 && pedidos[0] === '', `parte: até aqui só se pediu o jogo todo, uma vez (${pedidos})`);
+  await Promise.all([p.waitForResponse((r) => r.url().includes('?parte=2')), escolher('parte-2')]);
+  ok((await resumo()) === '1 | 0-1-0 | 1 | 1', `parte: «2.ª parte» só tem o jogo A (1–1): 1 jogo, um empate, 1 golo marcado e 1 sofrido (${await resumo()})`);
+  ok((await nota()).includes('só a 2.ª parte') && (await nota()).includes('são os dessa parte') && (await pontos(2)) === 2, 'parte: a nota explica que os golos e os resultados são os dessa parte');
+  ok(numeros(await linhaDe(92)) === '92|1|1|1|100%|1,0|–|–', `parte: na 2.ª parte o Bruno tem 1 jogo e 1 golo em 1 remate (${numeros(await linhaDe(92))})`);
+  ok(((await p.locator('#sem-jogos').textContent()) ?? '').startsWith('Sem jogos nesta seleção:') && (await p.locator('#sem-jogos').textContent()).includes('#94 Duarte Banco'), 'parte: com filtros a nota dos que não jogaram passa a «Sem jogos nesta seleção»');
+  await captura(p, 'estatisticas-segunda-parte');
+  await Promise.all([p.waitForResponse((r) => r.url().includes('?parte=1')), escolher('parte-1')]);
+  ok((await resumo()) === '6 | 3-1-2 | 14 | 11', `parte: «1.ª parte»: os 6 jogos, mas sem os golos da 2.ª parte do A (14 e 11) (${await resumo()})`);
+  await escolher('parte-todas'); await escolher('parte-2');
+  ok(pedidos.join(',') === ',?parte=2,?parte=1', `parte: voltar a uma parte já vista não pede outra vez (${pedidos})`);
+  // Sem nenhum jogo com os filtros: diz-o, e os filtros ficam para voltar atrás
+  await escolher('local-fora');
+  ok((await p.locator('#sem-jogos-no-filtro').textContent()) === 'Nenhum jogo com estes filtros.' && (await p.locator('.filtros-estatisticas').count()) === 1 && (await p.locator('#tabela-estatisticas').count()) === 0,
+    'filtros: sem nenhum jogo (2.ª parte, fora) diz «Nenhum jogo com estes filtros.» e os filtros continuam lá');
+  await escolher('local-todos'); await escolher('parte-todas');
+  ok((await resumo()) === '6 | 3-1-2 | 15 | 12' && (await ativos()) === 'Todos|Jogo todo|Toda a época', 'filtros: voltar a tudo repõe os números do início');
+
+  // A evolução de um jogador (só com 2 jogos ou mais), na vista escolhida
+  await p.locator('tr.linha-jogador', { hasText: 'Bruno Remata' }).locator('button.abrir-jogador').click();
+  const graficoBruno = p.locator(`#grafico-jogador-${bruno}`);
+  ok(await esperarPor(async () => (await graficoBruno.locator('.grafico-ponto').count()) === 6) && await graficoBruno.isVisible() && (await graficoBruno.locator('figcaption').textContent()).startsWith('Bruno Remata: ') && (await graficoBruno.locator('.grafico-legenda').count()) === 0,
+    'jogador: abrir o Bruno mostra a evolução dele, jogo a jogo (6 jogos, uma série)');
+  await captura(p, 'estatisticas-grafico-jogador');
+  await p.locator('tr.linha-jogador', { hasText: 'Bruno Remata' }).locator('button.abrir-jogador').click();
+  await p.locator('[aria-label="O que ver"] button', { hasText: 'Guarda-redes' }).click();
+  await p.locator('tr.linha-jogador', { hasText: 'Nuno Guarda' }).locator('button.abrir-jogador').click();
+  ok(await esperarPor(async () => (await p.locator(`#grafico-jogador-${guardaRedes} .grafico-ponto`).count()) === 2), 'jogador: o guarda-redes (2 jogos) tem o gráfico da percentagem de defesa');
+  await p.locator('tr.linha-jogador', { hasText: 'Nuno Guarda' }).locator('button.abrir-jogador').click();
+
+  // Num ecrã estreito nada passa para fora do ecrã
+  await p.setViewportSize({ width: 390, height: 800 });
+  await p.locator('[aria-label="O que ver"] button', { hasText: 'Ataque' }).click();
+  await p.evaluate(() => window.scrollTo(0, 0));
+  await aba('golos').click();
+  await p.waitForTimeout(300);
+  const larguras = await p.evaluate(() => ({ pagina: document.documentElement.scrollWidth, ecra: window.innerWidth, grafico: document.querySelector('#grafico-equipa .grafico-svg').getBoundingClientRect().right }));
+  ok(larguras.pagina <= larguras.ecra && larguras.grafico <= larguras.ecra, `estreito: a página e o gráfico cabem num ecrã de 390 px (${JSON.stringify(larguras)})`);
+  await captura(p, 'estatisticas-estreito');
+  await p.close();
+
+  // A API: ?parte=1|2 responde, outro valor é recusado
+  const api = (parte) => ctx.request.get(`${servidor.url}/api/equipas/${propriaId}/estatisticas${parte}`);
+  const segunda = await (await api('?parte=2')).json();
+  ok((await api('?parte=2')).status() === 200 && segunda.jogos.length === 1 && segunda.jogos[0].golos === 1 && segunda.jogos[0].golosAdversario === 1, 'estatísticas (API): ?parte=2 só traz os jogos com registos na 2.ª parte e os golos dela');
+  const mau = await api('?parte=3');
+  ok(mau.status() === 400 && ((await mau.json()).erro ?? '').includes('1 ou 2'), 'estatísticas (API): ?parte=3 = 400 com a explicação');
+
+  // Arrumar: os jogos e os eventos de mais saem, para os passos seguintes ficarem como estavam
+  await q('DELETE FROM jogos WHERE id = ANY($1)', [[c1, c2, c3, c4]]);
+  await q('DELETE FROM eventos WHERE jogo_id = $1 AND parte = 2', [jogoA]);
 });
 
 await passo('Jogos: corrigir (adversário, casa ou fora, data e local), terminar (o banco fecha o registo) e apagar', async () => {

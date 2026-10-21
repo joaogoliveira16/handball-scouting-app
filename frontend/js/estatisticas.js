@@ -1,19 +1,32 @@
 // Estatísticas dos jogadores da equipa da conta, somadas em todos os jogos registados. Clicar num jogador mostra jogo a jogo.
 // As contas estão em estatisticas-jogadores.js (testado à parte); aqui só se desenha.
-import { h, substituir } from './dom.js';
+import { h, substituir, avisar } from './dom.js';
 import { obter, ROTULO_POSICAO } from './api.js';
 import { exigirConta } from './conta.js';
 import { escudo } from './escudo.js';
-import { estatisticasDaEquipa, VISTAS, formatar, ordenar } from './estatisticas-jogadores.js';
+import {
+  estatisticasDaEquipa, filtrarJogos, evolucaoDaEquipa, seriesDoGrafico, serieDoJogador, categoriaDoJogo, GRAFICOS_EQUIPA, VISTAS, formatar, ordenar,
+} from './estatisticas-jogadores.js';
+import { graficoLinhas } from './grafico.js';
 
 await exigirConta();
 
 const raiz = document.getElementById('estatisticas');
 const DATA = new Intl.DateTimeFormat('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
+const CORES_SERIES = ['var(--serie-1)', 'var(--serie-2)'];
+const ULTIMOS = 5;   // «Últimos 5 jogos»
+
 const estado = {
   equipa: null,       // a equipa da conta
-  resultado: null,    // o que estatisticasDaEquipa devolve
+  dadosPorParte: new Map(), // o que a API devolveu, por parte (null = jogo todo): a parte escolhe-se no servidor
+  dados: null,        // os dados da parte escolhida, com todos os jogos
+  resultado: null,    // o que estatisticasDaEquipa devolve (já com os filtros de local e de últimos jogos)
+  evolucao: [],       // a equipa jogo a jogo (para os gráficos)
+  local: 'todos',     // 'todos' | 'casa' | 'fora'
+  parte: null,        // null (jogo todo) | 1 | 2
+  ultimos: null,      // null (todos) | ULTIMOS
+  grafico: GRAFICOS_EQUIPA[0],
   vista: VISTAS[0],
   chave: VISTAS[0].ordemInicial,
   direcao: 'desc',
@@ -59,6 +72,17 @@ function resultadoDoJogo(jogo) {
   return h('span', { class: `resultado resultado-${r}` }, `${r} ${jogo.golos}–${jogo.golosAdversario}`);
 }
 
+/** A evolução de um jogador na vista escolhida (só com 2 jogos ou mais: com um não há evolução). */
+function graficoDoJogador(jogador, vista) {
+  if (jogador.porJogo.length < 2) return null;
+  const { categorias, valores } = serieDoJogador(jogador, vista);
+  return graficoLinhas({
+    id: `grafico-jogador-${jogador.jogadorId}`, titulo: `${jogador.nome}: ${vista.grafico.titulo.charAt(0).toLowerCase()}${vista.grafico.titulo.slice(1)}`,
+    categorias, series: [{ nome: vista.grafico.nome, cor: CORES_SERIES[0], valores }],
+    formato: vista.grafico.formato, maximoFixo: vista.grafico.maximoFixo ?? null,
+  });
+}
+
 /** O jogo a jogo de um jogador: uma linha por jogo, com as colunas da vista. */
 function detalhe(jogador, vista) {
   return h('table', { class: 'tabela tabela-jogos' },
@@ -89,7 +113,9 @@ function linhasJogador(jogador, vista) {
       h('small', { class: 'posicao', title: ROTULO_POSICAO[jogador.posicao] ?? jogador.posicao }, jogador.posicao)),
     vista.colunas.map((c) => h('td', { class: 'num' }, formatar(c, jogador))));
   if (!aberto) return [linha];
-  return [linha, h('tr', { class: 'detalhe-jogador' }, h('td', { colspan: vista.colunas.length + 2 }, h('div', { class: 'tabela-rolagem' }, detalhe(jogador, vista))))];
+  return [linha, h('tr', { class: 'detalhe-jogador' }, h('td', { colspan: vista.colunas.length + 2 },
+    graficoDoJogador(jogador, vista),
+    h('div', { class: 'tabela-rolagem' }, detalhe(jogador, vista))))];
 }
 
 function tabela(r) {
@@ -111,8 +137,67 @@ function tabela(r) {
 
 function semJogos(r) {
   if (!r.semJogos.length) return null;
+  const comFiltros = estado.local !== 'todos' || estado.parte !== null || estado.ultimos !== null;
   return h('p', { class: 'meta-equipa', id: 'sem-jogos' },
-    `Ainda sem jogos: ${r.semJogos.sort((a, b) => a.numero - b.numero).map(nomeDe).join(', ')}.`);
+    `${comFiltros ? 'Sem jogos nesta seleção' : 'Ainda sem jogos'}: ${r.semJogos.sort((a, b) => a.numero - b.numero).map(nomeDe).join(', ')}.`);
+}
+
+// ---------------------------------------------------------------------
+// Filtros e gráficos
+// ---------------------------------------------------------------------
+function grupoFiltro(rotulo, opcoes) {
+  return h('div', { class: 'grupo-filtro', role: 'group', 'aria-label': rotulo },
+    h('span', { class: 'grupo-filtro-rotulo' }, rotulo),
+    h('div', { class: 'separador-abas' }, opcoes.map(({ texto, ativo, filtro, aoClicar }) => h('button', {
+      type: 'button', class: ativo ? 'ativo' : '', 'aria-pressed': ativo ? 'true' : 'false', 'data-filtro': filtro, onclick: aoClicar,
+    }, texto))));
+}
+
+function filtros() {
+  const e = estado;
+  return h('div', { class: 'filtros-estatisticas', id: 'filtros-estatisticas' },
+    grupoFiltro('Jogos', [
+      { texto: 'Todos', ativo: e.local === 'todos', filtro: 'local-todos', aoClicar: () => escolher({ local: 'todos' }) },
+      { texto: 'Em casa', ativo: e.local === 'casa', filtro: 'local-casa', aoClicar: () => escolher({ local: 'casa' }) },
+      { texto: 'Fora', ativo: e.local === 'fora', filtro: 'local-fora', aoClicar: () => escolher({ local: 'fora' }) },
+    ]),
+    grupoFiltro('Parte', [
+      { texto: 'Jogo todo', ativo: e.parte === null, filtro: 'parte-todas', aoClicar: () => escolher({ parte: null }) },
+      { texto: '1.ª parte', ativo: e.parte === 1, filtro: 'parte-1', aoClicar: () => escolher({ parte: 1 }) },
+      { texto: '2.ª parte', ativo: e.parte === 2, filtro: 'parte-2', aoClicar: () => escolher({ parte: 2 }) },
+    ]),
+    grupoFiltro('Período', [
+      { texto: 'Toda a época', ativo: e.ultimos === null, filtro: 'ultimos-todos', aoClicar: () => escolher({ ultimos: null }) },
+      { texto: `Últimos ${ULTIMOS} jogos`, ativo: e.ultimos === ULTIMOS, filtro: 'ultimos-5', aoClicar: () => escolher({ ultimos: ULTIMOS }) },
+    ]));
+}
+
+function notaDosFiltros() {
+  const partes = [];
+  if (estado.local !== 'todos') partes.push(estado.local === 'casa' ? 'jogos em casa' : 'jogos fora');
+  if (estado.ultimos) partes.push(`os últimos ${estado.ultimos} jogos`);
+  const aParte = estado.parte ? `só a ${estado.parte}.ª parte` : null;
+  if (!partes.length && !aParte) return null;
+  return h('p', { class: 'meta-equipa', id: 'nota-filtros' },
+    `A ver: ${[...partes, aParte].filter(Boolean).join(', ')}.`,
+    aParte ? ' Os golos e os resultados (vitórias, empates e derrotas) são os dessa parte.' : null);
+}
+
+function cartaoGraficos() {
+  const g = estado.grafico;
+  return h('div', { class: 'cartao cartao-graficos', id: 'cartao-graficos' },
+    h('h2', { class: 'titulo-cartao' }, 'Jogo a jogo'),
+    h('div', { class: 'separador-abas', role: 'group', 'aria-label': 'O que ver no gráfico' },
+      GRAFICOS_EQUIPA.map((o) => h('button', {
+        type: 'button', class: o === g ? 'ativo' : '', 'aria-pressed': o === g ? 'true' : 'false', 'data-grafico': o.codigo,
+        onclick: () => { estado.grafico = o; desenhar(); },
+      }, o.rotulo))),
+    graficoLinhas({
+      id: 'grafico-equipa', titulo: g.titulo,
+      categorias: estado.resultado.jogosOrdenados.map(categoriaDoJogo),
+      series: seriesDoGrafico(g, estado.evolucao).map((s, k) => ({ ...s, cor: CORES_SERIES[k] })),
+      formato: g.formato, maximoFixo: g.maximoFixo ?? null,
+    }));
 }
 
 // ---------------------------------------------------------------------
@@ -122,10 +207,47 @@ function desenhar() {
   const r = estado.resultado;
   const equipa = estado.equipa;
   document.title = `Estatísticas · ${equipa.nome}`;
+  const semJogosNoFiltro = r.resumo.jogos === 0;
   substituir(raiz,
-    h('p', { class: 'sub sub-equipa' }, escudo(equipa.id, equipa.escudo), h('span', {}, 'Números de ', h('strong', {}, equipa.nome), ' somados em todos os jogos registados. Clica num jogador para ver jogo a jogo.')),
-    resumo(r.resumo),
-    h('div', { class: 'cartao' }, abas(), tabela(r), semJogos(r)));
+    h('p', { class: 'sub sub-equipa' }, escudo(equipa.id, equipa.escudo), h('span', {}, 'Números de ', h('strong', {}, equipa.nome), ' somados nos jogos registados. Clica num jogador para ver jogo a jogo.')),
+    filtros(),
+    notaDosFiltros(),
+    semJogosNoFiltro
+      ? h('p', { class: 'vazio', id: 'sem-jogos-no-filtro' }, 'Nenhum jogo com estes filtros.')
+      : [resumo(r.resumo), cartaoGraficos(), h('div', { class: 'cartao' }, abas(), tabela(r), semJogos(r))]);
+}
+
+function recalcular() {
+  const filtrados = filtrarJogos(estado.dados, { local: estado.local, ultimos: estado.ultimos });
+  estado.resultado = { ...estatisticasDaEquipa(filtrados), jogosOrdenados: filtrados.jogos };
+  estado.evolucao = evolucaoDaEquipa(filtrados);
+}
+
+async function buscar(parte) {
+  if (!estado.dadosPorParte.has(parte)) {
+    estado.dadosPorParte.set(parte, await obter(`/api/equipas/${estado.equipa.id}/estatisticas${parte ? `?parte=${parte}` : ''}`));
+  }
+  return estado.dadosPorParte.get(parte);
+}
+
+/** Muda um filtro: o local e os últimos jogos contam-se aqui; a parte pede os números dessa parte ao servidor. */
+async function escolher(parcial) {
+  const anterior = { local: estado.local, parte: estado.parte, ultimos: estado.ultimos };
+  Object.assign(estado, parcial);
+  if (estado.parte !== anterior.parte) {
+    raiz.classList.add('a-carregar');   // mantém o que está no ecrã, mais apagado, enquanto os números chegam
+    try {
+      estado.dados = await buscar(estado.parte);
+    } catch (erro) {
+      Object.assign(estado, anterior);
+      avisar(`Não foi possível carregar a parte: ${erro.message}`, { erro: true });
+      return;
+    } finally {
+      raiz.classList.remove('a-carregar');
+    }
+  }
+  recalcular();
+  desenhar();
 }
 
 function mostrarVazio(titulo, texto, ligacao) {
@@ -151,20 +273,18 @@ async function carregar() {
   }
   estado.equipa = propria;
 
-  let dados;
   try {
-    dados = await obter(`/api/equipas/${propria.id}/estatisticas`);
+    estado.dados = await buscar(null);
   } catch (erro) {
     substituir(raiz, h('p', { class: 'aviso-inline erro', role: 'alert' }, `Não foi possível carregar as estatísticas: ${erro.message}`));
     return;
   }
-  estado.resultado = estatisticasDaEquipa(dados);
-
-  if (!estado.resultado.resumo.jogos) {
+  if (!estado.dados.jogos?.length) {
     mostrarVazio(propria.nome, 'Ainda não há jogos registados. Assim que registares um jogo desta equipa, os números dos jogadores aparecem aqui.',
       { href: './', texto: 'Ver os meus jogos' });
     return;
   }
+  recalcular();
   desenhar();
 }
 
