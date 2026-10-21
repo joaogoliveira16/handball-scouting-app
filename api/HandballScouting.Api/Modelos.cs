@@ -250,6 +250,52 @@ public class EstatJogador
     public decimal? Eficacia { get; set; }
 }
 
+/// <summary>Um jogo de uma equipa da conta que já tem registos: o adversário e o resultado.</summary>
+public class JogoDaEquipa
+{
+    public int JogoId { get; set; }
+    public DateTime DataHora { get; set; }
+    public int AdversarioId { get; set; }
+    public string AdversarioNome { get; set; } = "";
+    public bool EmCasa { get; set; }
+    public long Golos { get; set; }
+    public long GolosAdversario { get; set; }
+}
+
+/// <summary>Os números de um jogador num jogo (a página Estatísticas soma-os para ter os da época).</summary>
+public class JogadorNoJogo
+{
+    public int JogadorId { get; set; }
+    public int JogoId { get; set; }
+    public long Remates { get; set; }
+    public long Golos { get; set; }
+    public long Defendidos { get; set; }
+    public long Fora { get; set; }
+    public long Poste { get; set; }
+    public long Bloqueados { get; set; }
+    public long SeteMetros { get; set; }
+    public long GolosSeteMetros { get; set; }
+    public long ContraAtaques { get; set; }
+    public long GolosContraAtaque { get; set; }
+    public long PerdasBola { get; set; }
+    public long FaltasOfensivas { get; set; }
+    public long DoisMinutos { get; set; }
+    public long Vermelhos { get; set; }
+    public long Defesas { get; set; }                // como guarda-redes
+    public long GolosSofridos { get; set; }
+    public long SeteMetrosSofridos { get; set; }
+    public long DefesasSeteMetros { get; set; }
+}
+
+/// <summary>Estatísticas de uma equipa da conta: o plantel, os jogos com registos e os números de cada jogador em cada jogo.</summary>
+public class EstatisticasEquipa
+{
+    public int EquipaId { get; set; }
+    public List<JogadorEquipa> Plantel { get; set; } = new();
+    public List<JogoDaEquipa> Jogos { get; set; } = new();
+    public List<JogadorNoJogo> Linhas { get; set; } = new();
+}
+
 /// <summary>Sanções de um jogador no jogo: expulso = vermelho direto ou 3.º "2 minutos" (a regra está na vista v_sancoes).</summary>
 public class SancaoJogador
 {

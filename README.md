@@ -117,6 +117,16 @@ No cabeçalho do dashboard, o botão **Intervalo** abre `intervalo.html?jogo=ID`
 
 Os pontos vêm de regras simples sobre o que o banco registou, sem adivinhar nada: jogador com duas exclusões (a terceira desqualifica), guarda-redes em apuros ou em forma, finalização, jogador que falha ou que marca, perdas de bola, distância ou corredor de onde se falha ou se marca, corredor e jogador por onde o adversário faz mal, contra-ataques, defesa do adversário (6:0, 5:1...) e disciplina. Com menos de 8 remates na parte a folha avisa que os pontos podem enganar. Há um botão por equipa («Para: …») e, depois de a 2.ª parte começar, outro para ver o relatório dela. As contas são feitas no browser (`frontend/js/relatorio-intervalo.js`, testado em `tests/unidade/relatorio-intervalo.test.mjs`) a partir do mesmo estado que o dashboard recebe: cada remate traz agora `parte`, `corredor`, `distancia` e `guardaRedesId`, e `outrosEventosPorParte` conta perdas de bola, faltas ofensivas, 2 minutos, vermelhos e time-outs por equipa e parte.
 
+### Estatísticas dos jogadores
+
+A aba **Estatísticas** (`estatisticas.html`, ao lado de *Jogos* e *Equipas*) mostra os números de cada jogador da **equipa da conta**, somados em todos os jogos registados. Só conta o que o banco registou: um jogo sem eventos fica de fora, e um jogador entra num jogo se foi convocado, se tem eventos nele ou se foi o guarda-redes contra quem se rematou. No topo vêm os jogos, as vitórias-empates-derrotas e os golos marcados e sofridos. Há três vistas:
+
+- **Ataque**: jogos, golos, remates, eficácia, golos por jogo, 7 metros (golos/lançamentos) e contra-ataque (golos/remates).
+- **Guarda-redes**: defesas, golos sofridos, remates à baliza (defesas mais golos; fora, poste e bloqueados não chegam ao guarda-redes), percentagem de defesa, defesas por jogo e 7 metros defendidos.
+- **Bola e disciplina**: perdas de bola, faltas ofensivas, exclusões de 2 minutos e vermelhos.
+
+Clicar no título de uma coluna ordena por ela (outra vez inverte; quem não tem dados fica no fim); a última linha é a equipa. Clicar no nome de um jogador abre o **jogo a jogo**: uma linha por jogo, do mais antigo para o mais recente, com a data, o adversário (*vs* em casa, *em* fora), o resultado (V, E ou D) e as mesmas colunas. Os jogadores que ainda não jogaram aparecem numa nota por baixo da tabela. A API devolve uma linha por jogador e jogo (`GET /api/equipas/{id}/estatisticas`) e é o browser que as soma (`frontend/js/estatisticas-jogadores.js`, testado em `tests/unidade/estatisticas-jogadores.test.mjs`), por isso o jogo a jogo e o total saem sempre dos mesmos números.
+
 ### Treinador-assistente
 
 No topo do dashboard do **dono do jogo** há um painel com os time-outs de cada equipa (`0/3 usados · pode pedir 2`) e até 6 sugestões, as mais importantes primeiro. Cada uma diz **porquê**, com os números (por exemplo «4 golos em 5 remates (80%)»), para o treinador confiar ou discordar: a decisão é sempre dele. Vêm de regras simples sobre os dados que já existem, sem adivinhar nada, e só disparam a partir de um número mínimo de remates, golos ou eventos (poucos remates enganam em qualquer percentagem):
@@ -240,6 +250,7 @@ As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas
 | PUT | `/api/equipas/{id}/escudo` | Põe ou troca o escudo: o corpo é a própria imagem (PNG, JPEG ou WebP, até 200 KB; o tipo é decidido pelos primeiros bytes) → 200 `{ "escudo": versão }` (400 outro formato ou vazio; 413 acima de 200 KB; 404 se a equipa não é da conta) |
 | DELETE | `/api/equipas/{id}/escudo` | Tira o escudo (204; 404 se a equipa não é da conta) |
 | GET | `/api/equipas/{id}/jogadores` | Plantel (com o número de eventos de cada jogador) |
+| GET | `/api/equipas/{id}/estatisticas` | Estatísticas dos jogadores de uma equipa da conta: `{ equipaId, plantel, jogos, linhas }`. `jogos` são os jogos da equipa com pelo menos um evento (do mais antigo para o mais recente, com adversário, em casa, golos e golos do adversário) e `linhas` tem uma linha por jogador e jogo em que entrou (convocado, com eventos ou guarda-redes contra quem se rematou) com os remates, golos, 7 metros, contra-ataques, perdas de bola, faltas, exclusões, defesas e golos sofridos. 404 se a equipa não é da conta *(só o dono)* |
 | POST | `/api/equipas/{id}/jogadores` | Adiciona um jogador: `{ "numero", "nome", "posicao" }` |
 | PUT | `/api/jogadores/{id}` | Edita um jogador |
 | DELETE | `/api/jogadores/{id}` | Apaga um jogador (409 se tiver eventos) |
@@ -312,7 +323,7 @@ psql -v ON_ERROR_STOP=1 -f db/tests/superioridade.sql  # tipos do 7×6 e relógi
 psql -v ON_ERROR_STOP=1 -f db/tests/fila_offline.sql  # eventos enviados mais de uma vez (clienteId único por jogo, hora do tablet)
 python3 db/tests/validar_consultas.py                  # todas as consultas contra o esquema
 
-# Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR, a contagem dos 2 minutos, a fila de eventos sem rede e o service worker
+# Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR, a contagem dos 2 minutos, a fila de eventos sem rede, o service worker, o relatório do intervalo e as estatísticas dos jogadores
 (cd tests && npm run unidade)
 ```
 

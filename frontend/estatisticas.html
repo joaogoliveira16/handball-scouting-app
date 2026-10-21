@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <title>Estatísticas · Scouting de Andebol</title>
+  <link rel="stylesheet" href="css/estilo.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+</head>
+<body>
+  <header class="topo">
+    <a class="marca" href="./"><span class="marca-icone" aria-hidden="true"></span><span>Scouting <b>Andebol</b></span></a>
+    <nav class="menu" aria-label="Principal">
+      <a href="./">Jogos</a>
+      <a href="equipas.html">Equipas</a>
+      <a href="estatisticas.html" aria-current="page">Estatísticas</a>
+    </nav>
+    <div class="conta-menu" id="conta-menu"></div>
+  </header>
+
+  <main class="pagina">
+    <h1>Estatísticas</h1>
+    <div id="estatisticas">
+      <p class="vazio">A carregar…</p>
+    </div>
+  </main>
+
+  <div id="aviso" class="aviso" role="status"></div>
+  <script type="module" src="js/estatisticas.js"></script>
+</body>
+</html>

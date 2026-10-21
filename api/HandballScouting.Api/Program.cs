@@ -275,6 +275,12 @@ protegido.MapGet("/equipas/{id:int}/jogadores", async (int id, HttpContext http,
         ? Results.Ok(jogadores)
         : Results.NotFound(new { erro = "Equipa não encontrada." }));
 
+// Os números de cada jogador da equipa, jogo a jogo (a página Estatísticas soma-os)
+protegido.MapGet("/equipas/{id:int}/estatisticas", async (int id, HttpContext http, EstatisticasService est, CancellationToken ct) =>
+    await est.EquipaAsync(http.ContaAtual().Id, id, ct) is { } estatisticas
+        ? Results.Ok(estatisticas)
+        : Results.NotFound(new { erro = "Equipa não encontrada." }));
+
 protegido.MapPost("/equipas/{id:int}/jogadores", async (int id, JogadorRequest pedido, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
 {
     var r = await cadastro.CriarJogadorAsync(http.ContaAtual().Id, id, pedido, ct);

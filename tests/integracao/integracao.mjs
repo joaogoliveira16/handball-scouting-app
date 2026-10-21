@@ -114,7 +114,7 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
   // Sem sessão: tudo o que é da conta pede entrada (401); um jogo alheio "não existe" (404)
   const protegidas = [
     ['GET', '/api/conta'], ['GET', '/api/jogos'], ['GET', '/api/equipas'], ['POST', '/api/equipas'],
-    ['GET', '/api/equipas/1/jogadores'], ['POST', '/api/equipas/1/jogadores'], ['PUT', '/api/jogadores/4'], ['DELETE', '/api/jogadores/4'],
+    ['GET', '/api/equipas/1/jogadores'], ['GET', '/api/equipas/1/estatisticas'], ['POST', '/api/equipas/1/jogadores'], ['PUT', '/api/jogadores/4'], ['DELETE', '/api/jogadores/4'],
     ['POST', '/api/jogos'], ['GET', '/api/jogos/2/convocados'], ['PUT', '/api/jogos/2/convocados'],
     ['POST', '/api/jogos/2/eventos'], ['DELETE', '/api/jogos/2/eventos/1'],
   ];
@@ -969,6 +969,66 @@ function lateralFora(j) { return j.lateralFora; }
 // Um jogo está aberto a convidados durante 24 horas: a partir do último evento ou, sem eventos, da hora do jogo.
 // O jogo do passo anterior acabou de receber eventos. (Os jogos 1 e 2 dos dados de exemplo são de há 3 dias.)
 // No fim os jogos criados aqui ficam escondidos, para os passos de privacidade que se seguem.
+await passo('Estatísticas dos jogadores da equipa (uma linha por jogador e jogo)', async () => {
+  if (!jogoNovo) return ok(false, 'sem equipas do passo "Equipas e jogadores"');
+  const { casaId, foraId, grCasa, lateralCasa, lateralFora } = jogoNovo;   // a equipa da conta (casa), um adversário e os seus jogadores
+  const caminho = `/api/equipas/${casaId}/estatisticas`;
+  const novo = await http('POST', '/api/jogos', { casaId, foraId, dataHora: '2026-10-03T18:00:00Z' });
+  const vazio = await http('POST', '/api/jogos', { casaId, foraId, dataHora: '2026-10-04T18:00:00Z' });   // sem eventos: não conta
+  const jogoId = novo.json?.id;
+  const evento = (corpo) => http('POST', `/api/jogos/${jogoId}/eventos`, { parte: 1, segundoJogo: 60, ...corpo });
+  const remate = (equipaId, jogadorId, resultado, extra = {}) => evento({ tipoEvento: 'REMATE', equipaId, jogadorId, resultado, situacao: 'POSICIONAL', x: 50, y: 25, ...extra });
+  const registos = [
+    ...['GOLO', 'GOLO', 'FORA'].map((r) => remate(casaId, lateralCasa, r)),
+    remate(casaId, lateralCasa, 'GOLO', { situacao: 'SETE_METROS' }),
+    evento({ tipoEvento: 'PERDA_BOLA', equipaId: casaId, jogadorId: lateralCasa }),
+    ...['DEFESA', 'DEFESA', 'GOLO'].map((r) => remate(foraId, lateralFora, r, { guardaRedesId: grCasa })),
+  ];
+  const respostas = [];
+  for (const r of registos) respostas.push((await r).status);   // um de cada vez, na ordem
+  ok(novo.status === 201 && vazio.status === 201 && respostas.every((e) => e === 201), 'estatísticas: jogo com remates, 7 metros, uma perda de bola e remates contra o guarda-redes registados', respostas.join());
+
+  const r = await http('GET', caminho);
+  ok(r.status === 200 && r.json?.equipaId === casaId && Array.isArray(r.json?.plantel) && Array.isArray(r.json?.jogos) && Array.isArray(r.json?.linhas),
+    'GET /api/equipas/{id}/estatisticas = 200 com plantel, jogos e linhas', descricao(r));
+  const jogador = r.json?.plantel?.find((j) => j.id === lateralCasa);
+  ok(jogador?.numero === 10 && jogador.nome === 'Tiago Editado' && jogador.posicao === 'LD', 'o plantel traz o número, o nome e a posição', JSON.stringify(jogador));
+  const jogo = r.json?.jogos?.find((j) => j.jogoId === jogoId);
+  ok(jogo && jogo.golos === 3 && jogo.golosAdversario === 1 && jogo.emCasa === true && jogo.adversarioId === foraId && new Date(jogo.dataHora).toISOString() === '2026-10-03T18:00:00.000Z',
+    'o jogo traz o resultado (3–1), o adversário, em casa e a data', JSON.stringify(jogo));
+  ok(!r.json?.jogos?.some((j) => j.jogoId === vazio.json?.id), 'um jogo sem eventos não conta');
+  ok(!r.json?.jogos?.some((j) => j.jogoId === 2) && !r.json?.linhas?.some((l) => l.jogoId === 2), 'os jogos de outras equipas (o jogo de exemplo) não entram');
+  const datas = (r.json?.jogos ?? []).map((j) => Date.parse(j.dataHora));
+  ok(datas.every((d, i) => i === 0 || d >= datas[i - 1]), 'os jogos vêm do mais antigo para o mais recente');
+
+  const linhaDe = (id) => r.json?.linhas?.find((l) => l.jogoId === jogoId && l.jogadorId === id);
+  const l = linhaDe(lateralCasa);
+  ok(l && l.remates === 4 && l.golos === 3 && l.fora === 1 && l.defendidos === 0 && l.seteMetros === 1 && l.golosSeteMetros === 1 && l.perdasBola === 1 && l.defesas === 0,
+    'o lateral: 4 remates (3 golos, 1 fora), 1 sete metros marcado e 1 perda de bola', JSON.stringify(l));
+  const g = linhaDe(grCasa);
+  ok(g && g.defesas === 2 && g.golosSofridos === 1 && g.seteMetrosSofridos === 0 && g.remates === 0, 'o guarda-redes: 2 defesas e 1 golo sofrido (os remates contra ele)', JSON.stringify(g));
+  ok(r.json?.linhas?.filter((x) => x.jogoId === jogoId).length === 2, 'só têm linha neste jogo quem jogou (o lateral e o guarda-redes)');
+  ok(r.json?.linhas?.every((x) => r.json.plantel.some((j) => j.id === x.jogadorId) && r.json.jogos.some((j) => j.jogoId === x.jogoId)), 'todas as linhas são de jogadores do plantel e de jogos da lista');
+
+  // Convocado sem eventos também entra no jogo
+  const convocados = [grCasa, lateralCasa, (r.json.plantel.find((j) => j.id !== grCasa && j.id !== lateralCasa))?.id];
+  ok((await http('PUT', `/api/jogos/${jogoId}/convocados`, { jogadorIds: convocados.filter(Boolean) })).status === 204, 'convocar mais um jogador');
+  const comConvocado = await http('GET', caminho);
+  const convocadoSemEventos = comConvocado.json?.linhas?.find((x) => x.jogoId === jogoId && x.jogadorId === convocados[2]);
+  ok(convocadoSemEventos && convocadoSemEventos.remates === 0 && convocadoSemEventos.golos === 0, 'um convocado sem eventos tem uma linha com zeros (jogou o jogo)', JSON.stringify(convocadoSemEventos));
+  await http('PUT', `/api/jogos/${jogoId}/convocados`, { jogadorIds: [] });
+
+  // Só a dona da equipa lê: outra conta, sem sessão e uma equipa que não existe
+  ok((await http('GET', caminho, undefined, segunda)).status === 404, 'outra conta não lê as estatísticas da equipa (404)');
+  ok((await http('GET', caminho, undefined, anonima)).status === 401, 'sem sessão = 401');
+  ok((await http('GET', '/api/equipas/99999/estatisticas')).status === 404, 'equipa que não existe = 404');
+  const propriaSegunda = (await http('GET', '/api/equipas', undefined, segunda)).json?.find((e) => e.propria)?.id;
+  const daSegunda = await http('GET', `/api/equipas/${propriaSegunda}/estatisticas`, undefined, segunda);
+  ok(daSegunda.status === 200 && daSegunda.json?.jogos?.length === 0 && daSegunda.json?.linhas?.length === 0 && daSegunda.json?.plantel?.length === 0, 'a equipa da segunda conta (sem jogos nem jogadores) = 200 com listas vazias', descricao(daSegunda));
+  ok((await http('GET', `/api/equipas/${propriaSegunda}/estatisticas`)).status === 404, 'e a primeira conta não a lê (404)');
+});
+
+// ----------------------------------------------------------------------
 await passo('Jogos das últimas 24 horas: a área de convidado vê-os sem link', async () => {
   if (!jogoNovo?.id) return ok(false, 'sem jogo do passo anterior');
   const { id, casaId, foraId } = jogoNovo;

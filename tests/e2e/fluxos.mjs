@@ -2081,6 +2081,117 @@ await passo('Área de convidado: ver jogos só com o link', async () => {
 });
 
 // ======================= Segunda conta =======================
+await passo('Estatísticas: os números de cada jogador da equipa da conta, somados em todos os jogos, e jogo a jogo', async () => {
+  const [{ equipa_id: propriaId }] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [donoId]);
+  const [{ nome: nomePropria }] = await q('SELECT nome FROM equipas WHERE id = $1', [propriaId]);
+  const novoJogador = async (numero, nome, posicao) => (await q('INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1,$2,$3,$4) RETURNING id', [propriaId, numero, nome, posicao]))[0].id;
+  const gr = await novoJogador(91, 'Nuno Guarda', 'GR');
+  const bruno = await novoJogador(92, 'Bruno Remata', 'LE');
+  const carlos = await novoJogador(93, 'Carlos Pivô', 'PV');
+  await novoJogador(94, 'Duarte Banco', 'CE');   // nunca joga
+  const [{ id: adversario }] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [aguias.id]);
+
+  let segundo = 0;
+  const evento = (jogoId, equipa, tipo, jogador, { resultado = null, situacao = 'POSICIONAL', guardaRedes = null } = {}) => q(
+    `INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, guarda_redes_id, resultado, situacao, x, y, parte, segundo_jogo)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10)`,
+    [jogoId, equipa, tipo, jogador, guardaRedes, resultado, situacao, resultado ? 50 : null, resultado ? 40 : null, (segundo += 15)]);
+  const remates = async (jogoId, equipa, jogador, lista, opcoes = {}) => { for (const resultado of lista) await evento(jogoId, equipa, 'REMATE', jogador, { resultado, ...opcoes }); };
+  const novoJogo = async (casa, fora, dataHora) => (await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, data_hora) VALUES ($1,$2,$3,$4) RETURNING id', [casa, fora, donoId, dataHora]))[0].id;
+
+  // Jogo A (em casa, 4–3): o Bruno marca 4 em 7 (1 em 2 de 7 metros) e perde 2 bolas e leva 2 minutos; o Carlos é convocado e não remata;
+  // o guarda-redes defende 4 e sofre 3 (1 defesa em 2 lançamentos de 7 metros)
+  const jogoA = await novoJogo(propriaId, aguias.id, '2026-09-05T18:00:00Z');
+  await q('INSERT INTO convocados (jogo_id, jogador_id) VALUES ($1,$2), ($1,$3)', [jogoA, carlos, gr]);
+  await remates(jogoA, propriaId, bruno, ['GOLO', 'GOLO', 'GOLO', 'FORA', 'DEFESA']);
+  await remates(jogoA, propriaId, bruno, ['GOLO', 'DEFESA'], { situacao: 'SETE_METROS' });
+  await evento(jogoA, propriaId, 'PERDA_BOLA', bruno); await evento(jogoA, propriaId, 'PERDA_BOLA', bruno);
+  await evento(jogoA, propriaId, 'DOIS_MINUTOS', bruno);
+  await remates(jogoA, aguias.id, adversario, ['DEFESA', 'DEFESA', 'DEFESA', 'GOLO', 'GOLO'], { guardaRedes: gr });
+  await remates(jogoA, aguias.id, adversario, ['DEFESA', 'GOLO'], { situacao: 'SETE_METROS', guardaRedes: gr });
+  // Jogo B (fora, 4–5): o Bruno marca 2 em 5 (1 em 2 em contra-ataque); o Carlos marca 2 em 2 e faz uma falta ofensiva; o guarda-redes defende 2 e sofre 5
+  const jogoB = await novoJogo(aguias.id, propriaId, '2026-09-12T18:00:00Z');
+  await remates(jogoB, propriaId, bruno, ['GOLO', 'FORA', 'FORA']);
+  await remates(jogoB, propriaId, bruno, ['GOLO', 'DEFESA'], { situacao: 'CONTRA_ATAQUE' });
+  await remates(jogoB, propriaId, carlos, ['GOLO', 'GOLO']);
+  await evento(jogoB, propriaId, 'FALTA_OFENSIVA', carlos);
+  await remates(jogoB, aguias.id, adversario, ['DEFESA', 'DEFESA', 'GOLO', 'GOLO', 'GOLO', 'GOLO', 'GOLO'], { guardaRedes: gr });
+  // Um jogo da equipa ainda sem nada registado e um jogo de outras equipas: não entram nas contas
+  await novoJogo(propriaId, aguias.id, '2026-09-19T18:00:00Z');
+
+  // O menu leva à página, em todas as páginas da conta
+  for (const url of ['/', '/equipas.html']) {
+    const m = await pagina(url);
+    ok((await m.locator('.menu a[href="estatisticas.html"]').textContent()) === 'Estatísticas', `estatísticas: o menu de ${url} tem a aba «Estatísticas»`);
+    if (url === '/') {
+      await Promise.all([m.waitForURL(/estatisticas\.html/), m.click('.menu a[href="estatisticas.html"]')]);
+      await m.waitForSelector('#tabela-estatisticas');
+      ok((await m.locator('.menu a[aria-current="page"]').textContent()) === 'Estatísticas', 'estatísticas: no menu, a aba da página fica assinalada');
+    }
+    await m.close();
+  }
+  const p = await pagina('/estatisticas.html');
+  await p.waitForSelector('#tabela-estatisticas');
+  ok((await p.title()) === `Estatísticas · ${nomePropria}`, `estatísticas: o título do separador leva a equipa (${await p.title()})`);
+  ok(((await p.locator('.sub-equipa').textContent()) ?? '').includes(nomePropria), 'estatísticas: diz de que equipa são os números (a da conta)');
+  const resumo = async () => [await texto(p.locator('#resumo-jogos b')), await texto(p.locator('#resumo-resultados b')), await texto(p.locator('#resumo-golos b')), await texto(p.locator('#resumo-sofridos b'))];
+  ok(JSON.stringify(await resumo()) === JSON.stringify(['2', '1-0-1', '8', '8']), `estatísticas: o resumo conta só os jogos com registos: 2 jogos, 1 vitória e 1 derrota, 8 golos marcados e 8 sofridos (${await resumo()})`);
+  ok((await p.locator('.separador-abas button').allTextContents()).join('|') === 'Ataque|Guarda-redes|Bola e disciplina' && (await p.locator('.separador-abas button.ativo').textContent()) === 'Ataque', 'estatísticas: três vistas, a começar pelo ataque');
+
+  const linhas = async () => p.locator('#tabela-estatisticas tbody tr.linha-jogador').evaluateAll((trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent.trim())));
+  const rodape = async () => p.locator('#tabela-estatisticas tfoot td').allTextContents();
+  const numeros = (linha) => [linha[0], ...linha.slice(2)].join('|');
+  let l = await linhas();
+  ok(l.length === 2 && l[0][1].includes('Bruno Remata') && l[1][1].includes('Carlos Pivô'), `estatísticas: o ataque tem os dois jogadores que jogaram, o melhor marcador primeiro (${l.map((x) => x[0])})`);
+  ok(numeros(l[0]) === '92|2|6|12|50%|3,0|1/2|1/2', `estatísticas: o Bruno soma os dois jogos: 6 golos em 12 remates, 7 m 1/2, contra-ataque 1/2 (${numeros(l[0])})`);
+  ok(numeros(l[1]) === '93|2|2|2|100%|1,0|–|–', `estatísticas: o Carlos jogou os dois jogos (um só convocado), 2 em 2 (${numeros(l[1])})`);
+  ok((await rodape()).slice(1).join('|') === 'Equipa|2|8|14|57%|4,0|1/2|1/2', `estatísticas: a linha da equipa soma os jogadores e conta os jogos da equipa (${(await rodape()).slice(1)})`);
+  ok(((await p.locator('#sem-jogos').textContent()) ?? '').includes('#94 Duarte Banco'), 'estatísticas: quem ainda não jogou aparece à parte');
+  ok((await p.locator('#tabela-estatisticas tbody').textContent()).includes('Duarte') === false, 'estatísticas: quem não jogou não tem linha na tabela');
+  await captura(p, 'estatisticas');
+
+  // Ordenar: pela eficácia (o Carlos tem 100%), outra vez (inverte) e pelo número
+  const ordem = async () => (await linhas()).map((x) => x[0]).join(',');
+  await p.locator('th button.ordenar', { hasText: 'Eficácia' }).click();
+  ok((await ordem()) === '93,92' && (await p.locator('th[aria-sort="descending"]').textContent()) === 'Eficácia', `estatísticas: ordenar pela eficácia põe o melhor primeiro (${await ordem()})`);
+  await p.locator('th button.ordenar', { hasText: 'Eficácia' }).click();
+  ok((await ordem()) === '92,93' && (await p.locator('th[aria-sort="ascending"]').count()) === 1, `estatísticas: clicar outra vez inverte (${await ordem()})`);
+  await p.locator('th button.ordenar', { hasText: '#' }).click();
+  ok((await ordem()) === '92,93' && (await p.locator('th[aria-sort="ascending"]').textContent()) === '#', 'estatísticas: o número da camisola ordena do mais baixo para o mais alto');
+
+  // Jogo a jogo: clicar no jogador abre os jogos dele
+  const bot = p.locator('tr.linha-jogador', { hasText: 'Bruno Remata' }).locator('button.abrir-jogador');
+  ok((await bot.getAttribute('aria-expanded')) === 'false' && (await p.locator('tr.detalhe-jogador').count()) === 0, 'estatísticas: o jogo a jogo começa fechado');
+  await bot.click();
+  const jogos = await p.locator('tr.detalhe-jogador tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent.trim())));
+  ok(jogos.length === 2 && jogos[0].join('|') === `05/09/2026 · vs Águias do Norte|V 4–3|1|4|7|57%|4,0|1/2|–`, `estatísticas: o 1.º jogo (do mais antigo ao mais recente) (${jogos[0]})`);
+  ok(jogos[1]?.join('|') === `12/09/2026 · em Águias do Norte|D 4–5|1|2|5|40%|2,0|–|1/2`, `estatísticas: o 2.º jogo, fora e perdido (${jogos[1]})`);
+  ok((await p.locator('tr.linha-jogador', { hasText: 'Bruno Remata' }).locator('button.abrir-jogador').getAttribute('aria-expanded')) === 'true', 'estatísticas: o jogador aberto fica assinalado');
+  await captura(p, 'estatisticas-jogo-a-jogo');
+  await p.locator('tr.linha-jogador', { hasText: 'Bruno Remata' }).locator('button.abrir-jogador').click();
+  ok((await p.locator('tr.detalhe-jogador').count()) === 0, 'estatísticas: clicar outra vez fecha o jogo a jogo');
+
+  // Guarda-redes
+  await p.locator('.separador-abas button', { hasText: 'Guarda-redes' }).click();
+  l = await linhas();
+  ok(l.length === 1 && numeros(l[0]) === '91|2|6|8|14|43%|3,0|1/2', `estatísticas: o guarda-redes defendeu 6 e sofreu 8 (43% de defesa), 1 de 2 sete metros (${l.map(numeros)})`);
+  ok((await rodape()).slice(1).join('|') === 'Equipa|2|6|8|14|43%|3,0|1/2', `estatísticas: a linha da equipa nos guarda-redes (${(await rodape()).slice(1)})`);
+
+  // Bola e disciplina: todos os que jogaram, por ordem de exclusões
+  await p.locator('.separador-abas button', { hasText: 'Bola e disciplina' }).click();
+  l = await linhas();
+  ok(l.map((x) => x[0]).join(',') === '92,91,93' && numeros(l[0]) === '92|2|2|0|1|0' && numeros(l[2]) === '93|2|0|1|0|0', `estatísticas: perdas de bola, faltas, 2 minutos e vermelhos (${l.map(numeros)})`);
+  await p.close();
+
+  // A API: a equipa da conta responde; quem não tem sessão não lê
+  const resposta = await ctx.request.get(`${servidor.url}/api/equipas/${propriaId}/estatisticas`);
+  const dados = await resposta.json();
+  ok(resposta.status() === 200 && dados.equipaId === propriaId && dados.jogos.length === 2 && dados.plantel.length >= 4 && dados.linhas.some((x) => x.jogadorId === bruno && x.remates === 7),
+    'estatísticas (API): a equipa da conta devolve o plantel, os jogos com registos e uma linha por jogador e jogo');
+  ok((await ctxVisitante.request.get(`${servidor.url}/api/equipas/${propriaId}/estatisticas`)).status() === 401, 'estatísticas (API): sem sessão não se lê');
+  ok((await ctx.request.get(`${servidor.url}/api/equipas/999999/estatisticas`)).status() === 404, 'estatísticas (API): uma equipa que não existe dá 404');
+});
+
 await passo('Segunda conta: começa vazia e não vê os dados da primeira', async () => {
   const ctxB = await novoContexto();
   const emailB = `bruno-${sufixo}@exemplo.pt`;
@@ -2115,6 +2226,15 @@ await passo('Segunda conta: começa vazia e não vê os dados da primeira', asyn
     'segunda conta: na página das equipas só vê a sua equipa e não pode criar outra');
   ok((await p.locator('.item-equipa', { hasText: equipaPrincipal }).count()) === 0, 'segunda conta: não vê as equipas da primeira');
   await p.close();
+
+  // Estatísticas: a equipa da segunda conta ainda não tem jogos, e a equipa da primeira não se lê
+  const estB = await pagina('/estatisticas.html', { contexto: ctxB });
+  await estB.waitForSelector('#estatisticas .cartao .vazio');
+  ok(((await estB.locator('#estatisticas .cartao h2').textContent()) ?? '') === nomeEquipaB && ((await estB.locator('#estatisticas .vazio').textContent()) ?? '').startsWith('Ainda não há jogos registados.')
+    && (await estB.locator('#tabela-estatisticas').count()) === 0, 'segunda conta: nas estatísticas, sem jogos, diz que ainda não há jogos (e não mostra os da primeira)');
+  await estB.close();
+  const [{ equipa_id: propriaDaPrimeira }] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [donoId]);
+  ok((await ctxB.request.get(`${servidor.url}/api/equipas/${propriaDaPrimeira}/estatisticas`)).status() === 404, 'segunda conta: as estatísticas da equipa da primeira conta dão 404');
 
   // Criar o seu primeiro jogo: o adversário escreve-se (aqui com o nome de uma equipa da primeira conta e a jogar fora)
   p = await pagina('/', { contexto: ctxB });

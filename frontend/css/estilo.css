@@ -692,6 +692,33 @@ table.tabela td.suave { color: var(--suave); }
 .sem-acesso h1 { font: 700 2.4rem/1 var(--fonte-num); margin-bottom: 10px; }
 .sem-acesso p { color: var(--suave); margin: 0 0 18px; }
 
+/* ---------- Estatísticas dos jogadores ---------- */
+.sub-equipa { display: flex; align-items: center; gap: 10px; }
+.sub-equipa .escudo { flex: none; }
+#resumo-equipa { margin: 16px 0 18px; }
+table.tabela th button.ordenar {
+  border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: inherit; white-space: nowrap;
+}
+table.tabela th button.ordenar:hover { color: var(--tinta); }
+table.tabela th[aria-sort="descending"] button.ordenar::after { content: " ▼"; font-size: 0.75em; }
+table.tabela th[aria-sort="ascending"] button.ordenar::after { content: " ▲"; font-size: 0.75em; }
+table.tabela th[aria-sort="descending"], table.tabela th[aria-sort="ascending"] { color: var(--tinta); }
+.tabela-estatisticas td.numero-camisola { color: var(--suave); width: 3.2em; }
+.tabela-estatisticas button.abrir-jogador {
+  border: 0; background: none; padding: 0; font: inherit; font-weight: 600; color: inherit; cursor: pointer; text-align: left;
+}
+.tabela-estatisticas button.abrir-jogador::before { content: "▸"; display: inline-block; width: 1.1em; color: var(--suave); }
+.tabela-estatisticas button.abrir-jogador[aria-expanded="true"]::before { content: "▾"; }
+.tabela-estatisticas small.posicao { margin-left: 8px; color: var(--suave); font-weight: 500; }
+.tabela-estatisticas tr.detalhe-jogador:hover { background: none; }
+.tabela-estatisticas tr.detalhe-jogador > td { background: var(--realce); padding: 6px 10px 12px 28px; }
+.tabela-jogos { font-size: 0.92rem; }
+.tabela-jogos td, .tabela-jogos th { white-space: nowrap; }
+.tabela-estatisticas tfoot td { font-weight: 700; border-top: 2px solid var(--tinta); border-bottom: 0; }
+.resultado { font-weight: 700; }
+.resultado-V { color: var(--ok); }
+.resultado-D { color: var(--perigo); }
+
 /* ---------- Ecrãs pequenos ---------- */
 @media (max-width: 640px) {
   body { font-size: 16.5px; }
