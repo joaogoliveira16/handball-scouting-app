@@ -192,6 +192,7 @@ function abrirEdicao(evento) {
   focoAntes = document.activeElement;
 
   const rotuloCampo = (texto, ...controlos) => h('label', {}, texto, ...controlos);
+  const largo = (el) => { el?.classList.add('largo'); return el; };
 
   // Quem e quando
   const botoesEquipa = equipas().map((eq) => h('button', {
@@ -249,13 +250,13 @@ function abrirEdicao(evento) {
   const cancelar = h('button', { type: 'button', class: 'botao perigo', 'data-campo': 'cancelar', onclick: fecharJanela }, 'Cancelar');
 
   const campos = h('div', { class: 'evento-campos' },
-    rotuloCampo('Equipa', h('div', { class: 'separador-abas' }, botoesEquipa)),
-    seletorTipo && rotuloCampo('Tipo de evento', seletorTipo),
-    rotuloCampo('Jogador', seletorJogador),
-    evento.eRemate && h('div', { class: 'rotulo' }, 'Resultado', h('div', { class: 'separador-abas' }, botoesResultado)),
+    largo(rotuloCampo('Equipa', h('div', { class: 'separador-abas' }, botoesEquipa))),
+    seletorTipo && largo(rotuloCampo('Tipo de evento', seletorTipo)),
+    largo(rotuloCampo('Jogador', seletorJogador)),
+    evento.eRemate && largo(h('div', { class: 'rotulo' }, 'Resultado', h('div', { class: 'separador-abas' }, botoesResultado))),
     evento.eRemate && rotuloCampo('Situação', seletorSituacao),
     evento.eRemate && blocoSistema,
-    evento.eRemate && rotuloCampo('Guarda-redes adversário', seletorGuardaRedes),
+    evento.eRemate && largo(rotuloCampo('Guarda-redes adversário', seletorGuardaRedes)),
     h('div', { class: 'rotulo' }, 'Parte', h('div', { class: 'separador-abas' }, botoesParte)),
     rotuloCampo('Minuto do jogo (mm:ss)', campoMinuto));
 

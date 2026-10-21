@@ -730,7 +730,9 @@ table.tabela-eventos .apagar { border: 0; background: transparent; color: var(--
 table.tabela-eventos .apagar:hover { background: var(--perigo-fundo); color: var(--perigo); }
 .janela.janela-evento { width: min(900px, 100%); }
 .evento-corpo { display: grid; gap: 16px 24px; }
-.evento-campos { display: grid; gap: 12px; align-content: start; }
+.evento-campos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; align-content: start; }
+.evento-campos > .largo { grid-column: 1 / -1; }
+@media (max-width: 520px) { .evento-campos { grid-template-columns: minmax(0, 1fr); } }
 .evento-campos label, .evento-campos .rotulo { display: flex; flex-direction: column; align-items: stretch; gap: 6px; font-weight: 600; font-size: 0.95rem; }
 .evento-campos select, .evento-campos input[type=text] { width: 100%; }
 .evento-campos label[hidden] { display: none; }
@@ -741,6 +743,8 @@ table.tabela-eventos .apagar:hover { background: var(--perigo-fundo); color: var
 .evento-baliza { margin-top: 12px; max-width: 320px; justify-self: center; width: 100%; }
 .evento-baliza .centro { text-align: center; margin-top: 8px; }
 .janela-evento .erro-formulario { margin-top: 10px; }
+/* os botões ficam sempre à vista, mesmo que a janela precise de rolar */
+.janela-evento .janela-acoes { position: sticky; bottom: -1px; margin-top: 12px; padding-top: 12px; background: var(--superficie); }
 @media (min-width: 760px) {
   .evento-corpo:has(.evento-mapas) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
