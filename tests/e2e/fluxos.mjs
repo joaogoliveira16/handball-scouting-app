@@ -2289,6 +2289,161 @@ await passo('Jogos: corrigir (adversário, casa ou fora, data e local), terminar
   await p.close();
 });
 
+await passo('Eventos: ver todos, filtrar, corrigir (resultado, jogador, sítio, equipa, minuto) e apagar', async () => {
+  const [{ equipa_id: propriaId }] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [donoId]);
+  const meus = await q("SELECT id, numero, nome FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 2", [propriaId]);
+  const [delesJogador] = await q("SELECT id, numero, nome FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [aguias.id]);
+  let [delesGr] = await q("SELECT id, numero, nome FROM jogadores WHERE equipa_id = $1 AND posicao_codigo = 'GR' ORDER BY numero LIMIT 1", [aguias.id]);
+  if (!delesGr) [delesGr] = await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1, 98, 'Guarda Eventos', 'GR') RETURNING id, numero, nome", [aguias.id]);
+  const localC = `Pavilhão Eventos ${sufixo}`;
+  const [jogoC] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, local, data_hora) VALUES ($1,$2,$3,$4,$5) RETURNING id', [propriaId, aguias.id, donoId, localC, '2026-10-12T18:00:00Z']);
+  const novo = async (equipa, tipo, jogador, { resultado = null, situacao = 'POSICIONAL', parte = 1, segundo = 0, x = null, y = null, guardaRedes = null } = {}) => (await q(
+    `INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, guarda_redes_id, resultado, situacao, x, y, parte, segundo_jogo)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`, [jogoC.id, equipa, tipo, jogador, guardaRedes, resultado, situacao, x, y, parte, segundo]))[0].id;
+  // 1.ª parte: um remate fora e uma defesa do nosso guarda-redes... 2.ª parte: uma perda de bola e 2 minutos do adversário
+  const remateFora = await novo(propriaId, 'REMATE', meus[0].id, { resultado: 'FORA', x: 50, y: 40, segundo: 120, guardaRedes: delesGr.id });
+  const remateDefesa = await novo(aguias.id, 'REMATE', delesJogador.id, { resultado: 'DEFESA', x: 30, y: 30, segundo: 300, situacao: 'CONTRA_ATAQUE' });
+  const perda = await novo(propriaId, 'PERDA_BOLA', meus[0].id, { parte: 2, segundo: 1900 });
+  const doisMin = await novo(aguias.id, 'DOIS_MINUTOS', delesJogador.id, { parte: 2, segundo: 2100 });
+  const evento = async (id) => (await q('SELECT * FROM eventos WHERE id = $1', [id]))[0];
+
+  // O jogo tem a ligação «Eventos» e o banco tem «Ver todos os eventos»
+  const lista = await pagina('/');
+  const linhaJogo = lista.locator('.jogo-linha', { hasText: localC });
+  await linhaJogo.waitFor();
+  ok((await linhaJogo.locator('a[data-acao="eventos"]').getAttribute('href')) === `eventos.html?jogo=${jogoC.id}`, 'eventos: a lista de jogos tem a ligação «Eventos»');
+  await lista.close();
+  const banco = await pagina(`/banco.html?jogo=${jogoC.id}`);
+  ok((await banco.locator('#ver-todos-eventos').getAttribute('href')) === `eventos.html?jogo=${jogoC.id}`, 'eventos: o banco liga a «Ver todos os eventos e corrigir»');
+  await banco.close();
+
+  // A lista: todos os eventos, os mais recentes primeiro
+  const p = await pagina(`/eventos.html?jogo=${jogoC.id}`);
+  await p.waitForSelector('#tabela-eventos');
+  const ids = async () => p.locator('#tabela-eventos tbody tr').evaluateAll((l) => l.map((x) => Number(x.dataset.eventoId)));
+  const linha = (id) => p.locator(`#tabela-eventos tr[data-evento-id="${id}"]`);
+  ok(JSON.stringify(await ids()) === JSON.stringify([doisMin, perda, remateDefesa, remateFora]), `eventos: a lista traz os 4 eventos, os mais recentes primeiro (${await ids()})`);
+  ok((await texto(p.locator('#resultado-eventos'))) === '0–0', 'eventos: o resultado do jogo vem dos golos (ainda 0–0)');
+  ok((await texto(linha(remateFora))).includes('1.ª02:00') && (await texto(linha(remateFora))).includes('Fora') && (await texto(linha(remateFora))).includes(`#${meus[0].numero}`), 'eventos: cada linha diz a parte, o minuto, o resultado e o jogador');
+  ok((await texto(linha(remateDefesa))).includes('Contra-ataque'), 'eventos: e os detalhes do remate (a situação)');
+  ok((await texto(linha(doisMin))).includes('2minutos') && (await texto(linha(doisMin))).includes('2.ª35:00'), 'eventos: também os eventos que não são remates');
+  await captura(p, 'eventos-lista');
+
+  // Os filtros
+  await p.click('[data-filtro="grupo-remates"]');
+  ok(JSON.stringify(await ids()) === JSON.stringify([remateDefesa, remateFora]), 'eventos: filtro «Remates»');
+  await p.click('[data-filtro="equipa-fora"]');
+  ok(JSON.stringify(await ids()) === JSON.stringify([remateDefesa]), 'eventos: filtro da equipa de fora (só remates dela)');
+  await p.click('[data-filtro="equipa-todas"]');
+  await p.click('[data-filtro="grupo-outros"]');
+  await p.click('[data-filtro="parte-2"]');
+  ok(JSON.stringify(await ids()) === JSON.stringify([doisMin, perda]), 'eventos: filtro «Outros eventos» na 2.ª parte');
+  await p.click('[data-filtro="parte-1"]');
+  ok(await p.locator('#tabela-eventos').count() === 0 && (await texto(p.locator('#contagem-eventos'))).includes('0de4'), 'eventos: sem resultados diz-se «0 de 4» e não há tabela');
+  await p.click('[data-filtro="grupo-todos"]');
+  await p.click('[data-filtro="parte-todas"]');
+  await p.selectOption('[data-filtro="jogador"]', String(delesJogador.id));
+  ok(JSON.stringify(await ids()) === JSON.stringify([doisMin, remateDefesa]), 'eventos: filtro por jogador');
+  await p.selectOption('[data-filtro="jogador"]', '');
+  ok((await ids()).length === 4, 'eventos: tirar os filtros mostra tudo outra vez');
+
+  // Corrigir o remate fora: é golo, de outro jogador, de outro sítio, com local na baliza, ao minuto 3:05
+  await linha(remateFora).locator('button[data-acao="corrigir"]').click();
+  const janela = p.locator('#janela-evento .janela-evento');
+  await janela.waitFor();
+  const campo = (nome) => janela.locator(`[data-campo="${nome}"]`);
+  ok((await campo('guardar').isDisabled()) && (await campo('minuto').inputValue()) === '02:00' && (await campo('jogador').inputValue()) === String(meus[0].id), 'eventos: a janela abre com o evento tal como está e «Guardar» desligado');
+  ok((await janela.locator('.evento-baliza').isHidden()), 'eventos: num remate fora não há baliza');
+  ok((await campo('guarda-redes').inputValue()) === String(delesGr.id), 'eventos: o guarda-redes do adversário vem escolhido');
+  await captura(p, 'eventos-corrigir');
+  await janela.locator('button[data-resultado="GOLO"]').click();
+  await janela.locator('.evento-baliza').waitFor({ state: 'visible' });
+  ok(await campo('guardar').isEnabled(), 'eventos: mudar o resultado liga o «Guardar»');
+  await janela.locator('svg.baliza').click({ position: { x: 300, y: 40 } });
+  await campo('jogador').selectOption(String(meus[1].id));
+  await campo('minuto').fill('3:05');
+  await campo('parte').first().click();
+  const caixa = await janela.locator('svg.campo').boundingBox();
+  await janela.locator('svg.campo').click({ position: { x: caixa.width / 2, y: caixa.height / 2 } });
+  await campo('guardar').click();
+  await janela.waitFor({ state: 'detached' });
+  await p.waitForFunction(() => document.getElementById('resultado-eventos')?.textContent.replace(/\s/g, '') === '1–0');
+  let e = await evento(remateFora);
+  ok(e.resultado === 'GOLO' && e.jogador_id === meus[1].id && e.segundo_jogo === 185 && e.parte === 1, `eventos: o remate ficou golo, de outro jogador, aos 3:05 (${e.resultado} ${e.jogador_id} ${e.segundo_jogo})`);
+  ok(Number(e.y) > 45 && Number(e.y) < 52 && Number(e.x) > 47 && Number(e.x) < 53, `eventos: o sítio do remate mudou para onde se tocou no mapa (${e.x}, ${e.y})`);
+  ok(e.baliza_x !== null && e.baliza_zona !== null && e.guarda_redes_id === delesGr.id, `eventos: o golo tem o local na baliza (${e.baliza_zona}) e continua contra o mesmo guarda-redes`);
+  ok((await texto(linha(remateFora))).includes('Golo') && (await texto(linha(remateFora))).includes(`#${meus[1].numero}`), 'eventos: a lista mostra o evento corrigido, e o resultado do jogo passa a 1–0');
+
+  // Voltar a pôr fora: o local na baliza deixa de existir e o minuto não muda se não se mexer
+  await linha(remateFora).locator('button[data-acao="corrigir"]').click();
+  await janela.waitFor();
+  ok((await campo('minuto').inputValue()) === '03:05' && (await janela.locator('.evento-baliza').isVisible()), 'eventos: o golo corrigido abre com o minuto e a baliza');
+  await janela.locator('button[data-resultado="POSTE"]').click();
+  await campo('guardar').click();
+  await p.waitForFunction(() => document.getElementById('resultado-eventos')?.textContent.replace(/\s/g, '') === '0–0');
+  e = await evento(remateFora);
+  ok(e.resultado === 'POSTE' && e.baliza_x === null && e.baliza_y === null && e.baliza_zona === null, 'eventos: num poste já não há local na baliza');
+
+  // A defesa do adversário (contra-ataque) passa a ser posicional contra uma defesa 6:0; e o remate passa à outra equipa
+  await linha(remateDefesa).locator('button[data-acao="corrigir"]').click();
+  await janela.waitFor();
+  ok(await campo('sistema').isHidden(), 'eventos: num contra-ataque não se pergunta a defesa do adversário');
+  await campo('situacao').selectOption('POSICIONAL');
+  await campo('sistema').selectOption('6_0');
+  await campo('guardar').click();
+  await janela.waitFor({ state: 'hidden' });
+  e = await evento(remateDefesa);
+  ok(e.situacao === 'POSICIONAL' && e.sistema_defensivo === '6_0', 'eventos: o remate passou a posicional contra uma defesa 6:0');
+  await linha(remateDefesa).locator('button[data-acao="corrigir"]').click();
+  await janela.waitFor();
+  await campo('situacao').selectOption('SETE_METROS');
+  await campo('guardar').click();
+  await janela.waitFor({ state: 'hidden' });
+  e = await evento(remateDefesa);
+  ok(e.situacao === 'SETE_METROS' && e.sistema_defensivo === null, 'eventos: num 7 metros a defesa do adversário deixa de existir');
+
+  // Um evento que não é remate: passa à outra equipa e a outro tipo
+  await linha(perda).locator('button[data-acao="corrigir"]').click();
+  await janela.waitFor();
+  ok(await janela.locator('svg.campo').count() === 0, 'eventos: fora dos remates não há mapa');
+  await campo('equipa').nth(1).click();
+  ok((await campo('jogador').inputValue()) === '', 'eventos: ao mudar de equipa o jogador volta a ficar por escolher');
+  await campo('jogador').selectOption(String(delesJogador.id));
+  await campo('tipo').selectOption('FALTA_OFENSIVA');
+  await campo('guardar').click();
+  await janela.waitFor({ state: 'hidden' });
+  e = await evento(perda);
+  ok(e.equipa_id === aguias.id && e.jogador_id === delesJogador.id && e.tipo_evento_codigo === 'FALTA_OFENSIVA' && e.parte === 2 && e.segundo_jogo === 1900, 'eventos: a perda de bola passou a falta ofensiva da outra equipa');
+
+  // O que está mal não deixa guardar; Esc fecha sem mudar nada
+  await linha(doisMin).locator('button[data-acao="corrigir"]').click();
+  await janela.waitFor();
+  await campo('minuto').fill('99:99');
+  ok((await campo('guardar').isDisabled()) && (await texto(campo('erros'))).includes('minuto'), 'eventos: um minuto inválido avisa e não deixa guardar');
+  await p.keyboard.press('Escape');
+  await janela.waitFor({ state: 'hidden' });
+  ok((await evento(doisMin)).segundo_jogo === 2100, 'eventos: Esc fecha a janela sem mudar nada');
+  await linha(remateFora).locator('button[data-acao="corrigir"]').click();
+  await janela.waitFor();
+  await campo('jogador').selectOption('');
+  ok((await texto(campo('erros'))).includes('jogador') && await campo('guardar').isDisabled(), 'eventos: num remate o jogador é obrigatório');
+  await campo('cancelar').click();
+  await janela.waitFor({ state: 'hidden' });
+
+  // Apagar um evento
+  await linha(doisMin).locator('button[data-acao="apagar"]').click();
+  await p.waitForFunction((id) => !document.querySelector(`tr[data-evento-id="${id}"]`), doisMin);
+  ok((await q('SELECT 1 FROM eventos WHERE id = $1', [doisMin])).length === 0 && (await ids()).length === 3, 'eventos: apagar tira o evento da lista e da base de dados');
+  await captura(p, 'eventos-depois');
+  await p.close();
+
+  // Um jogo que não é da conta não se abre
+  const intruso = await pagina('/eventos.html?jogo=99999', { tolerar: ['404'] });
+  await intruso.waitForSelector('#erro-eventos');
+  ok((await texto(intruso.locator('#erro-eventos'))).includes('Jogonãoencontrado'), 'eventos: um jogo que não existe diz «Jogo não encontrado»');
+  await intruso.close();
+});
+
 await passo('Segunda conta: começa vazia e não vê os dados da primeira', async () => {
   const ctxB = await novoContexto();
   const emailB = `bruno-${sufixo}@exemplo.pt`;

@@ -183,6 +183,7 @@ function linhaJogo(jogo) {
       }, 'Copiar ligação'),
       h('a', { class: 'botao-link suave pequeno', href: `convocatoria.html?jogo=${jogo.id}` }, 'Convocatória'),
       h('a', { class: 'botao-link suave pequeno', href: urlExcel(jogo.id), download: '' }, '⬇ Excel'),
+      h('a', { class: 'botao-link suave pequeno', 'data-acao': 'eventos', href: `eventos.html?jogo=${jogo.id}`, title: 'Ver todos os eventos e corrigir os que ficaram mal' }, 'Eventos'),
       h('button', { type: 'button', class: 'botao suave pequeno', 'data-acao': 'editar', onclick: () => { aEditar.add(jogo.id); desenharJogos(); } }, 'Editar'),
       jogo.terminadoEm
         ? h('button', { type: 'button', class: 'botao suave pequeno', 'data-acao': 'reabrir', title: 'Voltar a deixar o banco registar', onclick: () => terminarJogo(jogo, false) }, 'Reabrir')

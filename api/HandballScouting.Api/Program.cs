@@ -218,6 +218,24 @@ protegido.MapPost("/jogos/{id:int}/eventos", async (
         : Results.Created($"/api/jogos/{id}/eventos/{resultado.Id}", new { id = resultado.Id });
 });
 
+// Todos os eventos do jogo (para os rever e corrigir) e a correção de um evento. Só o dono.
+protegido.MapGet("/jogos/{id:int}/eventos", async (int id, HttpContext http, EventosService eventos, CancellationToken ct) =>
+    await eventos.ListarAsync(http.ContaAtual().Id, id, ct) is { } lista
+        ? Results.Ok(lista)
+        : Results.NotFound(new { erro = "Jogo não encontrado." }));
+
+protegido.MapPut("/jogos/{id:int}/eventos/{eventoId:long}", async (
+    int id, long eventoId, NovoEventoRequest pedido, HttpContext http,
+    EventosService eventos, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+{
+    var resultado = await eventos.AtualizarAsync(http.ContaAtual().Id, id, eventoId, pedido, ct);
+    if (!resultado.Ok)
+        return Results.Json(new { erro = resultado.Erro }, statusCode: resultado.Status);
+
+    await EmitirEstadoAsync(id, est, hub);   // os dashboards abertos passam a mostrar os números corrigidos
+    return Results.NoContent();
+});
+
 // O tablet do banco avisa quando o relógio arranca, pára ou é ajustado (e de 30 em 30 segundos enquanto corre).
 // Só os avisos que mudam alguma coisa vão para os dashboards.
 protegido.MapPut("/jogos/{id:int}/relogio", async (

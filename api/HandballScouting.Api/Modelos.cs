@@ -22,6 +22,32 @@ public record NovoEventoRequest(
     DateTimeOffset? OcorridoEm = null, // quando o evento aconteceu no tablet (sem rede, o envio pode vir muito depois)
     string? SistemaDefensivo = null);  // 6_0 | 5_1 | 3_2_1 | 4_2 | INDIVIDUAL: a defesa do adversário (só em remates em ataque posicional)
 
+/// <summary>Um evento do jogo com tudo o que a página «Eventos do jogo» precisa para o mostrar e corrigir.</summary>
+public class EventoEditavel
+{
+    public long Id { get; set; }
+    public int EquipaId { get; set; }
+    public string TipoEvento { get; set; } = "";
+    public string TipoNome { get; set; } = "";
+    public bool ERemate { get; set; }
+    public int? JogadorId { get; set; }
+    public short? JogadorNumero { get; set; }
+    public string? JogadorNome { get; set; }
+    public int? GuardaRedesId { get; set; }
+    public short? GuardaRedesNumero { get; set; }
+    public string? GuardaRedesNome { get; set; }
+    public string? Resultado { get; set; }
+    public string Situacao { get; set; } = "POSICIONAL";
+    public decimal? X { get; set; }
+    public decimal? Y { get; set; }
+    public decimal? BalizaX { get; set; }
+    public decimal? BalizaY { get; set; }
+    public string? BalizaZona { get; set; }
+    public string? SistemaDefensivo { get; set; }
+    public short Parte { get; set; }
+    public int SegundoJogo { get; set; }
+}
+
 /// <summary>Corpo do PUT /api/jogos/{id}/relogio: o tablet do banco diz em que segundo está o relógio e se está a andar.</summary>
 public record RelogioRequest(int? Segundo, bool? ACorrer);
 

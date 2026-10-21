@@ -18,6 +18,7 @@ import { registarOffline, chaveCacheBanco } from './offline.js';
 
 const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
 if (!jogoId) location.replace('./');
+document.getElementById('ver-todos-eventos').href = `eventos.html?jogo=${jogoId}`;   // corrigir um evento que ficou mal marcado
 
 registarOffline();
 const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

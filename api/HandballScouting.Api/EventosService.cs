@@ -3,7 +3,7 @@ using Npgsql;
 
 namespace HandballScouting.Api;
 
-/// <summary>Registo e remoção de eventos de jogo.</summary>
+/// <summary>Registo, correção e remoção de eventos de jogo.</summary>
 public class EventosService(NpgsqlDataSource dados, SqlLoader sql)
 {
     public async Task<ResultadoRegisto> RegistarAsync(int donoId, int jogoId, NovoEventoRequest req, CancellationToken ct = default)
@@ -15,34 +15,8 @@ public class EventosService(NpgsqlDataSource dados, SqlLoader sql)
         if (jogo is null)
             return ResultadoRegisto.Falha(404, "Jogo não encontrado.");
 
-        if (req.EquipaId != jogo.CasaId && req.EquipaId != jogo.ForaId)
-            return ResultadoRegisto.Falha(400, "equipaId não pertence a este jogo.");
-
-        var tipo = await con.QuerySingleOrDefaultAsync<TipoEvento>(
-            new CommandDefinition(sql["tipo_evento"], new { codigo = req.TipoEvento }, cancellationToken: ct));
-        if (tipo is null)
-            return ResultadoRegisto.Falha(400, $"tipoEvento '{req.TipoEvento}' não existe.");
-
-        var erros = EventoValidador.Validar(req, tipo.ERemate);
-        if (erros.Count > 0)
-            return ResultadoRegisto.Falha(400, string.Join(" ", erros));
-
-        // Jogador tem de ser da equipa; guarda-redes tem de ser o GR da equipa adversária
-        var ids = new[] { req.JogadorId, req.GuardaRedesId }.OfType<int>().Distinct().ToArray();
-        if (ids.Length > 0)
-        {
-            var jogadores = (await con.QueryAsync<JogadorBasico>(
-                new CommandDefinition(sql["jogadores_basico"], new { ids }, cancellationToken: ct)))
-                .ToDictionary(j => j.Id);
-
-            if (req.JogadorId is int jid &&
-                (!jogadores.TryGetValue(jid, out var jogador) || jogador.EquipaId != req.EquipaId))
-                return ResultadoRegisto.Falha(400, "jogadorId não pertence à equipa do evento.");
-
-            if (req.GuardaRedesId is int gid &&
-                (!jogadores.TryGetValue(gid, out var gr) || gr.EquipaId == req.EquipaId || gr.PosicaoCodigo != "GR"))
-                return ResultadoRegisto.Falha(400, "guardaRedesId tem de ser o guarda-redes da equipa adversária.");
-        }
+        var falha = await ValidarAsync(con, jogo, req, ct);
+        if (falha is not null) return falha;
 
         var id = await con.ExecuteScalarAsync<long?>(new CommandDefinition(sql["inserir_evento"], new
         {
@@ -70,6 +44,89 @@ public class EventosService(NpgsqlDataSource dados, SqlLoader sql)
         var existente = await con.ExecuteScalarAsync<long>(new CommandDefinition(sql["evento_por_cliente"],
             new { jogoId, clienteId = req.ClienteId }, cancellationToken: ct));
         return ResultadoRegisto.JaRegistado(existente);
+    }
+
+    /// <summary>
+    /// As regras de um evento, iguais ao registar e ao corrigir: a equipa é do jogo, o tipo existe, os campos que o tipo
+    /// pede, o jogador é da equipa e o guarda-redes é o da equipa adversária. Devolve null se estiver tudo bem.
+    /// </summary>
+    private async Task<ResultadoRegisto?> ValidarAsync(NpgsqlConnection con, JogoEquipas jogo, NovoEventoRequest req, CancellationToken ct)
+    {
+        if (req.EquipaId != jogo.CasaId && req.EquipaId != jogo.ForaId)
+            return ResultadoRegisto.Falha(400, "equipaId não pertence a este jogo.");
+
+        var tipo = await con.QuerySingleOrDefaultAsync<TipoEvento>(
+            new CommandDefinition(sql["tipo_evento"], new { codigo = req.TipoEvento }, cancellationToken: ct));
+        if (tipo is null)
+            return ResultadoRegisto.Falha(400, $"tipoEvento '{req.TipoEvento}' não existe.");
+
+        var erros = EventoValidador.Validar(req, tipo.ERemate);
+        if (erros.Count > 0)
+            return ResultadoRegisto.Falha(400, string.Join(" ", erros));
+
+        // Jogador tem de ser da equipa; guarda-redes tem de ser o GR da equipa adversária
+        var ids = new[] { req.JogadorId, req.GuardaRedesId }.OfType<int>().Distinct().ToArray();
+        if (ids.Length > 0)
+        {
+            var jogadores = (await con.QueryAsync<JogadorBasico>(
+                new CommandDefinition(sql["jogadores_basico"], new { ids }, cancellationToken: ct)))
+                .ToDictionary(j => j.Id);
+
+            if (req.JogadorId is int jid &&
+                (!jogadores.TryGetValue(jid, out var jogador) || jogador.EquipaId != req.EquipaId))
+                return ResultadoRegisto.Falha(400, "jogadorId não pertence à equipa do evento.");
+
+            if (req.GuardaRedesId is int gid &&
+                (!jogadores.TryGetValue(gid, out var gr) || gr.EquipaId != (req.EquipaId == jogo.CasaId ? jogo.ForaId : jogo.CasaId) || gr.PosicaoCodigo != "GR"))
+                return ResultadoRegisto.Falha(400, "guardaRedesId tem de ser o guarda-redes da equipa adversária.");
+        }
+
+        return null;
+    }
+
+    /// <summary>Corrige um evento já registado (quem, o resultado, o sítio, a parte e o minuto). O corpo é o mesmo do registo.</summary>
+    public async Task<ResultadoRegisto> AtualizarAsync(int donoId, int jogoId, long eventoId, NovoEventoRequest req, CancellationToken ct = default)
+    {
+        await using var con = await dados.OpenConnectionAsync(ct);
+
+        var jogo = await con.QuerySingleOrDefaultAsync<JogoEquipas>(
+            new CommandDefinition(sql["jogo_equipas"], new { jogoId, donoId }, cancellationToken: ct));
+        if (jogo is null)
+            return ResultadoRegisto.Falha(404, "Jogo não encontrado.");
+
+        var falha = await ValidarAsync(con, jogo, req, ct);
+        if (falha is not null) return falha;
+
+        var id = await con.ExecuteScalarAsync<long?>(new CommandDefinition(sql["atualizar_evento"], new
+        {
+            eventoId,
+            jogoId,
+            donoId,
+            equipaId = req.EquipaId,
+            tipo = req.TipoEvento,
+            jogadorId = req.JogadorId,
+            guardaRedesId = req.GuardaRedesId,
+            resultado = req.Resultado,
+            situacao = req.Situacao ?? "POSICIONAL",
+            x = req.X,
+            y = req.Y,
+            parte = req.Parte,
+            segundoJogo = req.SegundoJogo,
+            balizaX = req.BalizaX,
+            balizaY = req.BalizaY,
+            sistemaDefensivo = req.SistemaDefensivo
+        }, cancellationToken: ct));
+        return id is null ? ResultadoRegisto.Falha(404, "Evento não encontrado.") : ResultadoRegisto.Atualizado();
+    }
+
+    /// <summary>Todos os eventos do jogo, prontos a corrigir. null se o jogo não é da conta.</summary>
+    public async Task<List<EventoEditavel>?> ListarAsync(int donoId, int jogoId, CancellationToken ct = default)
+    {
+        await using var con = await dados.OpenConnectionAsync(ct);
+        if (!await con.ExecuteScalarAsync<bool>(new CommandDefinition(sql["jogo_do_dono"], new { jogoId, donoId }, cancellationToken: ct)))
+            return null;
+        return (await con.QueryAsync<EventoEditavel>(
+            new CommandDefinition(sql["eventos_editaveis"], new { jogoId }, cancellationToken: ct))).ToList();
     }
 
     /// <summary>

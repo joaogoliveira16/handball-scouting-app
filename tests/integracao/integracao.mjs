@@ -115,7 +115,7 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
   const protegidas = [
     ['GET', '/api/conta'], ['GET', '/api/jogos'], ['GET', '/api/equipas'], ['POST', '/api/equipas'],
     ['GET', '/api/equipas/1/jogadores'], ['GET', '/api/equipas/1/estatisticas'], ['POST', '/api/equipas/1/jogadores'], ['PUT', '/api/jogadores/4'], ['DELETE', '/api/jogadores/4'],
-    ['POST', '/api/jogos'], ['PUT', '/api/jogos/2'], ['PUT', '/api/jogos/2/terminado'], ['DELETE', '/api/jogos/2'], ['GET', '/api/jogos/2/convocados'], ['PUT', '/api/jogos/2/convocados'],
+    ['GET', '/api/jogos/2/eventos'], ['PUT', '/api/jogos/2/eventos/1'], ['POST', '/api/jogos'], ['PUT', '/api/jogos/2'], ['PUT', '/api/jogos/2/terminado'], ['DELETE', '/api/jogos/2'], ['GET', '/api/jogos/2/convocados'], ['PUT', '/api/jogos/2/convocados'],
     ['POST', '/api/jogos/2/eventos'], ['DELETE', '/api/jogos/2/eventos/1'],
   ];
   for (const [metodo, caminho] of protegidas) {
@@ -1088,6 +1088,102 @@ await passo('Corrigir, terminar e apagar um jogo', async () => {
   ok((await http('DELETE', caminho)).status === 404, 'apagar outra vez = 404');
   ok((await http('GET', '/api/jogos')).json?.some((j) => j.id === 2), 'os outros jogos ficam como estavam');
   ok((await http('GET', `/api/equipas/${outra}/jogadores`)).json?.some((j) => j.id === jogadorC), 'e as equipas e os jogadores também (só o jogo se apaga)');
+});
+
+// ----------------------------------------------------------------------
+await passo('Corrigir eventos: ver todos, corrigir e apagar', async () => {
+  if (!jogoNovo) return ok(false, 'sem equipas do passo "Equipas e jogadores"');
+  const { casaId, foraId, grCasa, lateralCasa, grFora, lateralFora } = jogoNovo;
+  const id = (await http('POST', '/api/jogos', { casaId, foraId })).json?.id;
+  const eventos = `/api/jogos/${id}/eventos`;
+  const remate = { tipoEvento: 'REMATE', equipaId: casaId, jogadorId: lateralCasa, guardaRedesId: grFora, resultado: 'FORA', situacao: 'POSICIONAL', x: 50, y: 40, parte: 1, segundoJogo: 120 };
+  const doisMin = { tipoEvento: 'DOIS_MINUTOS', equipaId: foraId, jogadorId: lateralFora, parte: 2, segundoJogo: 2100 };
+  const idRemate = (await http('POST', eventos, { ...remate, clienteId: crypto.randomUUID() })).json?.id;
+  const idDois = (await http('POST', eventos, doisMin)).json?.id;
+  const verTodos = async (sessao = principal) => (await http('GET', eventos, undefined, sessao)).json;
+  const evento = async (eventoId) => (await verTodos()).find((e) => e.id === eventoId);
+  const golos = async (equipaId) => (await http('GET', `/api/jogos/${id}/estatisticas`)).json?.equipas?.find((e) => e.equipaId === equipaId)?.golos;
+
+  // Listar: tudo o que é preciso para corrigir, pela ordem do jogo
+  const todos = await verTodos();
+  ok(Array.isArray(todos) && todos.map((e) => e.id).join() === [idRemate, idDois].join(), 'GET eventos: todos os eventos do jogo, por parte e minuto', JSON.stringify(todos)?.slice(0, 200));
+  const r = todos?.[0];
+  ok(r?.tipoEvento === 'REMATE' && r.eRemate === true && r.equipaId === casaId && r.jogadorId === lateralCasa && r.jogadorNumero > 0 && !!r.jogadorNome
+    && r.guardaRedesId === grFora && r.guardaRedesNumero > 0 && r.resultado === 'FORA' && r.situacao === 'POSICIONAL' && Number(r.x) === 50 && Number(r.y) === 40 && r.parte === 1 && r.segundoJogo === 120,
+  'cada remate traz o jogador, o guarda-redes, o resultado, a situação, o sítio, a parte e o segundo', JSON.stringify(r));
+  const d = todos?.[1];
+  ok(d?.tipoEvento === 'DOIS_MINUTOS' && d.eRemate === false && d.tipoNome === '2 minutos' && d.resultado === null && d.x === null && d.guardaRedesId === null, 'e os outros eventos vêm sem remate', JSON.stringify(d));
+  ok((await http('GET', '/api/jogos/99999/eventos')).status === 404, 'GET eventos de um jogo que não existe = 404');
+  ok((await http('GET', eventos, undefined, segunda)).status === 404, 'outra conta não vê a lista de eventos (404)');
+  ok((await http('GET', eventos, undefined, anonima)).status === 401, 'sem conta: ver a lista de eventos = 401');
+
+  // Corrigir: o remate fora passa a golo de outro jogador, com local na baliza
+  const golo = { ...remate, resultado: 'GOLO', jogadorId: lateralCasa, x: 40.5, y: 22, balizaX: 80, balizaY: 15, segundoJogo: 185, sistemaDefensivo: '6_0' };
+  ok((await golos(casaId)) === 0, 'antes da correção a casa não tem golos');
+  const certo = await http('PUT', `${eventos}/${idRemate}`, golo);
+  ok(certo.status === 204, 'PUT evento = 204', descricao(certo));
+  let e = await evento(idRemate);
+  ok(e?.resultado === 'GOLO' && Number(e.x) === 40.5 && Number(e.y) === 22 && Number(e.balizaX) === 80 && e.balizaZona === 'ALTO_DIR' && e.sistemaDefensivo === '6_0' && e.segundoJogo === 185 && e.id === idRemate,
+    'o remate ficou golo, com outro sítio, local na baliza, defesa do adversário e minuto', JSON.stringify(e));
+  ok((await golos(casaId)) === 1, 'e as estatísticas contam o golo corrigido');
+  ok((await verTodos()).length === 2, 'corrigir não cria outro evento');
+
+  // Voltar a pôr sem local na baliza, noutra parte, noutra situação
+  ok((await http('PUT', `${eventos}/${idRemate}`, { ...remate, resultado: 'POSTE', situacao: 'CONTRA_ATAQUE', parte: 2 })).status === 204, 'mudar para poste, contra-ataque e 2.ª parte = 204');
+  e = await evento(idRemate);
+  ok(e?.resultado === 'POSTE' && e.balizaX === null && e.balizaZona === null && e.situacao === 'CONTRA_ATAQUE' && e.sistemaDefensivo === null && e.parte === 2, 'e o local na baliza e a defesa do adversário deixam de existir', JSON.stringify(e));
+  ok((await golos(casaId)) === 0, 'o golo deixa de contar');
+
+  // Mudar de equipa e de tipo num evento que não é remate
+  const outro = { tipoEvento: 'FALTA_OFENSIVA', equipaId: casaId, jogadorId: lateralCasa, parte: 2, segundoJogo: 2200 };
+  ok((await http('PUT', `${eventos}/${idDois}`, outro)).status === 204, 'passar um 2 minutos à outra equipa e a falta ofensiva = 204');
+  e = await evento(idDois);
+  ok(e?.tipoEvento === 'FALTA_OFENSIVA' && e.equipaId === casaId && e.jogadorId === lateralCasa && e.segundoJogo === 2200, 'o evento mudou de tipo, de equipa e de jogador', JSON.stringify(e));
+  ok((await http('PUT', `${eventos}/${idDois}`, { ...outro, jogadorId: null })).status === 204 && (await evento(idDois))?.jogadorId === null, 'um evento da equipa fica sem jogador');
+
+  // O que a API recusa (e nada muda)
+  const antes = JSON.stringify(await verTodos());
+  const recusa = async (corpo, status, texto, nome) => {
+    const resp = await http('PUT', `${eventos}/${idRemate}`, corpo);
+    ok(resp.status === status && (texto ? texto.test(resp.texto) : true), `${nome} = ${status}`, descricao(resp));
+  };
+  await recusa({ ...remate, equipaId: 99999 }, 400, /equipaId/, 'equipa que não joga o jogo');
+  await recusa({ ...remate, tipoEvento: 'NAO_EXISTE' }, 400, /não existe/, 'tipo que não existe');
+  await recusa({ ...remate, jogadorId: null }, 400, /jogadorId/, 'remate sem jogador');
+  await recusa({ ...remate, jogadorId: lateralFora }, 400, /não pertence à equipa/, 'jogador da outra equipa');
+  await recusa({ ...remate, guardaRedesId: grCasa }, 400, /guarda-redes/, 'guarda-redes da própria equipa');
+  await recusa({ ...remate, guardaRedesId: lateralFora }, 400, /guarda-redes/, 'guarda-redes que não é guarda-redes');
+  await recusa({ ...remate, x: null }, 400, /x e y/, 'remate sem sítio');
+  await recusa({ ...remate, resultado: 'FORA', balizaX: 10, balizaY: 10 }, 400, /baliza/, 'local na baliza num remate fora');
+  await recusa({ ...remate, situacao: 'SETE_METROS', sistemaDefensivo: '6_0' }, 400, /sistema defensivo/, 'defesa do adversário num 7 metros');
+  await recusa({ ...remate, parte: 3 }, 400, /parte/, 'parte 3');
+  await recusa({ ...remate, segundoJogo: 7201 }, 400, /segundoJogo/, 'minuto acima do limite');
+  await recusa({ tipoEvento: 'PERDA_BOLA', equipaId: casaId, jogadorId: lateralCasa, resultado: 'GOLO', parte: 1, segundoJogo: 1 }, 400, /não são remates/, 'resultado num evento que não é remate');
+  await recusa({ tipoEvento: 'VERMELHO', equipaId: casaId, jogadorId: null, parte: 1, segundoJogo: 1 }, 400, /vermelho/, 'vermelho sem jogador');
+  ok(JSON.stringify(await verTodos()) === antes, 'e depois de tudo isto nenhum evento mudou');
+  ok((await http('PUT', `${eventos}/99999999`, remate)).status === 404, 'corrigir um evento que não existe = 404');
+  ok((await http('PUT', `/api/jogos/99999/eventos/${idRemate}`, remate)).status === 404, 'corrigir um evento de um jogo que não existe = 404');
+  ok((await http('PUT', `${eventos}/${idRemate}`, remate, segunda)).status === 404, 'outra conta não corrige eventos (404)');
+  ok((await http('PUT', `/api/jogos/2/eventos/${idRemate}`, { tipoEvento: 'REMATE', equipaId: 1, jogadorId: 4, resultado: 'GOLO', situacao: 'POSICIONAL', x: 50, y: 25, parte: 1, segundoJogo: 5 })).status === 404, 'um evento só se corrige dentro do seu jogo (404)');
+  ok((await http('PUT', `${eventos}/${idRemate}`, remate, anonima)).status === 401, 'sem conta: corrigir um evento = 401');
+  ok((await http('PUT', `${eventos}/${idRemate}?c=x`, remate, anonima)).status === 401, 'nem com um código de partilha (401)');
+
+  // Quem está a ver o dashboard recebe os números corrigidos
+  const dono = ligarHub(principal);
+  const recebidos = [];
+  dono.on('EstatisticasAtualizadas', (estado) => recebidos.push(estado));
+  await dono.start();
+  await dono.invoke('EntrarNoJogo', id, null);
+  const antesDoHub = recebidos.length;
+  ok((await http('PUT', `${eventos}/${idRemate}`, { ...remate, resultado: 'GOLO' })).status === 204, 'corrigir com o dashboard aberto');
+  ok(await ate(() => recebidos.length > antesDoHub), 'o dashboard recebe a atualização em direto');
+  ok(recebidos.at(-1)?.equipas?.find((q) => q.equipaId === casaId)?.golos === 1, 'e o estado recebido já tem o golo corrigido');
+  await dono.stop();
+
+  // Apagar continua a funcionar e a lista acompanha
+  ok((await http('DELETE', `${eventos}/${idDois}`)).status === 204 && (await verTodos()).length === 1, 'apagar um evento tira-o da lista');
+  ok((await http('DELETE', `${eventos}/${idDois}`)).status === 404, 'apagar outra vez = 404');
+  ok((await http('DELETE', `/api/jogos/${id}`)).status === 204, 'o jogo de teste apaga-se com o que sobrou');
 });
 
 // ----------------------------------------------------------------------

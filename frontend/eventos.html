@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <title>Eventos do jogo · Scouting de Andebol</title>
+  <link rel="stylesheet" href="css/estilo.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+</head>
+<body>
+  <header class="topo">
+    <a class="marca" href="./"><span class="marca-icone" aria-hidden="true"></span><span>Scouting <b>Andebol</b></span></a>
+    <nav class="menu" aria-label="Principal">
+      <a href="./" aria-current="page">Jogos</a>
+      <a href="equipas.html">Equipas</a>
+      <a href="estatisticas.html">Estatísticas</a>
+    </nav>
+    <div class="conta-menu" id="conta-menu"></div>
+  </header>
+
+  <main class="pagina">
+    <h1 id="titulo">Eventos do jogo</h1>
+    <p class="sub" id="sub">Todos os eventos registados, para corrigir o que foi mal marcado: o jogador, o resultado, o sítio, a parte e o minuto.</p>
+    <div id="conteudo"><p class="vazio">A carregar…</p></div>
+  </main>
+
+  <div class="janela-fundo" id="janela-evento" hidden></div>
+
+  <div id="aviso" class="aviso" role="status"></div>
+  <script type="module" src="js/eventos.js"></script>
+</body>
+</html>

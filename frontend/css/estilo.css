@@ -712,6 +712,48 @@ table.tabela td.suave { color: var(--suave); }
 .jogo-linha .editar-jogo { grid-column: 1 / -1; padding: 14px; background: var(--realce); border-radius: var(--raio-controlo); }
 .etiqueta.terminado { margin-left: 10px; color: var(--suave); background: var(--realce); border: 1px solid var(--linha-forte); }
 
+/* ---------- Eventos do jogo (corrigir) ---------- */
+.mais-eventos { margin: 10px 0 0; text-align: center; font-weight: 600; }
+.cabecalho-eventos { display: grid; gap: 8px; margin-bottom: 18px; }
+.cabecalho-eventos .equipas { display: flex; align-items: center; justify-content: center; gap: 18px; flex-wrap: wrap; font-weight: 600; font-size: 1.2rem; }
+.cabecalho-eventos .equipa-nome { display: inline-flex; align-items: center; gap: 8px; }
+.cabecalho-eventos .resultado { font: 700 2.4rem/1 var(--fonte-num); font-variant-numeric: tabular-nums; }
+.cabecalho-eventos .meta { margin: 0; text-align: center; color: var(--suave); }
+.cabecalho-eventos .acoes-jogo { justify-content: center; }
+.filtros-eventos .separador-abas { margin-bottom: 10px; }
+.filtros-eventos .separador-abas select { min-height: 42px; max-width: 100%; }
+.contagem-eventos { margin: 4px 0 10px; color: var(--suave); }
+table.tabela-eventos td.tempo { font-weight: 600; white-space: nowrap; }
+table.tabela-eventos td.detalhes { color: var(--suave); font-size: 0.93rem; }
+table.tabela-eventos td.acoes-evento { white-space: nowrap; text-align: right; }
+table.tabela-eventos .apagar { border: 0; background: transparent; color: var(--suave); font-size: 1.05rem; min-width: 40px; min-height: 40px; border-radius: 8px; margin-left: 4px; }
+table.tabela-eventos .apagar:hover { background: var(--perigo-fundo); color: var(--perigo); }
+.janela.janela-evento { width: min(900px, 100%); }
+.evento-corpo { display: grid; gap: 16px 24px; }
+.evento-campos { display: grid; gap: 12px; align-content: start; }
+.evento-campos label, .evento-campos .rotulo { display: flex; flex-direction: column; align-items: stretch; gap: 6px; font-weight: 600; font-size: 0.95rem; }
+.evento-campos select, .evento-campos input[type=text] { width: 100%; }
+.evento-campos label[hidden] { display: none; }
+.evento-campos .separador-abas { margin-bottom: 0; }
+.evento-campos .separador-abas button { min-height: 40px; padding: 0 14px; }
+.evento-mapas { display: grid; gap: 4px; align-content: start; }
+.evento-mapas .janela-nota { margin: 4px 0 0; }
+.evento-baliza { margin-top: 12px; max-width: 320px; justify-self: center; width: 100%; }
+.evento-baliza .centro { text-align: center; margin-top: 8px; }
+.janela-evento .erro-formulario { margin-top: 10px; }
+@media (min-width: 760px) {
+  .evento-corpo:has(.evento-mapas) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+/* No telemóvel a tabela passa a blocos: tempo e ações em cima, o resto por baixo */
+@media (max-width: 640px) {
+  table.tabela-eventos, table.tabela-eventos tbody { display: block; }
+  table.tabela-eventos thead { display: none; }
+  table.tabela-eventos tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--linha); }
+  table.tabela-eventos td { display: block; padding: 0; border: 0; }
+  table.tabela-eventos td.detalhes { grid-column: 1 / -1; }
+  table.tabela-eventos td.acoes-evento { grid-column: 3; grid-row: 1; }
+}
+
 /* ---------- Estatísticas dos jogadores ---------- */
 .sub-equipa { display: flex; align-items: center; gap: 10px; }
 .sub-equipa .escudo { flex: none; }
