@@ -327,6 +327,48 @@ public class EstatisticasEquipa
     public List<JogadorNoJogo> Linhas { get; set; } = new();
 }
 
+/// <summary>Um remate de um jogo em que a equipa joga (da equipa ou do adversário), para o relatório do próximo adversário.</summary>
+public class RemateDoAdversario
+{
+    public int JogoId { get; set; }
+    public int EquipaId { get; set; }
+    public int JogadorId { get; set; }
+    public short JogadorNumero { get; set; }
+    public int? GuardaRedesId { get; set; }
+    public string Resultado { get; set; } = "";
+    public string Situacao { get; set; } = "";
+    public string? Corredor { get; set; }
+    public string? Distancia { get; set; }
+    public decimal? BalizaX { get; set; }
+    public decimal? BalizaY { get; set; }
+    public string? BalizaZona { get; set; }
+    public string? SistemaDefensivo { get; set; }
+    public short Parte { get; set; }
+}
+
+/// <summary>Os eventos que não são remates de uma equipa num jogo (perdas de bola, exclusões...), por tipo.</summary>
+public class OutroEventoDoJogo
+{
+    public int JogoId { get; set; }
+    public int EquipaId { get; set; }
+    public string Tipo { get; set; } = "";
+    public long Total { get; set; }
+}
+
+/// <summary>
+/// O que se sabe de uma equipa pelos jogos que a conta registou dela: o relatório do próximo adversário calcula-se no
+/// browser a partir disto (as regras estão em frontend/js/relatorio-adversario.js).
+/// </summary>
+public class DadosDoAdversario
+{
+    public int EquipaId { get; set; }
+    public string Nome { get; set; } = "";
+    public List<JogadorEquipa> Jogadores { get; set; } = new();
+    public List<JogoDaEquipa> Jogos { get; set; } = new();
+    public List<RemateDoAdversario> Remates { get; set; } = new();
+    public List<OutroEventoDoJogo> OutrosEventos { get; set; } = new();
+}
+
 /// <summary>Sanções de um jogador no jogo: expulso = vermelho direto ou 3.º "2 minutos" (a regra está na vista v_sancoes).</summary>
 public class SancaoJogador
 {

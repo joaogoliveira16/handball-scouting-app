@@ -178,8 +178,12 @@ function colunaEquipa(equipa) {
       ? h('div', { class: 'grelha-azulejos' }, plantel.map((j) => azulejo(j, cheia)))
       : h('p', { class: 'vazio' }, 'Esta equipa ainda não tem jogadores.'),
     avisos,
-    h('p', { style: 'margin:12px 0 0' },
-      h('a', { class: 'botao-link suave pequeno', href: `equipas.html?equipa=${equipa.id}` }, 'Gerir jogadores')));
+    h('p', { class: 'ligacoes-equipa', style: 'margin:12px 0 0' },
+      h('a', { class: 'botao-link suave pequeno', href: `equipas.html?equipa=${equipa.id}` }, 'Gerir jogadores'),
+      h('a', {
+        class: 'botao-link suave pequeno', 'data-acao': 'relatorio-adversario', href: `adversario.html?equipa=${equipa.id}`,
+        title: 'O que os jogos registados dizem desta equipa: o que explorar e o que travar',
+      }, 'Relatório da equipa')));
 }
 
 function desenhar() {

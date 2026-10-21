@@ -1063,6 +1063,84 @@ await passo('Estatísticas dos jogadores da equipa (uma linha por jogador e jogo
 });
 
 // ----------------------------------------------------------------------
+await passo('Relatório do adversário (GET /api/equipas/{id}/adversario)', async () => {
+  if (!jogoNovo) return ok(false, 'sem equipas do passo "Equipas e jogadores"');
+  const { casaId, foraId, grCasa, lateralCasa, grFora, lateralFora } = jogoNovo;   // a equipa da conta (casa), um adversário (fora) e os seus jogadores
+  const caminho = `/api/equipas/${foraId}/adversario`;
+  const antes = await http('GET', caminho);
+  ok(antes.status === 200 && antes.json?.equipaId === foraId && typeof antes.json?.nome === 'string' && antes.json.nome.length > 0
+    && ['jogadores', 'jogos', 'remates', 'outrosEventos'].every((c) => Array.isArray(antes.json?.[c])), 'GET /api/equipas/{id}/adversario = 200 com nome, jogadores, jogos, remates e outrosEventos', descricao(antes));
+
+  // Um jogo novo (o adversário fora) e um jogo sem eventos (não conta)
+  const novo = await http('POST', '/api/jogos', { casaId, foraId, dataHora: '2026-10-07T18:00:00Z' });
+  const vazio = await http('POST', '/api/jogos', { casaId, foraId, dataHora: '2026-10-08T18:00:00Z' });
+  const jogoId = novo.json?.id;
+  const evento = (corpo) => http('POST', `/api/jogos/${jogoId}/eventos`, { parte: 1, segundoJogo: 60, ...corpo });
+  const remate = (equipaId, jogadorId, resultado, extra = {}) => evento({ tipoEvento: 'REMATE', equipaId, jogadorId, resultado, situacao: 'POSICIONAL', x: 50, y: 25, ...extra });
+  const registos = [
+    // o adversário rematou: um golo posicional contra a 5:1 pelo lateral esquerdo, um 7 metros e um remate falhado em contra-ataque
+    remate(foraId, lateralFora, 'GOLO', { x: 20, y: 30, sistemaDefensivo: '5_1', guardaRedesId: grCasa, balizaX: 15, balizaY: 15 }),
+    remate(foraId, lateralFora, 'GOLO', { situacao: 'SETE_METROS', guardaRedesId: grCasa, balizaX: 85, balizaY: 85 }),
+    remate(foraId, lateralFora, 'FORA', { situacao: 'CONTRA_ATAQUE' }),
+    // os remates da equipa da conta ao guarda-redes do adversário: uma defesa e um golo (contra a 6:0)
+    remate(casaId, lateralCasa, 'DEFESA', { guardaRedesId: grFora, balizaX: 50, balizaY: 50 }),
+    remate(casaId, lateralCasa, 'GOLO', { sistemaDefensivo: '6_0', guardaRedesId: grFora, balizaX: 90, balizaY: 10 }),
+    // outros eventos: uma perda de bola do adversário, uma exclusão da equipa da conta e um aviso de 7×6 (este não conta)
+    evento({ tipoEvento: 'PERDA_BOLA', equipaId: foraId, jogadorId: lateralFora }),
+    evento({ tipoEvento: 'DOIS_MINUTOS', equipaId: casaId, jogadorId: lateralCasa }),
+    evento({ tipoEvento: 'SETE_SEIS_INICIO', equipaId: foraId }),
+  ];
+  const respostas = [];
+  for (const r of registos) respostas.push((await r).status);   // um de cada vez, na ordem
+  ok(novo.status === 201 && vazio.status === 201 && respostas.every((e) => e === 201), 'adversário: jogo com remates dos dois lados, perda de bola, exclusão e aviso 7×6 registados', respostas.join());
+
+  const r = await http('GET', caminho);
+  const jogo = r.json?.jogos?.find((j) => j.jogoId === jogoId);
+  ok(r.status === 200 && jogo && jogo.golos === 2 && jogo.golosAdversario === 1 && jogo.emCasa === false && jogo.adversarioId === casaId && new Date(jogo.dataHora).toISOString() === '2026-10-07T18:00:00.000Z',
+    'o jogo traz o resultado visto do adversário (2–1, fora, contra a equipa da conta)', JSON.stringify(jogo));
+  ok(!r.json?.jogos?.some((j) => j.jogoId === vazio.json?.id) && r.json.jogos.length === antes.json.jogos.length + 1, 'um jogo sem eventos não conta');
+  ok(r.json?.jogos?.every((j) => j.adversarioId !== foraId) && r.json.jogadores.every((j) => j.equipaId === foraId) && r.json.jogadores.some((j) => j.id === lateralFora && j.id !== lateralCasa), 'os jogos são da equipa e os jogadores são só os dela (o plantel do adversário)');
+
+  const doJogo = (r.json?.remates ?? []).filter((x) => x.jogoId === jogoId);
+  ok(doJogo.length === 5 && doJogo.filter((x) => x.equipaId === foraId).length === 3 && doJogo.filter((x) => x.equipaId === casaId).length === 2,
+    'os remates do jogo são os dos dois lados (3 do adversário e 2 da equipa da conta)', JSON.stringify(doJogo.map((x) => [x.equipaId, x.resultado])));
+  const golo = doJogo.find((x) => x.equipaId === foraId && x.situacao === 'POSICIONAL');
+  ok(golo && golo.resultado === 'GOLO' && golo.jogadorId === lateralFora && typeof golo.jogadorNumero === 'number' && golo.guardaRedesId === grCasa && golo.parte === 1
+    && golo.corredor === 'LATERAL_ESQ' && typeof golo.distancia === 'string' && golo.balizaX === 15 && golo.balizaY === 15 && golo.balizaZona === 'ALTO_ESQ' && golo.sistemaDefensivo === '5_1',
+    'cada remate traz o jogador, o guarda-redes, a parte, o corredor, a distância, o local na baliza e a defesa', JSON.stringify(golo));
+  const sete = doJogo.find((x) => x.situacao === 'SETE_METROS');
+  ok(sete && sete.balizaZona === 'BAIXO_DIR' && sete.sistemaDefensivo == null, 'o 7 metros traz o local na baliza e não tem defesa');
+  const defendido = doJogo.find((x) => x.equipaId === casaId && x.resultado === 'DEFESA');
+  ok(defendido && defendido.guardaRedesId === grFora && defendido.balizaZona === 'MEIO_CENTRO', 'o remate da equipa da conta traz o guarda-redes do adversário que defendeu');
+  ok(!r.json?.remates?.some((x) => x.jogoId === vazio.json?.id), 'o jogo sem eventos não tem remates');
+
+  const outros = (r.json?.outrosEventos ?? []).filter((o) => o.jogoId === jogoId);
+  ok(outros.length === 2 && outros.some((o) => o.equipaId === foraId && o.tipo === 'PERDA_BOLA' && o.total === 1) && outros.some((o) => o.equipaId === casaId && o.tipo === 'DOIS_MINUTOS' && o.total === 1),
+    'os outros eventos vêm por jogo, equipa e tipo (a perda de bola e a exclusão)', JSON.stringify(outros));
+  ok(!(r.json?.outrosEventos ?? []).some((o) => /SETE_SEIS/.test(o.tipo)), 'o início e o fim do 7×6 não entram nos outros eventos');
+  ok(r.json?.remates?.every((x) => r.json.jogos.some((j) => j.jogoId === x.jogoId)), 'todos os remates são de jogos da lista');
+
+  // O relatório lê-se também pela equipa da conta e por uma equipa sem jogos
+  const daConta = await http('GET', `/api/equipas/${casaId}/adversario`);
+  ok(daConta.status === 200 && daConta.json?.jogos?.some((j) => j.jogoId === jogoId && j.emCasa === true && j.golos === 1 && j.golosAdversario === 2), 'a equipa da conta também tem relatório (vê o mesmo jogo do outro lado: 1–2, em casa)', descricao(daConta));
+
+  // Só a dona da equipa lê
+  ok((await http('GET', caminho, undefined, segunda)).status === 404, 'outra conta não lê o relatório da equipa (404)');
+  ok((await http('GET', caminho, undefined, anonima)).status === 401, 'sem sessão = 401');
+  ok((await http('GET', '/api/equipas/99999/adversario')).status === 404, 'equipa que não existe = 404');
+  const propriaSegunda = (await http('GET', '/api/equipas', undefined, segunda)).json?.find((e) => e.propria)?.id;
+  const daSegunda = await http('GET', `/api/equipas/${propriaSegunda}/adversario`, undefined, segunda);
+  ok(daSegunda.status === 200 && daSegunda.json?.jogos?.length === 0 && daSegunda.json?.remates?.length === 0 && daSegunda.json?.outrosEventos?.length === 0 && daSegunda.json?.jogadores?.length === 0,
+    'uma equipa sem jogos nem jogadores = 200 com listas vazias', descricao(daSegunda));
+  ok((await http('GET', `/api/equipas/${propriaSegunda}/adversario`)).status === 404, 'e a primeira conta não a lê (404)');
+
+  // Os dados que a página usa são os mesmos do jogo: arrumar para os passos seguintes ficarem como estavam
+  ok((await http('DELETE', `/api/jogos/${jogoId}`)).status === 204 && (await http('DELETE', `/api/jogos/${vazio.json?.id}`)).status === 204, 'o jogo de teste apaga-se');
+  const depois = await http('GET', caminho);
+  ok(depois.json?.jogos?.length === antes.json?.jogos?.length && depois.json?.remates?.length === antes.json?.remates?.length, 'depois de apagar o jogo, o relatório volta ao que era');
+});
+
+// ----------------------------------------------------------------------
 await passo('Corrigir, terminar e apagar um jogo', async () => {
   if (!jogoNovo) return ok(false, 'sem equipas do passo "Equipas e jogadores"');
   const { casaId, foraId, lateralCasa, grFora } = jogoNovo;

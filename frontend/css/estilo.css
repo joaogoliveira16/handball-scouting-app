@@ -966,6 +966,33 @@ table.numeros-intervalo th { vertical-align: bottom; }
   .folha-equipa.casa, .folha-equipa.fora { border-left-color: #000; }
 }
 
+/* ---------- Relatório do adversário (adversario.html): a mesma folha do intervalo ---------- */
+.ligacoes-equipa { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.ligacoes-equipa [hidden] { display: none; }
+.cabeca-relatorio h1 { font: 700 clamp(2rem, 5vw, 2.8rem)/1 var(--fonte-num); letter-spacing: 0.005em; }
+.cabeca-relatorio .sub { margin: 6px 0 0; color: var(--suave); }
+.intervalo .filtros-estatisticas { align-items: center; margin: 16px 0 14px; }
+.intervalo .filtros-estatisticas select { min-height: 42px; max-width: 100%; }
+.acoes-relatorio { display: flex; gap: 8px; margin-left: auto; }
+.folha-titulo-equipa { margin: 0; font: 700 clamp(2.2rem, 6vw, 3.2rem)/1 var(--fonte-num); letter-spacing: 0.005em; }
+.folha.a-carregar { opacity: 0.55; transition: opacity 0.15s; }
+.pontos.explorar li { border-left-color: var(--ok); background: #e6f6ec; }
+.pontos.explorar li::before { color: var(--ok); }
+.folha-bloco h3 { margin: 16px 0 6px; font-size: 1.05rem; color: var(--suave); }
+.folha-bloco .meta-equipa { margin: 10px 0 0; }
+.jogos-usados { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.jogos-usados li { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--linha); }
+.jogos-usados strong { font-variant-numeric: tabular-nums; }
+.resultado-jogo { font: 700 1.2rem/1 var(--fonte-num); text-align: center; }
+.resultado-jogo.res-V { color: var(--ok); }
+.resultado-jogo.res-D { color: var(--perigo); }
+.vazio-cartao { text-align: center; }
+@media print {
+  .pontos.explorar li { background: none !important; border: 1px solid #888; border-left: 6px solid #000; }
+  .pontos.explorar li::before { color: #000; }
+  .resultado-jogo.res-V, .resultado-jogo.res-D { color: #000; }
+}
+
 /* ---------- Movimento reduzido ---------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

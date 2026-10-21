@@ -143,6 +143,16 @@ Por baixo vem o cartão **Jogo a jogo**: um gráfico de linhas, um ponto por jog
 
 **Excel.** O botão **⬇ Excel**, ao lado dos filtros, descarrega o que está a ver (`GET /api/equipas/{id}/estatisticas.xlsx`, com os mesmos `?local=casa|fora`, `?parte=1|2` e `?ultimos=N`; o nome do ficheiro diz a equipa e os filtros, por exemplo `estatisticas-principal-fc-em-casa-2-parte-ultimos-5-jogos.xlsx`). Tem seis folhas: **Resumo** (os filtros, a data da exportação e os jogos, vitórias-empates-derrotas e golos), **Jogos** (um por linha, com o resultado, os remates, a eficácia, as defesas e as perdas de bola), **Ataque**, **Guarda-redes** e **Bola e disciplina** (os mesmos números das vistas da página, com a linha da equipa no fim) e **Jogo a jogo** (uma linha por jogador e jogo, com todos os contadores, filtrável). As contas estão em `ExportadorEstatisticasEquipa.cs` e o `verificar_excel.py` volta a fazê-las à parte, a partir dos números da API, para conferir cada ficheiro.
 
+### Relatório do próximo adversário
+
+Antes do jogo, `adversario.html?equipa=ID` junta tudo o que a conta registou de uma equipa (os jogos dela contra a tua equipa e contra outras) numa folha igual à do intervalo, para ler no tablet, **imprimir** ou **copiar como texto**. Chega-se lá pelo botão **Relatório da equipa** de cada equipa na convocatória, por **Relatório do adversário** na página das equipas (quando se abre um adversário) ou pelo seletor da própria página. Tem:
+
+- **A explorar** (até 3, a verde): o que a equipa faz mal — o guarda-redes que defende pouco e a zona onde mais cede, a defesa que joga e mais golos sofre, o corredor por onde lhe marcam, a defesa contra a qual ataca mal (e por isso convém jogá-la), perdas de bola, exclusões, finalização fraca e o lançador de 7 metros que falha.
+- **A travar** (até 3, a vermelho): o que faz bem — o jogador que marca uma parte grande dos golos, o corredor de onde marca, contra-ataque, o guarda-redes em forma, a zona da baliza para onde mais remata, o lançador de 7 metros seguro (e para onde bate), finalização forte e a defesa sólida.
+- **Em números** (por jogo), **Quem marca**, **7 metros** (os lançadores e os 7 metros sofridos), **Defesas** (o ataque dela contra cada defesa e a defesa que ela joga), **Guarda-redes**, **Zonas** (golos marcados e sofridos por corredor e a zona da baliza preferida) e os **jogos usados**.
+
+O filtro **Só contra a minha equipa** limita as contas aos jogos entre as duas equipas. Com menos de 20 remates registados a folha avisa que os pontos podem enganar, e uma equipa sem jogos diz que ainda não há dados. As contas são feitas no browser (`frontend/js/relatorio-adversario.js`, testado em `tests/unidade/relatorio-adversario.test.mjs`) a partir de `GET /api/equipas/{id}/adversario`.
+
 ### Treinador-assistente
 
 No topo do dashboard do **dono do jogo** há um painel com os time-outs de cada equipa (`0/3 usados · pode pedir 2`) e até 6 sugestões, as mais importantes primeiro. Cada uma diz **porquê**, com os números (por exemplo «4 golos em 5 remates (80%)»), para o treinador confiar ou discordar: a decisão é sempre dele. Vêm de regras simples sobre os dados que já existem, sem adivinhar nada, e só disparam a partir de um número mínimo de remates, golos ou eventos (poucos remates enganam em qualquer percentagem):
@@ -271,6 +281,7 @@ As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas
 | GET | `/api/equipas/{id}/jogadores` | Plantel (com o número de eventos de cada jogador) |
 | GET | `/api/equipas/{id}/estatisticas` | Estatísticas dos jogadores de uma equipa da conta (`?parte=1` ou `2` conta só essa parte e só os jogos com eventos nela; outro valor = 400): `{ equipaId, plantel, jogos, linhas }`. `jogos` são os jogos da equipa com pelo menos um evento (do mais antigo para o mais recente, com adversário, em casa, golos e golos do adversário) e `linhas` tem uma linha por jogador e jogo em que entrou (convocado, com eventos ou guarda-redes contra quem se rematou) com os remates, golos, 7 metros, contra-ataques, perdas de bola, faltas, exclusões, defesas e golos sofridos. 404 se a equipa não é da conta *(só o dono)* |
 | GET | `/api/equipas/{id}/estatisticas.xlsx` | Excel da página Estatísticas, com os mesmos filtros: `?local=casa` ou `fora`, `?parte=1` ou `2` e `?ultimos=N` (1 a 200; os N jogos mais recentes, contados depois do local). Filtro que não existe = 400 *(só o dono)* |
+| GET | `/api/equipas/{id}/adversario` | O que se sabe de uma equipa pelos jogos registados da conta, para o relatório do próximo adversário: `{ equipaId, nome, jogadores, jogos, remates, outrosEventos }`. `jogos` são os da equipa com eventos (como em `/estatisticas`), `remates` são os remates desses jogos **dos dois lados** (cada um com `jogoId`, `equipaId`, jogador, `guardaRedesId`, resultado, situação, `corredor`, `distancia`, local na baliza, `sistemaDefensivo` e `parte`) e `outrosEventos` conta, por jogo, equipa e tipo, os eventos que não são remates (sem os avisos do 7×6). 404 se a equipa não é da conta *(só o dono)* |
 | POST | `/api/equipas/{id}/jogadores` | Adiciona um jogador: `{ "numero", "nome", "posicao" }` |
 | PUT | `/api/jogadores/{id}` | Edita um jogador |
 | DELETE | `/api/jogadores/{id}` | Apaga um jogador (409 se tiver eventos) |
@@ -345,7 +356,7 @@ psql -v ON_ERROR_STOP=1 -f db/tests/superioridade.sql  # tipos do 7×6 e relógi
 psql -v ON_ERROR_STOP=1 -f db/tests/fila_offline.sql  # eventos enviados mais de uma vez (clienteId único por jogo, hora do tablet)
 python3 db/tests/validar_consultas.py                  # todas as consultas contra o esquema
 
-# Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR, a contagem dos 2 minutos, a fila de eventos sem rede, o service worker, o relatório do intervalo e as estatísticas dos jogadores
+# Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR, a contagem dos 2 minutos, a fila de eventos sem rede, o service worker, os relatórios do intervalo e do adversário e as estatísticas dos jogadores
 (cd tests && npm run unidade)
 ```
 

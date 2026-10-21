@@ -2391,6 +2391,175 @@ await passo('Estatísticas: filtros (em casa, fora, parte, últimos jogos) e gr�
   await q('DELETE FROM eventos WHERE jogo_id = $1 AND parte = 2', [jogoA]);
 });
 
+await passo('Relatório do adversário: o que explorar e o que travar, os números, os 7 metros, as defesas e as zonas', async () => {
+  const [{ equipa_id: propriaId }] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [donoId]);
+  const [{ nome: nomePropria }] = await q('SELECT nome FROM equipas WHERE id = $1', [propriaId]);
+  const nomeUrsos = `Ursos ${sufixo}`;
+  const [{ id: ursos }] = await q('INSERT INTO equipas (nome, dono_id) VALUES ($1, $2) RETURNING id', [nomeUrsos, donoId]);
+  const novoJogador = async (numero, nome, posicao) => (await q('INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1,$2,$3,$4) RETURNING id', [ursos, numero, nome, posicao]))[0].id;
+  const grUrsos = await novoJogador(1, 'Nuno Viana', 'GR');
+  const j7 = await novoJogador(7, 'Rui Costa', 'LE');
+  const j9 = await novoJogador(9, 'Miguel Sousa', 'PV');
+  const j11 = await novoJogador(11, 'Bruno Lopes', 'PD');
+  const [{ id: dePropria }] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [propriaId]);
+  const [{ id: deAguias }] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [aguias.id]);
+  const novoJogo = async (casa, fora, dataHora) => (await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, data_hora) VALUES ($1,$2,$3,$4) RETURNING id', [casa, fora, donoId, dataHora]))[0].id;
+
+  // Pontos do campo (x, y) que dão cada corredor
+  const PE = [10, 20], LE = [30, 50], CE = [50, 50], LD = [70, 50], PD = [90, 20];
+  let segundo = 0;
+  const evento = (jogoId, equipa, tipo, jogador, { resultado = null, situacao = 'POSICIONAL', gr = null, xy = CE, sistema = null, baliza = null } = {}) => q(
+    `INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, guarda_redes_id, resultado, situacao, x, y, parte, segundo_jogo, baliza_x, baliza_y, sistema_defensivo)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10,$11,$12,$13)`,
+    [jogoId, equipa, tipo, jogador, gr, resultado, situacao, resultado ? xy[0] : null, resultado ? xy[1] : null, (segundo += 10), baliza?.[0] ?? null, baliza?.[1] ?? null, sistema]);
+  const lista = async (jogoId, equipa, jogador, resultados, opcoes = {}) => { for (const resultado of resultados) await evento(jogoId, equipa, 'REMATE', jogador, { resultado, ...opcoes }); };
+  const varios = async (jogoId, equipa, jogador, tipo, n) => { for (let i = 0; i < n; i++) await evento(jogoId, equipa, tipo, jogador); };
+
+  // J1 (01/10, Ursos em casa contra a minha equipa, 11–4) e J2 (08/10, Ursos fora nas Águias, 13–4)
+  const j1 = await novoJogo(ursos, propriaId, '2026-10-01T18:00:00Z');
+  const j2 = await novoJogo(aguias.id, ursos, '2026-10-08T18:00:00Z');
+  // Ursos: o #7 marca 9 em 13 pelo lateral esquerdo, o #11 marca 8 em 9 (5 em contra-ataque), o #9 marca 7 em 11 (3 de 7 metros);
+  // 32 remates, 24 golos (75%); o corredor central dá 11 golos
+  await lista(j1, ursos, j7, ['GOLO', 'GOLO', 'GOLO', 'GOLO', 'GOLO', 'DEFESA', 'DEFESA'], { xy: LE, sistema: '6_0' });
+  await lista(j1, ursos, j9, ['GOLO', 'GOLO', 'FORA'], { xy: PD, sistema: '6_0' });
+  await lista(j1, ursos, j11, ['GOLO'], { xy: CE, sistema: '6_0' });
+  await lista(j1, ursos, j9, ['GOLO', 'GOLO', 'GOLO'], { xy: CE, situacao: 'SETE_METROS', baliza: [85, 85] });
+  await lista(j2, ursos, j7, ['GOLO', 'GOLO', 'GOLO', 'GOLO', 'DEFESA', 'DEFESA'], { xy: LE });
+  await lista(j2, ursos, j9, ['GOLO', 'GOLO', 'FORA', 'FORA'], { xy: PD });
+  await lista(j2, ursos, j11, ['GOLO', 'GOLO', 'DEFESA'], { xy: CE });
+  await lista(j2, ursos, j11, ['GOLO', 'GOLO', 'GOLO', 'GOLO', 'GOLO'], { xy: CE, situacao: 'CONTRA_ATAQUE' });
+  // Contra o guarda-redes dos Ursos: 8 golos e 2 defesas em 10 remates à baliza (20%); 6 golos em cima à esquerda; os golos vêm de todos os corredores
+  const contra = async (jogoId, equipa, jogador, sistema) => {
+    const golos = [[PE, [15, 15]], [LE, [15, 15]], [CE, [15, 15]], [LD, [85, 85]]];
+    for (const [xy, baliza] of golos) await evento(jogoId, equipa, 'REMATE', jogador, { resultado: 'GOLO', gr: grUrsos, xy, baliza, sistema });
+    await evento(jogoId, equipa, 'REMATE', jogador, { resultado: 'DEFESA', gr: grUrsos, xy: CE, baliza: [50, 50], sistema });
+  };
+  await contra(j1, propriaId, dePropria, '5_1');
+  // No J2 os golos vêm por outros corredores (a ponta direita no lugar da esquerda) e o 4.º golo cai em baixo à direita
+  for (const [xy, baliza] of [[PD, [15, 15]], [LE, [15, 15]], [CE, [15, 15]], [LD, [85, 85]]]) {
+    await evento(j2, aguias.id, 'REMATE', deAguias, { resultado: 'GOLO', gr: grUrsos, xy, baliza });
+  }
+  await evento(j2, aguias.id, 'REMATE', deAguias, { resultado: 'DEFESA', gr: grUrsos, xy: CE, baliza: [50, 50] });
+  // Outros eventos dos Ursos: 22 perdas de bola (11 por jogo) e 7 exclusões (3,5 por jogo)
+  await varios(j1, ursos, j7, 'PERDA_BOLA', 12); await varios(j2, ursos, j9, 'PERDA_BOLA', 10);
+  await varios(j1, ursos, j9, 'DOIS_MINUTOS', 4); await varios(j2, ursos, j11, 'DOIS_MINUTOS', 3);
+  // Uma equipa sem nenhum jogo registado
+  const [{ id: semJogos }] = await q('INSERT INTO equipas (nome, dono_id) VALUES ($1, $2) RETURNING id', [`Sem jogos ${sufixo}`, donoId]);
+
+  const limpo = async (locator) => ((await locator.innerText()) ?? '').replace(/\s+/g, ' ').trim();
+  const todosOsTextos = async (locator) => (await locator.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
+
+  // A API devolve o que as contas precisam
+  const resposta = await ctx.request.get(`${servidor.url}/api/equipas/${ursos}/adversario`);
+  const api = await resposta.json();
+  ok(resposta.status() === 200 && api.nome === nomeUrsos && api.jogadores.length === 4 && api.jogos.length === 2 && api.remates.length === 42 && api.outrosEventos.length === 4,
+    `adversário (API): nome, 4 jogadores, 2 jogos, 42 remates (32 dos Ursos e 10 contra) e 4 linhas de outros eventos (${resposta.status()} ${api.jogadores?.length}/${api.jogos?.length}/${api.remates?.length}/${api.outrosEventos?.length})`);
+  const exemplo = api.remates.find((r) => r.equipaId === ursos && r.situacao === 'SETE_METROS');
+  ok(exemplo && exemplo.jogoId === j1 && exemplo.jogadorNumero === 9 && exemplo.balizaZona === 'BAIXO_DIR' && exemplo.corredor === 'CENTRAL', 'adversário (API): cada remate traz o jogo, o jogador, o corredor e a zona da baliza');
+  ok(api.remates.filter((r) => r.equipaId !== ursos).every((r) => r.guardaRedesId === grUrsos), 'adversário (API): os remates dos adversários dizem que guarda-redes dos Ursos os defendeu');
+  ok(!api.outrosEventos.some((o) => /SETE_SEIS/.test(o.tipo)) && api.outrosEventos.find((o) => o.jogoId === j1 && o.tipo === 'PERDA_BOLA')?.total === 12, 'adversário (API): as perdas de bola vêm contadas por jogo');
+  ok((await ctx.request.get(`${servidor.url}/api/equipas/999999/adversario`)).status() === 404, 'adversário (API): uma equipa que não existe dá 404');
+  ok((await ctxVisitante.request.get(`${servidor.url}/api/equipas/${ursos}/adversario`)).status() === 401, 'adversário (API): sem sessão = 401');
+  const vazia = await (await ctx.request.get(`${servidor.url}/api/equipas/${semJogos}/adversario`)).json();
+  ok(vazia.jogos.length === 0 && vazia.remates.length === 0 && vazia.jogadores.length === 0, 'adversário (API): uma equipa sem jogos responde com listas vazias');
+
+  // Atalhos: a página das equipas (só nos adversários) e a convocatória
+  const eq = await pagina(`/equipas.html?equipa=${ursos}`);
+  await eq.waitForSelector('#relatorio-adversario:not([hidden])');
+  ok((await eq.locator('#relatorio-adversario').getAttribute('href')) === `adversario.html?equipa=${ursos}`, 'adversário: na página das equipas, o adversário aberto tem a ligação «Relatório do adversário»');
+  await eq.locator('.item-equipa', { hasText: nomePropria }).first().click();
+  await eq.waitForSelector('#relatorio-adversario', { state: 'hidden' });
+  ok(await eq.locator('#relatorio-adversario').isHidden(), 'adversário: na equipa da conta a ligação do relatório não aparece');
+  await eq.close();
+  const conv = await pagina(`/convocatoria.html?jogo=${j1}`);
+  await conv.waitForSelector('[data-acao="relatorio-adversario"]');
+  const hrefs = await conv.locator('[data-acao="relatorio-adversario"]').evaluateAll((as) => as.map((a) => a.getAttribute('href')));
+  ok(hrefs.length === 2 && hrefs.includes(`adversario.html?equipa=${ursos}`) && hrefs.includes(`adversario.html?equipa=${propriaId}`), `adversário: a convocatória leva ao relatório de cada equipa (${hrefs})`);
+  await conv.close();
+
+  // A página: os pontos, por ordem de peso
+  const p = await pagina(`/adversario.html?equipa=${ursos}`);
+  await p.waitForSelector('#folha-adversario #bloco-explorar');
+  ok(await limpo(p.locator('#adversario-nome')) === nomeUrsos && (await limpo(p.locator('#adversario-base'))) === `Baseado em 2 jogos registados (1 contra ${nomePropria}).`,
+    `adversário: o título é a equipa e diz em quantos jogos se baseia (${await limpo(p.locator('#adversario-base'))})`);
+  ok((await p.locator('.folha .aviso-inline').count()) === 0, 'adversário: com 32 remates não há aviso de poucos dados');
+  const pontos = async (bloco) => (await p.locator(`#bloco-${bloco} li`).evaluateAll((lis) => lis.map((li) => li.dataset.ponto))).join('|');
+  ok(await pontos('explorar') === 'gr_fraco|exclusoes|perdas', `adversário: a explorar — guarda-redes fraco, exclusões e perdas de bola (${await pontos('explorar')})`);
+  ok(await pontos('travar') === 'corredor_forte|jogador_perigoso|finalizacao_boa', `adversário: a travar — o corredor central, o #7 e a finalização (${await pontos('travar')})`);
+  const gr = await limpo(p.locator('[data-ponto="gr_fraco"]'));
+  ok(gr.includes('Rematar à baliza contra o #1 Nuno Viana') && gr.includes('2 defesas em 10 remates à baliza (20%)') && gr.includes('alto à esquerda (6 de 8 golos)'), `adversário: o guarda-redes fraco diz a percentagem e onde cede (${gr})`);
+  const central = await limpo(p.locator('[data-ponto="corredor_forte"]'));
+  ok(central.includes('Fechar o central') && central.includes('11 dos 24 golos vêm do central'), `adversário: o corredor de onde marcam (${central})`);
+  ok((await limpo(p.locator('[data-ponto="jogador_perigoso"]'))).includes('Marcar de perto o #7 Rui Costa'), 'adversário: o jogador a marcar de perto');
+  ok(await p.locator('#bloco-explorar ol').getAttribute('class') === 'pontos explorar' && await p.locator('#bloco-travar ol').getAttribute('class') === 'pontos travar', 'adversário: os pontos a explorar e a travar têm cores diferentes (classes próprias)');
+
+  // Os números
+  const numeros = Object.fromEntries((await p.locator('#bloco-numeros tbody tr').evaluateAll((trs) => trs.map((tr) => [tr.cells[0].textContent, tr.cells[1].textContent]))));
+  ok(numeros['Jogos (vitórias-empates-derrotas)'] === '2 (2-0-0)' && numeros['Golos marcados por jogo'] === '12,0' && numeros['Golos sofridos por jogo'] === '4,0', `adversário: jogos e golos por jogo (${JSON.stringify(numeros).slice(0, 160)})`);
+  ok(numeros['Remates por jogo'] === '16,0' && numeros['Eficácia de remate'] === '75%' && numeros['Eficácia dos adversários contra eles'] === '80%' && numeros['Defesas dos guarda-redes'] === '2 em 10 (20%)', 'adversário: remates por jogo, eficácia dos Ursos e dos adversários, defesas do guarda-redes');
+  ok(numeros['Perdas de bola por jogo'] === '11,0' && numeros['Exclusões de 2 minutos por jogo'] === '3,5' && numeros['Golos de contra-ataque por jogo'] === '2,5' && numeros['7 metros (golos / lançamentos)'] === '3/3', 'adversário: perdas, exclusões, contra-ataque e 7 metros por jogo');
+
+  // Quem marca, 7 metros, defesas, guarda-redes, zonas e jogos
+  const jogadores = await p.locator('#bloco-jogadores tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent).join('|')));
+  ok(jogadores.join(' ; ') === '#7 Rui Costa|Lateral esquerdo|9|13|69%|– ; #11 Bruno Lopes|Ponta direita|8|9|89%|– ; #9 Miguel Sousa|Pivot|7|10|70%|3', `adversário: quem marca, do que mais marca para o que menos (${jogadores.join(' ; ')})`);
+  const sete = await limpo(p.locator('#bloco-sete-metros'));
+  ok(sete.includes('#9 Miguel Sousa 3 3 0 baixo à direita (3 de 3)') && sete.includes('Lançaram 3 e marcaram 3. Sofreram 0 e defenderam 0.'), `adversário: o livro dos 7 metros (${sete})`);
+  const defesas = await limpo(p.locator('#bloco-defesas'));
+  ok(defesas.includes('O ataque deles contra cada defesa') && defesas.includes('6:0 11 8 73%') && defesas.includes('A defesa que jogam') && defesas.includes('5:1 5 4 80% 100%'), `adversário: o ataque contra a 6:0 e a defesa 5:1 que eles jogam (${defesas})`);
+  ok((await limpo(p.locator('#bloco-guarda-redes tbody tr'))) === '#1 Nuno Viana 10 2 20%', 'adversário: o guarda-redes, com os remates à baliza e a % de defesa');
+  const corredores = await p.locator('#bloco-zonas tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.cells].map((c) => c.textContent).join('|')));
+  ok(corredores.join(' ; ') === 'Ponta esquerda|0|1 ; Lateral esquerdo|9|2 ; Central|11|2 ; Lateral direito|0|2 ; Ponta direita|4|1', `adversário: golos marcados e sofridos por corredor (${corredores.join(' ; ')})`);
+  const jogos = await todosOsTextos(p.locator('#bloco-jogos li'));
+  ok(jogos.length === 2 && jogos[0] === `V 08/10/2026 · fora contra Águias do Norte 13–4` && jogos[1] === `V 01/10/2026 · em casa contra ${nomePropria} 11–4`, `adversário: os jogos usados, o mais recente primeiro (${jogos.join(' ; ')})`);
+  await captura(p, 'adversario-relatorio');
+
+  // Só os jogos contra a minha equipa: 1 jogo e poucos dados
+  await p.click('[data-filtro="jogos-nos"]');
+  await p.waitForSelector('[data-filtro="jogos-nos"].ativo');
+  ok((await limpo(p.locator('#adversario-base'))) === `Baseado em 1 jogo contra ${nomePropria}.` && (await p.locator('#bloco-jogos li').count()) === 1, 'adversário: «Só contra a minha equipa» usa só esse jogo');
+  ok((await limpo(p.locator('.folha .aviso-inline'))) === 'Só 14 remates registados em 1 jogo: os pontos podem enganar.', 'adversário: com 14 remates avisa que os pontos podem enganar');
+  ok(new URL(p.url()).searchParams.get('contra') === 'nos' && new URL(p.url()).searchParams.get('equipa') === String(ursos), 'adversário: o endereço guarda a equipa e o filtro');
+  await p.click('[data-filtro="jogos-todos"]');
+  await p.waitForSelector('[data-filtro="jogos-todos"].ativo');
+  ok((await p.locator('.folha .aviso-inline').count()) === 0 && (await p.locator('#bloco-jogos li').count()) === 2, 'adversário: «Todos» volta aos 2 jogos');
+
+  // Copiar como texto e imprimir
+  await p.click('#copiar');
+  const copiado = await p.evaluate(() => navigator.clipboard.readText());
+  const linhasCopiadas = copiado.split('\n');
+  ok(linhasCopiadas[0] === `Relatório do adversário · ${nomeUrsos}` && linhasCopiadas[1] === `Baseado em 2 jogos registados (1 contra ${nomePropria}).`, `adversário: o texto copiado começa pela equipa e pelos jogos (${linhasCopiadas.slice(0, 2)})`);
+  ok(copiado.includes('A explorar:\n1. Rematar à baliza contra o #1 Nuno Viana') && copiado.includes('A travar:\n1. Fechar o central') && copiado.includes('Quem marca:\n#7 Rui Costa: 9 golos em 13 remates (69%)'), 'adversário: o texto copiado leva os pontos, os números e quem marca');
+  ok(((await p.locator('#aviso').textContent()) ?? '').includes('Texto copiado'), 'adversário: avisa que o texto foi copiado');
+  await p.emulateMedia({ media: 'print' });
+  ok(await p.locator('.topo').isHidden() && await p.locator('#escolhas-adversario').isHidden() && await p.locator('.cabeca-relatorio').isHidden() && await p.locator('.folha').isVisible(), 'adversário: ao imprimir só fica a folha');
+  await p.emulateMedia({ media: 'screen' });
+
+  // Outra equipa no seletor, a equipa da conta (sem o filtro dos jogos) e uma equipa sem jogos
+  ok((await p.locator('#escolher-equipa').inputValue()) === String(ursos) && (await p.locator('#escolher-equipa option', { hasText: '(a minha equipa)' }).count()) === 1, 'adversário: o seletor tem a equipa escolhida e marca a minha equipa');
+  await p.selectOption('#escolher-equipa', String(leoes.id));
+  await p.waitForFunction(() => document.querySelector('#adversario-nome')?.textContent.startsWith('Leões'), null, { timeout: 5000 });
+  ok(new URL(p.url()).searchParams.get('equipa') === String(leoes.id), 'adversário: escolher outra equipa muda o relatório e o endereço');
+  await p.selectOption('#escolher-equipa', String(propriaId));
+  await p.waitForFunction((n) => document.querySelector('#adversario-nome')?.textContent === n, nomePropria, { timeout: 5000 });
+  ok((await p.locator('[data-filtro="jogos-nos"]').count()) === 0, 'adversário: no relatório da minha equipa não há o filtro «Só contra a minha equipa»');
+  await p.selectOption('#escolher-equipa', String(semJogos));
+  await p.waitForFunction((n) => document.querySelector('#adversario-nome')?.textContent === n, `Sem jogos ${sufixo}`, { timeout: 5000 });
+  ok((await limpo(p.locator('.folha .vazio'))).startsWith('Ainda não há jogos registados desta equipa.') && (await p.locator('#bloco-explorar').count()) === 0 && (await limpo(p.locator('#adversario-base'))) === 'Sem jogos registados.',
+    'adversário: uma equipa sem jogos diz que ainda não há jogos registados (e não inventa pontos)');
+  await p.close();
+
+  // Uma equipa que não é desta conta (ou que não existe) abre a primeira adversária
+  const estranha = await pagina('/adversario.html?equipa=999999');
+  await estranha.waitForSelector('#adversario-nome');
+  ok(await estranha.locator('#escolher-equipa').inputValue() !== '999999', 'adversário: uma equipa que não existe no endereço abre outra equipa da conta');
+  await estranha.close();
+
+  // Arrumar: os jogos e as equipas de mais saem, para os passos seguintes ficarem como estavam
+  await q('DELETE FROM jogos WHERE id = ANY($1)', [[j1, j2]]);
+  await q('DELETE FROM jogadores WHERE equipa_id = $1', [ursos]);
+  await q('DELETE FROM equipas WHERE id = ANY($1)', [[ursos, semJogos]]);
+});
+
 await passo('Jogos: corrigir (adversário, casa ou fora, data e local), terminar (o banco fecha o registo) e apagar', async () => {
   const [{ equipa_id: propriaId }] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [donoId]);
   const [{ nome: nomePropria }] = await q('SELECT nome FROM equipas WHERE id = $1', [propriaId]);
@@ -2685,6 +2854,7 @@ await passo('Segunda conta: começa vazia e não vê os dados da primeira', asyn
   await estB.close();
   const [{ equipa_id: propriaDaPrimeira }] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [donoId]);
   ok((await ctxB.request.get(`${servidor.url}/api/equipas/${propriaDaPrimeira}/estatisticas`)).status() === 404, 'segunda conta: as estatísticas da equipa da primeira conta dão 404');
+  ok((await ctxB.request.get(`${servidor.url}/api/equipas/${propriaDaPrimeira}/adversario`)).status() === 404, 'segunda conta: o relatório do adversário de uma equipa da primeira conta dá 404');
 
   // Criar o seu primeiro jogo: o adversário escreve-se (aqui com o nome de uma equipa da primeira conta e a jogar fora)
   p = await pagina('/', { contexto: ctxB });

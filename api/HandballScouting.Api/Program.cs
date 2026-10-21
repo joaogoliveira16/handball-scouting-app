@@ -304,6 +304,13 @@ protegido.MapGet("/equipas/{id:int}/estatisticas", async (int id, short? parte, 
         : Results.NotFound(new { erro = "Equipa não encontrada." });
 });
 
+// O que se sabe de uma equipa pelos jogos registados da conta (remates dela e dos adversários, plantel, jogos...):
+// a página do relatório do próximo adversário faz as contas no browser
+protegido.MapGet("/equipas/{id:int}/adversario", async (int id, HttpContext http, EstatisticasService est, CancellationToken ct) =>
+    await est.AdversarioAsync(http.ContaAtual().Id, id, ct) is { } dados
+        ? Results.Ok(dados)
+        : Results.NotFound(new { erro = "Equipa não encontrada." }));
+
 // O Excel da página Estatísticas, com os mesmos filtros: ?local=casa|fora, ?parte=1|2 e ?ultimos=N (os N jogos mais recentes)
 protegido.MapGet("/equipas/{id:int}/estatisticas.xlsx", async (
     int id, string? local, short? parte, int? ultimos, HttpContext http, EstatisticasService est, CancellationToken ct) =>

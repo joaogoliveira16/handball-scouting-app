@@ -44,6 +44,27 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
         };
     }
 
+    /// <summary>
+    /// O que se sabe de uma equipa (normalmente a do próximo adversário) pelos jogos registados da conta: o plantel, os
+    /// jogos, os remates dela e dos adversários e os outros eventos. Null se a equipa não existir ou for de outra conta.
+    /// </summary>
+    public async Task<DadosDoAdversario?> AdversarioAsync(int donoId, int equipaId, CancellationToken ct = default)
+    {
+        await using var con = await dados.OpenConnectionAsync(ct);
+        var nome = await con.ExecuteScalarAsync<string?>(new CommandDefinition(sql["equipa_nome"], new { equipaId, donoId }, cancellationToken: ct));
+        if (nome is null) return null;
+        var p = new { equipaId, donoId };
+        return new DadosDoAdversario
+        {
+            EquipaId = equipaId,
+            Nome = nome,
+            Jogadores = (await Consulta<JogadorEquipa>(con, "jogadores_da_equipa", new { equipaId }, ct)).ToList(),
+            Jogos = (await Consulta<JogoDaEquipa>(con, "equipa_jogos", new { equipaId, donoId, parte = (short?)null }, ct)).ToList(),
+            Remates = (await Consulta<RemateDoAdversario>(con, "adversario_remates", p, ct)).ToList(),
+            OutrosEventos = (await Consulta<OutroEventoDoJogo>(con, "adversario_outros", p, ct)).ToList(),
+        };
+    }
+
     /// <summary>O nome de uma equipa da conta; null se a equipa não existir ou for de outra conta.</summary>
     public async Task<string?> NomeDaEquipaAsync(int donoId, int equipaId, CancellationToken ct = default)
     {

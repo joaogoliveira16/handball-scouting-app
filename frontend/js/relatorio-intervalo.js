@@ -32,7 +32,7 @@ const plural = (n, singular, pl) => `${n} ${n === 1 ? singular : pl}`;
 const pct = (golos, remates) => `${Math.round(eficaciaDe(golos, remates))}%`;
 
 /** Onde a equipa ataca (corredor), no feminino/masculino certo para cada frase. */
-const CORREDOR = {
+export const CORREDOR = {
   PONTA_ESQ: { com: 'a ponta esquerda', de: 'da ponta esquerda', por: 'pela ponta esquerda' },
   LATERAL_ESQ: { com: 'o lateral esquerdo', de: 'do lateral esquerdo', por: 'pelo lateral esquerdo' },
   CENTRAL: { com: 'o central', de: 'do central', por: 'pelo central' },

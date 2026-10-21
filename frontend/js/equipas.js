@@ -48,7 +48,11 @@ const botaoFoto = h('button', {
   type: 'button', id: 'ler-foto', class: 'botao suave pequeno', onclick: () => lerDeFoto(),
   title: 'Escolhe uma foto ou uma captura de ecrã com a lista de jogadores e a app lê-os',
 }, 'Ler de uma foto');
-const cabecalhoPlantel = h('div', { class: 'cabecalho-plantel' }, tituloPlantel, botaoFoto);
+const ligacaoRelatorio = h('a', {
+  id: 'relatorio-adversario', class: 'botao-link suave pequeno', hidden: true,
+  title: 'O que os jogos registados dizem desta equipa: o que explorar e o que travar',
+}, 'Relatório do adversário');
+const cabecalhoPlantel = h('div', { class: 'cabecalho-plantel' }, tituloPlantel, h('div', { class: 'ligacoes-equipa' }, ligacaoRelatorio, botaoFoto));
 const zonaTabela = h('div', {});
 
 // ---------------------------------------------------------------------
@@ -164,6 +168,8 @@ function desenharPlantel() {
   desenharEscudo();
   formJogador.hidden = !equipa;
   botaoFoto.hidden = !equipa;
+  ligacaoRelatorio.hidden = !equipa || equipa.propria;   // o relatório é das equipas adversárias
+  if (equipa) ligacaoRelatorio.href = `adversario.html?equipa=${equipa.id}`;
   tituloPlantel.textContent = equipa ? `Plantel · ${equipa.nome}` : 'Plantel';
 
   if (!equipa) {
