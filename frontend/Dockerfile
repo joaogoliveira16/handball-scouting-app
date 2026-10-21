@@ -3,8 +3,8 @@ FROM nginx:1.27-alpine
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Só os ficheiros da aplicação (sem Dockerfile nem nginx.conf dentro do site)
-COPY index.html entrar.html verificar.html redefinir.html convidado.html equipas.html convocatoria.html banco.html dashboard.html /usr/share/nginx/html/
+# Todas as páginas (*.html): uma página nova fica logo no site, sem lista para atualizar (o teste tests/unidade/docker.test.mjs confere)
+COPY *.html /usr/share/nginx/html/
 # Sem rede no pavilhão: o service worker (tem de estar na raiz do site), o manifest e os ícones da app instalável
 COPY sw.js manifest.webmanifest /usr/share/nginx/html/
 COPY icons/ /usr/share/nginx/html/icons/
