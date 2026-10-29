@@ -4,7 +4,9 @@
 //
 // Precisa da API a correr e de uma base de dados ACABADA DE CRIAR com db/init/*.sql: a primeira conta que o teste
 // regista e confirma herda os dados de exemplo (equipas e jogos sem dono). A API tem de enviar os emails para uma caixa
-// de correio de teste (Mailpit: SMTP 1025, API http em EMAIL_API=http://localhost:8025). Sai com código 1 se alguma verificação falhar.
+// de correio de teste (Mailpit: SMTP 1025, API http em EMAIL_API=http://localhost:8025). A API tem de ter
+// Administracao__Emails=admin-teste@exemplo.pt (é o email da conta de admin que o passo da administração regista; ver
+// tests/api.sh). Sai com código 1 se alguma verificação falhar.
 import fs from 'node:fs';
 import path from 'node:path';
 import * as signalR from '@microsoft/signalr';
@@ -731,7 +733,7 @@ await passo('Eventos e tempo real (SignalR / WebSockets)', async () => {
   const antes = recebidos.length;
   ok((await http('DELETE', `/api/jogos/${id}/eventos/${golo.json.id}`)).status === 204, 'DELETE evento = 204');
   ok(await ate(() => recebidos.length > antes), 'o dashboard recebe a atualização após apagar');
-  ok(recebidos.at(-1).equipas.find((e) => e.equipaId === casaId)?.golos === 0, 'depois de apagar o golo, 0 golos');
+  ok(await ate(() => recebidos.at(-1)?.equipas.find((e) => e.equipaId === casaId)?.golos === 0), 'depois de apagar o golo, 0 golos');
   ok((await http('DELETE', `/api/jogos/${id}/eventos/${golo.json.id}`)).status === 404, 'apagar o mesmo evento outra vez = 404');
   ok((await http('DELETE', `/api/jogos/99999/eventos/${defesa.json.id}`)).status === 404, 'apagar evento com jogo errado = 404');
 
@@ -1720,6 +1722,289 @@ await passo('Exportação para Excel', async () => {
     const novo = await descarregar(`/api/jogos/${jogoNovo.id}/exportar.xlsx`, 'jogo-novo.xlsx');
     ok(novo.r.status === 200 && novo.bytes[0] === 0x50, 'exportar um jogo com poucos eventos também funciona', `HTTP ${novo.r.status}`);
   }
+});
+
+// ----------------------------------------------------------------------
+// Administração (/api/admin). O primeiro admin vem da configuração da API (Administracao__Emails, ver tests/api.sh):
+// a conta regista-se como as outras e passa a admin ao entrar. Os outros papéis mudam-se pela própria API.
+const emailAdmin = process.env.ADMIN_EMAIL ?? 'admin-teste@exemplo.pt';
+
+await passo('Administração: acesso, contas, jogos, eventos e registo', async () => {
+  const admin = new Sessao('admin');
+  const nomeAdmin = 'Admin Teste';
+  const utilizadores = async () => (await http('GET', '/api/admin/utilizadores', undefined, admin)).json;
+  const daConta = async (email) => (await utilizadores())?.find((u) => u.email === email);
+  const novaConta = async (nome, email, confirmar = true) => {
+    const r = await http('POST', '/api/conta/registar', { nome, equipa: `${nome} FC ${sufixo}`, email, palavraPasse: SENHA }, anonima);
+    ok(r.status === 201, `conta ${email} criada`, descricao(r));
+    if (confirmar) ok((await http('POST', '/api/conta/confirmar-email', { token: await ultimoToken(email) }, anonima)).status === 204, `e confirmada (${email})`);
+  };
+
+  // ---- Quem não é admin não entra: sem sessão 401, com uma conta normal 403 (e nada muda)
+  const rotas = [
+    ['GET', '/api/admin/utilizadores'], ['PUT', '/api/admin/utilizadores/1/papel', { papel: 'admin' }],
+    ['PUT', '/api/admin/utilizadores/1/ativa', { ativa: false }], ['POST', '/api/admin/utilizadores/1/repor-palavra-passe'],
+    ['GET', '/api/admin/jogos'], ['GET', '/api/admin/jogos/2'], ['GET', '/api/admin/jogos/2/eventos'],
+    ['PUT', '/api/admin/jogos/2/eventos/1', {}], ['DELETE', '/api/admin/jogos/2/eventos/1'], ['GET', '/api/admin/registo'],
+  ];
+  for (const [metodo, caminho, corpo] of rotas) {
+    const semSessao = await http(metodo, caminho, corpo, anonima);
+    ok(semSessao.status === 401, `administração sem sessão: ${metodo} ${caminho} = 401`, descricao(semSessao));
+    const normal = await http(metodo, caminho, corpo, segunda);
+    ok(normal.status === 403 && typeof normal.json?.erro === 'string', `administração com uma conta normal: ${metodo} ${caminho} = 403`, descricao(normal));
+  }
+  ok((await http('GET', '/api/admin/jogos/2', undefined, anonima)).setCookie.length === 0, 'e a recusa não mexe nos cookies');
+  const contaNormal = await http('GET', '/api/conta', undefined, segunda);
+  ok(contaNormal.json?.admin === false, 'GET /api/conta de uma conta normal: admin = false', descricao(contaNormal));
+  ok((await http('GET', '/api/conta', undefined, principal)).json?.admin === false, 'a conta principal também não é admin (registar-se não dá o papel)');
+
+  // ---- O primeiro admin: o email está em Administracao__Emails; passa a admin ao entrar
+  const registoAdmin = await http('POST', '/api/conta/registar', { nome: nomeAdmin, equipa: `Admin FC ${sufixo}`, email: emailAdmin, palavraPasse: SENHA }, anonima);
+  if (registoAdmin.status === 201) {
+    ok((await http('POST', '/api/conta/confirmar-email', { token: await ultimoToken(emailAdmin) }, anonima)).status === 204, 'a conta de admin confirma o email');
+  } else {
+    ok(registoAdmin.status === 409, 'a conta de admin já existia (de uma corrida anterior)', descricao(registoAdmin));
+  }
+  const entrouAdmin = await http('POST', '/api/conta/entrar', { email: emailAdmin, palavraPasse: SENHA }, admin);
+  ok(entrouAdmin.status === 200 && entrouAdmin.json?.admin === true, 'o email da configuração entra como admin', descricao(entrouAdmin));
+  ok((await http('GET', '/api/conta', undefined, admin)).json?.admin === true, 'GET /api/conta: admin = true');
+  const idAdmin = (await daConta(emailAdmin))?.id;
+  ok(idAdmin > 0, 'a conta de admin aparece na lista de contas');
+
+  // ---- Contas: lista com tudo o que a página mostra, sem nada secreto
+  const respostaLista = await http('GET', '/api/admin/utilizadores', undefined, admin);
+  ok(respostaLista.status === 200 && /no-store/.test(respostaLista.cabecalhos.get('cache-control') ?? ''), 'GET utilizadores = 200 (e fora da cache)', descricao(respostaLista));
+  const lista = respostaLista.json;
+  ok(Array.isArray(lista) && lista.every((u) => JSON.stringify(Object.keys(u).sort()) === '["criadoEm","email","equipa","estado","id","jogos","nome","papel"]'),
+    'cada conta traz id, nome, email, papel, estado, equipa, jogos e data de criação', JSON.stringify(lista?.[0]));
+  ok(!/hash|palavra|token/i.test(respostaLista.texto), 'e nenhum campo guarda palavras-passe, hashes ou códigos');
+  const dePrincipal = lista?.find((u) => u.email === emailPrincipal);
+  ok(dePrincipal?.estado === 'ativo' && dePrincipal.papel === 'normal' && dePrincipal.nome === `Principal ${sufixo}` && dePrincipal.equipa === equipaPrincipal && dePrincipal.jogos > 0,
+    'a conta principal: ativa, normal, com equipa e jogos', JSON.stringify(dePrincipal));
+  const deSegunda = lista?.find((u) => u.email === emailSegunda);
+  ok(deSegunda?.estado === 'ativo' && deSegunda.papel === 'normal' && deSegunda.equipa === equipaSegunda, 'a segunda conta: ativa, normal, com a sua equipa', JSON.stringify(deSegunda));
+  ok(lista?.find((u) => u.id === idAdmin)?.papel === 'admin', 'e a conta de admin tem o papel admin');
+  const emailPorConfirmar = `admin-porconfirmar-${sufixo}@exemplo.pt`;
+  await novaConta('Por Confirmar Admin', emailPorConfirmar, false);
+  const porConfirmar = await daConta(emailPorConfirmar);
+  ok(porConfirmar?.estado === 'por_confirmar' && porConfirmar.papel === 'normal', 'uma conta que não confirmou o email aparece como por_confirmar', JSON.stringify(porConfirmar));
+
+  // ---- Papel: normal / admin
+  const idSegunda = deSegunda?.id;
+  const papel = (id, corpo, sessao = admin) => http('PUT', `/api/admin/utilizadores/${id}/papel`, corpo, sessao);
+  let r = await papel(idAdmin, { papel: 'normal' });
+  ok(r.status === 400 && /própria conta/.test(r.texto), 'ninguém muda o próprio papel = 400', descricao(r));
+  for (const [nome, corpo] of [['papel que não existe', { papel: 'dono' }], ['sem papel', {}], ['em maiúsculas', { papel: 'ADMIN' }]]) {
+    r = await papel(idSegunda, corpo);
+    ok(r.status === 400 && typeof r.json?.erro === 'string', `papel inválido (${nome}) = 400`, descricao(r));
+  }
+  ok((await papel(999999, { papel: 'admin' })).status === 404, 'papel de uma conta que não existe = 404');
+  r = await papel(idSegunda, { papel: 'normal' });
+  ok(r.status === 409, 'dar o papel que a conta já tem = 409', descricao(r));
+  r = await papel(porConfirmar?.id, { papel: 'admin' });
+  ok(r.status === 409 && /ativa/.test(r.texto), 'uma conta por confirmar não pode ser admin = 409', descricao(r));
+  ok((await daConta(emailSegunda))?.papel === 'normal', 'e nada mudou depois destes pedidos');
+
+  r = await papel(idSegunda, { papel: 'admin' });
+  ok(r.status === 204, 'tornar a segunda conta admin = 204', descricao(r));
+  ok((await daConta(emailSegunda))?.papel === 'admin', 'a lista mostra o papel novo');
+  ok((await http('GET', '/api/conta', undefined, segunda)).json?.admin === true, 'a sessão que a segunda conta já tinha passa logo a admin');
+  ok((await http('GET', '/api/admin/utilizadores', undefined, segunda)).status === 200, 'e já entra na administração');
+  r = await papel(idSegunda, { papel: 'normal' }, segunda);
+  ok(r.status === 400, 'o novo admin também não muda o próprio papel = 400', descricao(r));
+
+  // Um admin tira o papel a outro; a conta da configuração volta a ser admin quando entra outra vez
+  r = await papel(idAdmin, { papel: 'normal' }, segunda);
+  ok(r.status === 204, 'um admin tira o papel a outro = 204', descricao(r));
+  ok((await http('GET', '/api/admin/utilizadores', undefined, admin)).status === 403, 'a sessão da conta que perdeu o papel deixa logo de entrar (403)');
+  const reentrou = await http('POST', '/api/conta/entrar', { email: emailAdmin, palavraPasse: SENHA }, admin);
+  ok(reentrou.status === 200 && reentrou.json?.admin === true, 'o email da configuração volta a ser admin ao entrar', descricao(reentrou));
+  ok((await http('GET', '/api/admin/utilizadores', undefined, admin)).status === 200, 'e a administração volta a abrir');
+
+  r = await papel(idSegunda, { papel: 'normal' });
+  ok(r.status === 204, 'tirar o papel de admin à segunda conta = 204', descricao(r));
+  ok((await http('GET', '/api/admin/registo', undefined, segunda)).status === 403, 'a segunda conta deixa logo de ser admin (403)');
+  ok((await http('GET', '/api/conta', undefined, segunda)).json?.admin === false, 'GET /api/conta: admin = false');
+
+  // ---- Desativar e voltar a ativar uma conta
+  const emailVitima = `desativar-${sufixo}@exemplo.pt`;
+  await novaConta('Desativar', emailVitima);
+  const aparelho1 = new Sessao('conta a desativar 1');
+  const aparelho2 = new Sessao('conta a desativar 2');
+  ok((await http('POST', '/api/conta/entrar', { email: emailVitima, palavraPasse: SENHA }, aparelho1)).status === 200
+    && (await http('POST', '/api/conta/entrar', { email: emailVitima, palavraPasse: SENHA }, aparelho2)).status === 200, 'a conta a desativar tem a sessão aberta em dois aparelhos');
+  const equipaVitima = (await http('GET', '/api/equipas', undefined, aparelho1)).json?.find((e) => e.propria)?.id;
+  const adversariaVitima = (await http('POST', '/api/equipas', { nome: 'Adversária' }, aparelho1)).json?.id;
+  const jogoVitima = await http('POST', '/api/jogos', { casaId: equipaVitima, foraId: adversariaVitima }, aparelho1);
+  ok(jogoVitima.status === 201, 'e um jogo seu', descricao(jogoVitima));
+  const idVitima = (await daConta(emailVitima))?.id;
+  const ativa = (id, corpo) => http('PUT', `/api/admin/utilizadores/${id}/ativa`, corpo, admin);
+
+  r = await ativa(idAdmin, { ativa: false });
+  ok(r.status === 400 && /própria conta/.test(r.texto), 'ninguém desativa a própria conta = 400', descricao(r));
+  ok((await ativa(idVitima, {})).status === 400, 'desativar sem dizer se fica ativa ou não = 400');
+  ok((await ativa(999999, { ativa: false })).status === 404, 'desativar uma conta que não existe = 404');
+  r = await ativa(idVitima, { ativa: true });
+  ok(r.status === 409, 'ativar uma conta que já está ativa = 409', descricao(r));
+
+  r = await ativa(idVitima, { ativa: false });
+  ok(r.status === 204, 'desativar a conta = 204', descricao(r));
+  for (const [i, aparelho] of [aparelho1, aparelho2].entries()) {
+    const sessao = await http('GET', '/api/conta', undefined, aparelho);
+    ok(sessao.status === 401, `a sessão do aparelho ${i + 1} termina logo (401)`, descricao(sessao));
+  }
+  const entrarDesativada = await http('POST', '/api/conta/entrar', { email: emailVitima, palavraPasse: SENHA }, new Sessao('desativada'));
+  ok(entrarDesativada.status === 403 && entrarDesativada.json?.codigo === 'conta_desativada' && entrarDesativada.setCookie.length === 0 && /desativada/.test(entrarDesativada.json?.erro ?? ''),
+    'entrar numa conta desativada = 403 com o código conta_desativada (e sem cookie)', descricao(entrarDesativada));
+  const erradaDesativada = await http('POST', '/api/conta/entrar', { email: emailVitima, palavraPasse: 'errada-errada-1' }, new Sessao('desativada'));
+  ok(erradaDesativada.status === 401 && erradaDesativada.json?.codigo === undefined, 'com a palavra-passe errada continua a ser o 401 de sempre (não revela a conta)', descricao(erradaDesativada));
+  const desativada = await daConta(emailVitima);
+  ok(desativada?.estado === 'desativado' && desativada.jogos === 1 && !!desativada.equipa, 'a lista mostra a conta desativada, com os dados que tinha (equipa e jogo)', JSON.stringify(desativada));
+  ok((await ativa(idVitima, { ativa: false })).status === 409, 'desativar outra vez = 409');
+  r = await papel(idVitima, { papel: 'admin' });
+  ok(r.status === 409, 'uma conta desativada não pode ser admin = 409', descricao(r));
+  r = await http('POST', `/api/admin/utilizadores/${idVitima}/repor-palavra-passe`, undefined, admin);
+  ok(r.status === 409 && /desativada/.test(r.texto), 'repor a palavra-passe de uma conta desativada = 409', descricao(r));
+  ok((await http('POST', '/api/conta/esqueci-palavra-passe', { email: emailVitima }, anonima)).status === 204, 'pedir a recuperação de uma conta desativada = 204 (responde igual)');
+  await esperar(400);
+  ok((await mensagensPara(emailVitima)).length === 1, 'mas não envia nenhum email (só o de confirmar a conta)');
+
+  r = await ativa(idVitima, { ativa: true });
+  ok(r.status === 204, 'voltar a ativar a conta = 204', descricao(r));
+  ok((await ativa(idVitima, { ativa: true })).status === 409, 'ativar outra vez = 409');
+  const voltou = await http('POST', '/api/conta/entrar', { email: emailVitima, palavraPasse: SENHA }, aparelho1);
+  ok(voltou.status === 200 && voltou.json?.admin === false, 'a conta volta a entrar com a mesma palavra-passe', descricao(voltou));
+  ok((await http('GET', '/api/jogos', undefined, aparelho1)).json?.some((j) => j.id === jogoVitima.json?.id), 'e continua a ter o jogo');
+  ok((await daConta(emailVitima))?.estado === 'ativo', 'a lista volta a mostrá-la como ativa');
+
+  // ---- Repor a palavra-passe: o admin só envia a ligação, nunca vê nem escolhe a palavra-passe
+  r = await http('POST', `/api/admin/utilizadores/${idVitima}/repor-palavra-passe`, undefined, admin);
+  ok(r.status === 204 && r.texto === '', 'repor a palavra-passe = 204 (sem nada para o admin ver)', descricao(r));
+  ok((await http('POST', '/api/admin/utilizadores/999999/repor-palavra-passe', undefined, admin)).status === 404, 'repor a palavra-passe de uma conta que não existe = 404');
+  const tokenRepor = await ultimoToken(emailVitima, 2, 'redefinir');
+  const mensagensVitima = await mensagensPara(emailVitima);
+  const textoRepor = mensagensVitima[0] ? (await lerMensagem(mensagensVitima[0].ID)).Text : '';
+  ok(!!tokenRepor && textoRepor.includes(`${URL_PUBLICO}/redefinir.html?t=${tokenRepor}`) && textoRepor.includes('Olá Desativar,'),
+    'a conta recebe o email com a ligação para escolher a palavra-passe nova', textoRepor.slice(0, 160));
+  const NOVA = 'palavra-passe-nova-admin-9';
+  ok((await http('POST', '/api/conta/redefinir-palavra-passe', { token: tokenRepor, palavraPasse: NOVA }, anonima)).status === 204, 'a ligação serve para escolher a palavra-passe nova');
+  ok((await http('GET', '/api/conta', undefined, aparelho1)).status === 401, 'e as sessões abertas terminam');
+  ok((await http('POST', '/api/conta/entrar', { email: emailVitima, palavraPasse: SENHA }, new Sessao('antiga'))).status === 401, 'a palavra-passe antiga já não entra');
+  ok((await http('POST', '/api/conta/entrar', { email: emailVitima, palavraPasse: NOVA }, new Sessao('nova'))).status === 200, 'a nova entra');
+
+  // ---- Jogos de todas as contas
+  const equipaSegundaId = (await http('GET', '/api/equipas', undefined, segunda)).json?.find((e) => e.propria)?.id;
+  const adversaria = (await http('POST', '/api/equipas', { nome: `Adversária Admin ${sufixo}` }, segunda)).json?.id;
+  const jog = async (equipaId, numero, nome, posicao) => (await http('POST', `/api/equipas/${equipaId}/jogadores`, { numero, nome, posicao }, segunda)).json?.id;
+  const lateral1 = await jog(equipaSegundaId, 71, 'Rui Admin', 'LE');
+  const lateral2 = await jog(equipaSegundaId, 72, 'Tiago Admin', 'PE');
+  const guardaRedes = await jog(adversaria, 1, 'Gil Admin', 'GR');
+  const lateralAdv = await jog(adversaria, 5, 'Nuno Admin', 'LE');
+  const jogoAdmin = (await http('POST', '/api/jogos', { casaId: equipaSegundaId, foraId: adversaria, local: 'Pavilhão Admin' }, segunda)).json?.id;
+  ok(jogoAdmin > 0 && lateral1 > 0 && lateral2 > 0 && guardaRedes > 0 && lateralAdv > 0, 'a segunda conta cria um jogo com jogadores', `${jogoAdmin} ${lateral1} ${lateral2} ${guardaRedes} ${lateralAdv}`);
+  const remate = { tipoEvento: 'REMATE', equipaId: equipaSegundaId, jogadorId: lateral1, guardaRedesId: guardaRedes, resultado: 'FORA', situacao: 'POSICIONAL', x: 50, y: 40, parte: 1, segundoJogo: 120 };
+  const doisMin = { tipoEvento: 'DOIS_MINUTOS', equipaId: adversaria, jogadorId: lateralAdv, parte: 2, segundoJogo: 2100 };
+  const idRemate = (await http('POST', `/api/jogos/${jogoAdmin}/eventos`, remate, segunda)).json?.id;
+  const idDois = (await http('POST', `/api/jogos/${jogoAdmin}/eventos`, doisMin, segunda)).json?.id;
+  ok(idRemate > 0 && idDois > 0, 'com dois eventos', `${idRemate} ${idDois}`);
+
+  const respostaJogos = await http('GET', '/api/admin/jogos', undefined, admin);
+  const jogos = respostaJogos.json;
+  ok(respostaJogos.status === 200 && Array.isArray(jogos) && jogos.length > 0, 'GET jogos = 200', descricao(respostaJogos));
+  ok(jogos?.every((j) => JSON.stringify(Object.keys(j).sort()) === '["casaNome","dataHora","donoId","donoNome","eventos","foraNome","golosCasa","golosFora","id","local","terminadoEm"]'),
+    'cada jogo traz equipas, conta dona, golos, número de eventos, data e local', JSON.stringify(jogos?.[0]));
+  const j2 = jogos?.find((j) => j.id === 2);
+  const j2Dono = (await http('GET', '/api/jogos')).json?.find((j) => j.id === 2);
+  ok(j2?.donoNome === `Principal ${sufixo}` && j2.eventos > 0 && j2Dono && j2.golosCasa === j2Dono.golosCasa && j2.golosFora === j2Dono.golosFora,
+    'o jogo 2 mostra a conta dona e os mesmos golos que o dono vê', JSON.stringify(j2));
+  const jAdmin = jogos?.find((j) => j.id === jogoAdmin);
+  ok(jAdmin?.donoNome === `Segunda ${sufixo}` && jAdmin.local === 'Pavilhão Admin' && jAdmin.eventos === 2 && jAdmin.golosCasa === 0 && jAdmin.golosFora === 0, 'e o jogo da segunda conta aparece com a sua conta', JSON.stringify(jAdmin));
+  ok(new Set(jogos?.map((j) => j.donoNome)).size >= 2, 'há jogos de várias contas na mesma lista');
+  ok(jogos?.every((j, i) => i === 0 || Date.parse(jogos[i - 1].dataHora) >= Date.parse(j.dataHora)), 'por ordem: o mais recente primeiro');
+
+  // ---- Eventos de um jogo que não é do admin: ver, corrigir e apagar
+  const base = `/api/admin/jogos/${jogoAdmin}`;
+  const detalheAdmin = await http('GET', base, undefined, admin);
+  ok(detalheAdmin.status === 200 && detalheAdmin.json?.id === jogoAdmin && detalheAdmin.json.donoNome === `Segunda ${sufixo}` && detalheAdmin.json.casaId === equipaSegundaId
+    && detalheAdmin.json.jogadores?.length >= 4 && typeof detalheAdmin.json.codigo === 'string' && detalheAdmin.json.codigo.length > 0, 'GET jogo: equipas, jogadores, código e nome da conta dona', descricao(detalheAdmin));
+  ok((await http('GET', '/api/admin/jogos/99999', undefined, admin)).status === 404, 'jogo que não existe = 404');
+  ok((await http('GET', '/api/admin/jogos/99999/eventos', undefined, admin)).status === 404, 'eventos de um jogo que não existe = 404');
+  const eventosDoAdmin = await http('GET', `${base}/eventos`, undefined, admin);
+  const eventosDoDono = await http('GET', `/api/jogos/${jogoAdmin}/eventos`, undefined, segunda);
+  ok(eventosDoAdmin.status === 200 && eventosDoAdmin.texto === eventosDoDono.texto && eventosDoAdmin.json?.length === 2, 'o admin vê os mesmos eventos que o dono', descricao(eventosDoAdmin));
+  ok((await http('GET', `/api/jogos/${jogoAdmin}/eventos`, undefined, principal)).status === 404, 'outra conta normal continua a não ver o jogo (404)');
+  ok((await http('GET', `/api/jogos/${jogoAdmin}/eventos`, undefined, admin)).status === 404, 'e o admin também não o vê pelas rotas normais: a administração tem as suas rotas');
+
+  const verEventos = async () => (await http('GET', `/api/jogos/${jogoAdmin}/eventos`, undefined, segunda)).json;
+  const golosCasa = async () => (await http('GET', `/api/jogos/${jogoAdmin}/estatisticas`, undefined, segunda)).json?.equipas?.find((e) => e.equipaId === equipaSegundaId)?.golos;
+  const corrigido = { ...remate, resultado: 'GOLO', jogadorId: lateral2, x: 40.5, y: 22, balizaX: 80, balizaY: 15, segundoJogo: 185, sistemaDefensivo: '6_0' };
+  ok((await golosCasa()) === 0, 'antes da correção a casa não tem golos');
+
+  // O que a API recusa (as mesmas regras do dono): nada muda
+  const antes = JSON.stringify(await verEventos());
+  r = await http('PUT', `${base}/eventos/${idRemate}`, { ...remate, jogadorId: lateralAdv }, admin);
+  ok(r.status === 400 && /não pertence à equipa/.test(r.texto), 'corrigir com um jogador da outra equipa = 400', descricao(r));
+  r = await http('PUT', `${base}/eventos/${idRemate}`, { ...remate, tipoEvento: 'NAO_EXISTE' }, admin);
+  ok(r.status === 400 && /não existe/.test(r.texto), 'corrigir com um tipo que não existe = 400', descricao(r));
+  ok(JSON.stringify(await verEventos()) === antes, 'e os eventos ficam como estavam');
+  ok((await http('PUT', `${base}/eventos/99999999`, remate, admin)).status === 404, 'corrigir um evento que não existe = 404');
+  ok((await http('PUT', '/api/admin/jogos/99999/eventos/1', remate, admin)).status === 404, 'corrigir num jogo que não existe = 404');
+  ok((await http('PUT', `/api/admin/jogos/2/eventos/${idRemate}`, remate, admin)).status === 404, 'um evento só se corrige dentro do seu jogo (404)');
+  ok((await http('DELETE', `/api/admin/jogos/2/eventos/${idRemate}`, undefined, admin)).status === 404, 'nem se apaga noutro jogo (404)');
+  ok(JSON.stringify(await verEventos()) === antes, 'sem registo de nada disto: os eventos continuam iguais');
+
+  // Corrigir: o remate fora passa a golo de outro jogador, e quem tem o dashboard aberto recebe os números novos
+  const donoHub = ligarHub(segunda);
+  const recebidos = [];
+  donoHub.on('EstatisticasAtualizadas', (estado) => recebidos.push(estado));
+  await donoHub.start();
+  await donoHub.invoke('EntrarNoJogo', jogoAdmin, null);
+  r = await http('PUT', `${base}/eventos/${idRemate}`, corrigido, admin);
+  ok(r.status === 204, 'o admin corrige o remate de outra conta = 204', descricao(r));
+  const e = (await verEventos()).find((x) => x.id === idRemate);
+  ok(e?.resultado === 'GOLO' && e.jogadorId === lateral2 && Number(e.x) === 40.5 && Number(e.balizaX) === 80 && e.sistemaDefensivo === '6_0' && e.segundoJogo === 185, 'o dono vê o remate corrigido', JSON.stringify(e));
+  ok((await golosCasa()) === 1, 'e as estatísticas contam o golo');
+  ok(await ate(() => recebidos.at(-1)?.equipas?.find((q) => q.equipaId === equipaSegundaId)?.golos === 1), 'o dashboard aberto do dono recebe o golo em direto');
+  ok((await http('GET', '/api/admin/jogos', undefined, admin)).json?.find((j) => j.id === jogoAdmin)?.golosCasa === 1, 'e a lista de jogos da administração também');
+  r = await http('PUT', `${base}/eventos/${idRemate}`, { ...corrigido, resultado: 'POSTE', balizaX: null, balizaY: null, sistemaDefensivo: null }, admin);
+  ok(r.status === 204 && (await golosCasa()) === 0, 'corrigir outra vez (de golo para poste) tira o golo');
+  await donoHub.stop();
+
+  // Apagar
+  ok((await http('DELETE', `${base}/eventos/${idDois}`, undefined, admin)).status === 204 && (await verEventos()).length === 1, 'o admin apaga um evento = 204 (e sai da lista do dono)');
+  ok((await http('DELETE', `${base}/eventos/${idDois}`, undefined, admin)).status === 404, 'apagar outra vez = 404');
+  ok((await http('DELETE', '/api/admin/jogos/99999/eventos/1', undefined, admin)).status === 404, 'apagar num jogo que não existe = 404');
+
+  // ---- Registo de alterações
+  const respostaRegisto = await http('GET', '/api/admin/registo', undefined, admin);
+  const registo = respostaRegisto.json;
+  ok(respostaRegisto.status === 200 && Array.isArray(registo) && /no-store/.test(respostaRegisto.cabecalhos.get('cache-control') ?? ''), 'GET registo = 200 (fora da cache)', descricao(respostaRegisto));
+  ok(registo?.every((l) => JSON.stringify(Object.keys(l).sort()) === '["acao","autorNome","detalhe","id","jogoId","quando","tipo"]'), 'cada linha traz quem, quando, o quê e o detalhe', JSON.stringify(registo?.[0]));
+  ok(registo?.every((l, i) => i === 0 || Date.parse(registo[i - 1].quando) >= Date.parse(l.quando)), 'o mais recente primeiro');
+  const linha = (acao, parte, extra = () => true) => registo?.find((l) => l.acao === acao && l.detalhe.includes(parte) && extra(l));
+  ok(linha('Papel alterado', `${emailSegunda}: Normal passou a Admin`, (l) => l.autorNome === nomeAdmin && l.tipo === 'conta'), 'o registo tem: papel dado à segunda conta, por quem');
+  ok(linha('Papel alterado', `${emailSegunda}: Admin passou a Normal`, (l) => l.autorNome === nomeAdmin), 'e o papel tirado');
+  ok(linha('Papel alterado', `${emailAdmin}: Normal passou a Admin (configuração)`, (l) => l.autorNome === 'Sistema' && l.tipo === 'conta'), 'e a promoção do email da configuração (feita pelo Sistema)');
+  ok(linha('Papel alterado', `${emailAdmin}: Admin passou a Normal`, (l) => l.autorNome === `Segunda ${sufixo}`), 'e o admin que tirou o papel a outro');
+  ok(linha('Conta desativada', emailVitima, (l) => l.autorNome === nomeAdmin && l.tipo === 'conta' && l.jogoId === null), 'a conta desativada');
+  ok(linha('Conta ativada', emailVitima, (l) => l.autorNome === nomeAdmin), 'a conta ativada');
+  ok(linha('Ligação para repor a palavra-passe enviada', emailVitima, (l) => l.autorNome === nomeAdmin), 'a ligação para repor a palavra-passe');
+  const corrigida = linha('Evento corrigido', `conta Segunda ${sufixo}`, (l) => l.jogoId === jogoAdmin && l.detalhe.includes('resultado de Fora para Golo'));
+  ok(!!corrigida && corrigida.tipo === 'evento' && corrigida.autorNome === nomeAdmin && corrigida.detalhe.includes('jogador de #71 Rui Admin para #72 Tiago Admin')
+    && corrigida.detalhe.includes('tempo de 1.ª 02:00 para 1.ª 03:05') && corrigida.detalhe.includes('defesa do adversário de não indicado para 6:0'), 'a correção do evento diz o que mudou (de quê para quê)', corrigida?.detalhe);
+  ok(!!linha('Evento corrigido', 'resultado de Golo para Poste', (l) => l.jogoId === jogoAdmin), 'e cada correção tem a sua linha');
+  const apagada = linha('Evento apagado', `conta Segunda ${sufixo}`, (l) => l.jogoId === jogoAdmin);
+  ok(!!apagada && apagada.tipo === 'evento' && /2 minutos/.test(apagada.detalhe) && apagada.detalhe.includes('#5 Nuno Admin') && apagada.detalhe.includes('2.ª 35:00'), 'o evento apagado fica descrito no registo', apagada?.detalhe);
+  ok(registo?.filter((l) => l.acao === 'Evento corrigido').length === 2, 'e as correções recusadas não deixam linha (só as duas que se fizeram)');
+
+  const soEventos = (await http('GET', '/api/admin/registo?tipo=evento', undefined, admin)).json;
+  const soContas = (await http('GET', '/api/admin/registo?tipo=conta', undefined, admin)).json;
+  ok(soEventos?.length > 0 && soEventos.every((l) => l.tipo === 'evento') && soContas?.length > 0 && soContas.every((l) => l.tipo === 'conta') && soEventos.length + soContas.length === registo?.length,
+    '?tipo=evento e ?tipo=conta separam as linhas (e juntas dão o registo todo)', `${soEventos?.length} + ${soContas?.length} / ${registo?.length}`);
+  r = await http('GET', '/api/admin/registo?tipo=outro', undefined, admin);
+  ok(r.status === 400 && typeof r.json?.erro === 'string', '?tipo=outro = 400', descricao(r));
+
+  ok((await http('GET', '/api/admin/registo', undefined, segunda)).status === 403, 'no fim a segunda conta continua sem acesso ao registo (403)');
 });
 
 // ----------------------------------------------------------------------

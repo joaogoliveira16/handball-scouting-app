@@ -66,6 +66,9 @@ services:
       Email__De: ${EMAIL_DE:-scouting@localhost}
       # Endereço da app visto por quem recebe o email (vai dentro do link de confirmação)
       App__UrlPublico: ${URL_PUBLICO:-http://localhost:8080}
+      # Quem administra a app: os emails (separados por vírgula) das contas que passam a admin quando entram. É assim que
+      # nasce o primeiro admin; os outros escolhem-se na página de administração. Sem nada, ninguém é admin.
+      Administracao__Emails: ${ADMIN_EMAILS:-}
     depends_on:
       migrar:
         condition: service_completed_successfully

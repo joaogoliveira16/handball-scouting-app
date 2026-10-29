@@ -54,6 +54,10 @@ BEGIN
         'a posição Universal devia ser acrescentada à base antiga (e repetir os scripts não a duplica)';
     ASSERT (SELECT nome FROM posicoes WHERE codigo = 'PV') = 'Pivot',
         'a posição PV devia chamar-se Pivot (português de Portugal)';
+    ASSERT (SELECT papel = 'normal' AND desativado_em IS NULL FROM utilizadores WHERE email = 'antiga@exemplo.pt'),
+        'a conta que já existia devia ficar normal e ativa (ninguém passa a admin pela atualização)';
+    ASSERT (SELECT COUNT(*) = 0 FROM utilizadores WHERE papel <> 'normal') AND (SELECT COUNT(*) = 0 FROM registo_alteracoes),
+        'a atualização não devia dar o papel de admin a ninguém nem deixar linhas no registo (repetir os scripts também não)';
     ASSERT (SELECT COUNT(*) > 0 FROM eventos WHERE jogo_id = 2 AND sistema_defensivo IS NOT NULL),
         'o jogo de exemplo devia ficar com a defesa do adversário marcada nos remates posicionais';
 END

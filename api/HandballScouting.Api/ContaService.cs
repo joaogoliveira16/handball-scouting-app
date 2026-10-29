@@ -18,7 +18,7 @@ public record ResultadoConta(
 /// <summary>Contas e sessões. O cookie leva um código aleatório; na base de dados só fica o seu SHA-256.</summary>
 public class ContaService(
     NpgsqlDataSource dados, SqlLoader sql, LimiteTentativas limite,
-    LimiteEnvios envios, IEnviadorEmail enviador, OpcoesEmail opcoes, ILogger<ContaService> log)
+    LimiteEnvios envios, IEnviadorEmail enviador, OpcoesEmail opcoes, OpcoesAdmin admins, ILogger<ContaService> log)
 {
     public static readonly TimeSpan DuracaoSessao = TimeSpan.FromDays(30);
     /// <summary>Durante quanto tempo o link do email de confirmação funciona.</summary>
@@ -29,6 +29,8 @@ public class ContaService(
     public const string CodigoPorConfirmar = "email_por_confirmar";
     /// <summary>Código da falha em que o link de recuperação não serve (a página oferece pedir outro).</summary>
     public const string CodigoLinkInvalido = "link_invalido";
+    /// <summary>Código da falha em que um admin desativou a conta.</summary>
+    public const string CodigoDesativada = "conta_desativada";
     private const string ViolacaoUnicidade = "23505";
     private const string MensagemEntrada = "Email ou palavra-passe errados.";
     private const string MensagemLinkInvalido = "A ligação é inválida ou já expirou. Pede um novo email de confirmação.";
@@ -214,13 +216,60 @@ public class ContaService(
             return ResultadoConta.Falha(401, MensagemEntrada);
         }
 
+        // Palavra-passe certa, mas um admin desativou a conta: sem sessão (e sem dizer isto a quem só adivinha)
+        if (conta.Desativado)
+            return ResultadoConta.Falha(403, "Esta conta foi desativada. Fala com quem administra a app.", CodigoDesativada);
+
         // Palavra-passe certa, mas o email ainda não foi confirmado: sem sessão (e sem dizer isto a quem só adivinha)
         if (!conta.EmailVerificado)
             return ResultadoConta.Falha(403, "Confirma o teu email para entrar. Enviámos-te uma ligação quando criaste a conta.", CodigoPorConfirmar);
 
         limite.Limpar(email);
+        // Um email da lista de admins da configuração (Administracao__Emails) passa a admin ao entrar
+        if (!conta.Admin && admins.Contem(email))
+        {
+            await PromoverConfiguradosAsync(con, [email], ct);
+            conta.Admin = true;
+        }
         var token = await CriarSessaoAsync(con, conta.Id, ct);
-        return new ResultadoConta(true, 200, null, new Utilizador { Id = conta.Id, Nome = conta.Nome, Email = conta.Email }, token);
+        return new ResultadoConta(true, 200, null, new Utilizador { Id = conta.Id, Nome = conta.Nome, Email = conta.Email, Admin = conta.Admin }, token);
+    }
+
+    /// <summary>
+    /// Ao arrancar a API: as contas confirmadas cujo email está em Administracao__Emails passam a admin
+    /// (assim uma sessão que já estava aberta também fica com o papel).
+    /// </summary>
+    public async Task PromoverAdminsConfiguradosAsync(CancellationToken ct = default)
+    {
+        if (admins.Emails.Count == 0) return;
+        await using var con = await dados.OpenConnectionAsync(ct);
+        await PromoverConfiguradosAsync(con, admins.Emails.ToArray(), ct);
+    }
+
+    private async Task PromoverConfiguradosAsync(NpgsqlConnection con, string[] emails, CancellationToken ct)
+    {
+        var promovidos = await con.QueryAsync<string>(Cmd(sql["admin_promover_emails"], new { emails }, ct));
+        foreach (var email in promovidos)
+        {
+            log.LogInformation("A conta {Email} passou a admin (configuração Administracao__Emails).", email);
+            await con.ExecuteAsync(Cmd(sql["admin_registar_alteracao"], new
+            {
+                autorId = (int?)null, autorNome = "Sistema", tipo = "conta", acao = "Papel alterado",
+                detalhe = $"{email}: Normal passou a Admin (configuração)", jogoId = (int?)null
+            }, ct));
+        }
+    }
+
+    /// <summary>
+    /// Envia à conta o link para escolher outra palavra-passe, a pedido de um admin (que nunca vê a palavra-passe).
+    /// Null se a conta não existe ou está desativada; false se o email não pôde seguir.
+    /// </summary>
+    public async Task<bool?> EnviarRedefinicaoAsync(int utilizadorId, CancellationToken ct = default)
+    {
+        await using var con = await dados.OpenConnectionAsync(ct);
+        var conta = await con.QuerySingleOrDefaultAsync<Utilizador>(Cmd(sql["utilizador_por_id"], new { id = utilizadorId }, ct));
+        if (conta is null) return null;
+        return await EnviarLinkAsync(con, LinkRedefinicao, conta.Id, conta.Nome, conta.Email, ct);
     }
 
     private async Task<string> CriarSessaoAsync(NpgsqlConnection con, int utilizadorId, CancellationToken ct)

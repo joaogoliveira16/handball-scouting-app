@@ -2913,6 +2913,188 @@ await passo('Segunda conta: começa vazia e não vê os dados da primeira', asyn
   await ctxB.close();
 });
 
+// ======================= Administração =======================
+// O primeiro admin vem da configuração da API (Administracao__Emails=admin-teste@exemplo.pt, ver tests/api.sh): a conta
+// cria-se pela página como as outras e passa a admin quando entra.
+await passo('Administração: contas, jogos, correção de eventos e registo de alterações', async () => {
+  const emailAdmin = process.env.ADMIN_EMAIL ?? 'admin-teste@exemplo.pt';
+  const emailB = `bruno-${sufixo}@exemplo.pt`;
+  const nomeB = 'Bruno';
+  const [bruno] = await q('SELECT id, equipa_id FROM utilizadores WHERE email = $1', [emailB]);
+  if (!bruno) return ok(false, 'administração: falta a conta do passo anterior');
+
+  // Um jogo da conta do Bruno, com dois eventos, para o admin corrigir
+  const localAdmin = `Pavilhão Admin ${sufixo}`;
+  const [adversaria] = await q('INSERT INTO equipas (nome, dono_id) VALUES ($1, $2) RETURNING id', [`Adversária Admin ${sufixo}`, bruno.id]);
+  const [lateral1] = await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1, 71, 'Rui Admin', 'LE') RETURNING id", [bruno.equipa_id]);
+  const [lateral2] = await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1, 72, 'Tiago Admin', 'LE') RETURNING id", [bruno.equipa_id]);
+  const [guardaRedes] = await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1, 1, 'Gil Admin', 'GR') RETURNING id", [adversaria.id]);
+  const [lateralAdv] = await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1, 5, 'Nuno Admin', 'LE') RETURNING id", [adversaria.id]);
+  const [jogo] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, local, data_hora) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+    [bruno.equipa_id, adversaria.id, bruno.id, localAdmin, '2026-10-20T18:00:00Z']);
+  const novo = async (equipa, tipo, jogador, { resultado = null, parte = 1, segundo = 0, x = null, y = null, guardaRedesId = null } = {}) => (await q(
+    `INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, guarda_redes_id, resultado, x, y, parte, segundo_jogo)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`, [jogo.id, equipa, tipo, jogador, guardaRedesId, resultado, x, y, parte, segundo]))[0].id;
+  const remateFora = await novo(bruno.equipa_id, 'REMATE', lateral1.id, { resultado: 'FORA', x: 50, y: 40, segundo: 120, guardaRedesId: guardaRedes.id });
+  const doisMin = await novo(adversaria.id, 'DOIS_MINUTOS', lateralAdv.id, { parte: 2, segundo: 2100 });
+
+  // Quem não é admin não vê a ligação, e a página diz que é só para quem administra
+  const normal = await pagina('/');
+  await normal.waitForSelector('#conta-menu .quem');
+  ok((await normal.locator('#ligacao-admin').count()) === 0, 'administração: uma conta normal não tem a ligação «Administração» no menu');
+  await normal.close();
+  const recusada = await pagina('/admin.html', { tolerar: ['403'] });
+  await recusada.waitForSelector('#sem-acesso');
+  ok((await recusada.locator('#tabela-contas').count()) === 0 && (await recusada.locator('#abas a:visible').count()) === 0, 'administração: uma conta normal só vê «Voltar aos jogos», sem listas');
+  ok((await recusada.evaluate(async () => (await fetch('/api/admin/utilizadores')).status)) === 403, 'administração: e a API recusa-lhe a lista de contas (403)');
+  const semAcessoEventos = await pagina(`/eventos.html?jogo=2&admin=1`, { tolerar: ['403', '404'], rapida: true });
+  await semAcessoEventos.waitForURL((u) => u.pathname === '/');
+  ok(caminhoDe(semAcessoEventos) === '/', 'administração: o modo admin da página de eventos leva uma conta normal de volta aos jogos');
+  await semAcessoEventos.close();
+  await recusada.close();
+
+  // O admin cria a conta pela página (o email está em Administracao__Emails) e entra
+  const ctxAdmin = await novoContexto();
+  let p = await pagina('/', { contexto: ctxAdmin, tolerar: ['401'], rapida: true });
+  await p.waitForURL(/entrar\.html/);
+  await registarPelaPagina(p, { nome: 'Admin Teste', equipa: `Admin FC ${sufixo}`, email: emailAdmin, senha: SENHA });
+  await p.waitForSelector('#painel-confirmar:not([hidden])');
+  const { v: linkAdmin } = await abrirLinkDoEmail(emailAdmin, { contexto: ctxAdmin });
+  await linkAdmin.close();
+  await p.click('#ja-confirmei');
+  await p.fill('#entrar-senha', SENHA);
+  await p.click('#botao-entrar');
+  await p.waitForURL((u) => u.pathname === '/');
+  await p.waitForSelector('#ligacao-admin');
+  ok((await q('SELECT papel FROM utilizadores WHERE email = $1', [emailAdmin]))[0]?.papel === 'admin', 'administração: o email da configuração passou a admin ao entrar');
+  ok((await texto(p.locator('#ligacao-admin'))) === 'Administração', 'administração: o menu da conta tem a ligação «Administração»');
+  await p.close();
+
+  // Utilizadores
+  p = await pagina('/', { contexto: ctxAdmin });
+  await Promise.all([p.waitForURL(/admin\.html/), p.click('#ligacao-admin')]);
+  await p.waitForSelector('#tabela-contas');
+  const [{ n }] = await q('SELECT COUNT(*)::int AS n FROM utilizadores');
+  ok((await texto(p.locator('#n-total'))) === `${n}contas`, `administração: o topo conta as contas (${n})`);
+  ok((await p.locator('#tabela-contas tbody tr').count()) === n, 'administração: a tabela tem uma linha por conta');
+  const linhaB = p.locator(`#tabela-contas tr[data-email="${emailB}"]`);
+  ok((await texto(linhaB)).includes(nomeB) && (await texto(linhaB.locator('[data-estado]'))) === 'Ativa' && (await texto(linhaB.locator('[data-papel]'))) === 'Normal', 'administração: a conta do Bruno aparece ativa e normal');
+  const linhaAdmin = p.locator(`#tabela-contas tr[data-email="${emailAdmin}"]`);
+  ok((await texto(linhaAdmin)).includes('Atuaconta') && (await linhaAdmin.locator('button').count()) === 0, 'administração: na própria conta não há botões (ninguém mexe na sua conta)');
+  await captura(p, 'admin-utilizadores');
+  await p.fill('input[data-pesquisa="utilizadores"]', 'bruno');
+  ok((await p.locator('#tabela-contas tbody tr').count()) === 1, 'administração: procurar «bruno» deixa só a conta dele');
+  await p.fill('input[data-pesquisa="utilizadores"]', '');
+  await p.click('[data-filtro="admins"]');
+  ok((await p.locator('#tabela-contas tbody tr').count()) === 1 && (await p.locator(`#tabela-contas tr[data-email="${emailAdmin}"]`).count()) === 1, 'administração: o filtro «Admins» mostra só o admin');
+  await p.click('[data-filtro="todas"]');
+
+  // Desativar: a conta deixa de entrar; ativar: volta a entrar
+  await linhaB.locator('[data-acao="desativar"]').click();
+  await linhaB.locator('[data-estado="desativado"]').waitFor();
+  ok((await q('SELECT desativado_em FROM utilizadores WHERE id = $1', [bruno.id]))[0].desativado_em !== null, 'administração: desativar guarda a data na base de dados');
+  ok((await linhaB.locator('[data-acao="repor"]').count()) === 0 && (await linhaB.locator('[data-acao="ativar"]').count()) === 1, 'administração: uma conta desativada só se pode voltar a ativar');
+  ok((await texto(p.locator('#n-desativadas'))) === '1desativadas', 'administração: o topo conta as desativadas');
+  const ctxB2 = await novoContexto();
+  const entradaB = await pagina('/entrar.html', { contexto: ctxB2, tolerar: ['401', '403'] });
+  await entradaB.fill('#entrar-email', emailB);
+  await entradaB.fill('#entrar-senha', 'outra-palavra-1');
+  await entradaB.click('#botao-entrar');
+  await entradaB.waitForFunction(() => document.getElementById('erro-entrar')?.textContent.includes('desativada'));
+  ok(entradaB.url().includes('entrar.html') && !(await ctxB2.cookies()).some((c) => c.name === 'sessao'), 'administração: a conta desativada não entra e a página diz porquê');
+  await linhaB.locator('[data-acao="ativar"]').click();
+  await linhaB.locator('[data-estado="ativo"]').waitFor();
+  await entradaB.click('#botao-entrar');
+  await entradaB.waitForURL((u) => u.pathname === '/');
+  ok((await ctxB2.cookies()).some((c) => c.name === 'sessao'), 'administração: depois de ativada, a conta volta a entrar');
+  await entradaB.close();
+  await ctxB2.close();
+
+  // Papel
+  await linhaB.locator('[data-acao="admin"]').click();
+  await linhaB.locator('[data-papel="admin"]').waitFor();
+  ok((await q('SELECT papel FROM utilizadores WHERE id = $1', [bruno.id]))[0].papel === 'admin' && (await texto(p.locator('#n-admins'))) === '2admins', 'administração: «Tornar admin» muda o papel e o topo conta 2 admins');
+  await linhaB.locator('[data-acao="normal"]').click();
+  await linhaB.locator('[data-papel="normal"]').waitFor();
+  ok((await q('SELECT papel FROM utilizadores WHERE id = $1', [bruno.id]))[0].papel === 'normal', 'administração: «Tirar admin» volta ao papel normal');
+
+  // Repor a palavra-passe: chega à conta um email com a ligação (o admin não vê nem escolhe a palavra-passe)
+  await linhaB.locator('[data-acao="repor"]').click();
+  await p.waitForFunction(() => document.getElementById('aviso')?.textContent.includes('Enviámos a ligação'));
+  const tokenRepor = await ultimoToken(emailB, 2, 'redefinir');
+  ok(!!tokenRepor && (await mensagensPara(emailB)).length === 2, 'administração: «Repor palavra-passe» envia à conta o email com a ligação');
+  ok(!(await p.content()).includes(tokenRepor), 'administração: e a página do admin não mostra o código da ligação');
+
+  // Jogos de todas as contas, e corrigir os eventos de um
+  await p.click('#abas a[data-aba="jogos"]');
+  await p.waitForSelector('#tabela-jogos');
+  await p.fill('input[data-pesquisa="jogos"]', localAdmin);
+  const linhaJogo = p.locator(`#tabela-jogos tr[data-jogo-id="${jogo.id}"]`);
+  ok((await p.locator('#tabela-jogos tbody tr').count()) === 1 && (await texto(linhaJogo.locator('td.dono'))) === nomeB && (await texto(linhaJogo)).includes('0–0'), 'administração: o jogo do Bruno aparece com a conta dona e o resultado');
+  await p.fill('input[data-pesquisa="jogos"]', '');
+  ok((await p.locator('#tabela-jogos tbody tr').count()) > 5, 'administração: a lista tem os jogos de todas as contas');
+  await captura(p, 'admin-jogos');
+  await p.fill('input[data-pesquisa="jogos"]', localAdmin);
+  await Promise.all([p.waitForURL(new RegExp(`eventos\\.html\\?jogo=${jogo.id}&admin=1`)), linhaJogo.locator('a[data-acao="eventos"]').click()]);
+  await p.waitForSelector('#tabela-eventos');
+  ok((await texto(p.locator('#nota-admin'))).includes(nomeB), 'eventos (admin): a página avisa que se vê como admin o jogo da conta do Bruno');
+  ok((await p.locator('a[href^="banco.html"]').count()) === 0 && (await p.locator('a[href*="exportar.xlsx"]').count()) === 0, 'eventos (admin): sem Banco nem Excel (são do dono)');
+  ok((await texto(p.locator('.menu'))) === 'Administração' && (await p.locator('#voltar-admin').count()) === 1, 'eventos (admin): o menu só leva à administração');
+  ok((await p.locator('#tabela-eventos tbody tr').count()) === 2, 'eventos (admin): vê os 2 eventos do jogo de outra conta');
+  await captura(p, 'admin-eventos');
+
+  // Corrigir o remate fora: é golo, aos 3:05
+  await p.locator(`#tabela-eventos tr[data-evento-id="${remateFora}"] button[data-acao="corrigir"]`).click();
+  const janela = p.locator('#janela-evento .janela-evento');
+  await janela.waitFor();
+  const campo = (nome) => janela.locator(`[data-campo="${nome}"]`);
+  await janela.locator('button[data-resultado="GOLO"]').click();
+  await janela.locator('.evento-baliza').waitFor({ state: 'visible' });
+  await janela.locator('svg.baliza').click({ position: { x: 300, y: 40 } });
+  await campo('jogador').selectOption(String(lateral2.id));
+  await campo('minuto').fill('3:05');
+  await campo('guardar').click();
+  await janela.waitFor({ state: 'detached' });
+  await p.waitForFunction(() => document.getElementById('resultado-eventos')?.textContent.replace(/\s/g, '') === '1–0');
+  const [corrigido] = await q('SELECT resultado, jogador_id, segundo_jogo FROM eventos WHERE id = $1', [remateFora]);
+  ok(corrigido.resultado === 'GOLO' && corrigido.jogador_id === lateral2.id && corrigido.segundo_jogo === 185, `eventos (admin): o remate de outra conta ficou golo de outro jogador aos 3:05 (${JSON.stringify(corrigido)})`);
+
+  // Apagar os 2 minutos
+  await p.locator(`#tabela-eventos tr[data-evento-id="${doisMin}"] button[data-acao="apagar"]`).click();
+  await p.waitForFunction(() => document.querySelectorAll('#tabela-eventos tbody tr').length === 1);
+  ok((await q('SELECT 1 FROM eventos WHERE id = $1', [doisMin])).length === 0, 'eventos (admin): apagar tira o evento da base de dados');
+
+  // O registo de alterações diz quem fez o quê
+  await Promise.all([p.waitForURL(/admin\.html#jogos/), p.click('#voltar-admin')]);
+  await p.click('#abas a[data-aba="registo"]');
+  await p.waitForSelector('#registo');
+  const registo = await q('SELECT autor_nome, tipo, acao, detalhe, jogo_id FROM registo_alteracoes ORDER BY id');
+  const tem = (acao, parte = '') => registo.some((l) => l.acao === acao && l.detalhe.includes(parte));
+  ok(tem('Conta desativada', emailB) && tem('Conta ativada', emailB) && tem('Papel alterado', `${emailB}: Normal passou a Admin`) && tem('Papel alterado', `${emailB}: Admin passou a Normal`)
+    && tem('Ligação para repor a palavra-passe enviada', emailB) && tem('Papel alterado', `${emailAdmin}: Normal passou a Admin (configuração)`), 'registo: contas desativadas e ativadas, papéis e ligações, na base de dados');
+  ok(tem('Evento corrigido', 'resultado de Fora para Golo') && tem('Evento apagado', '2 minutos') && registo.filter((l) => l.tipo === 'evento').every((l) => l.jogo_id === jogo.id && l.autor_nome === 'Admin Teste'),
+    'registo: o evento corrigido e o apagado, com o jogo e o autor');
+  const texto2 = (await p.locator('#registo').textContent()).replace(/\s+/g, ' ');
+  ok(['Conta desativada', 'Conta ativada', 'Papel alterado', 'Evento corrigido', 'Evento apagado', 'Ligação para repor a palavra-passe enviada', 'por Admin Teste', 'por Sistema', emailB]
+    .every((t) => texto2.includes(t)), 'registo: a página mostra as ações, quem as fez e o detalhe');
+  await captura(p, 'admin-registo');
+  await p.click('[data-filtro="evento"]');
+  await p.waitForFunction(() => document.querySelectorAll('#registo [data-registo-id]').length === 2);
+  ok((await p.locator('#registo [data-tipo="conta"]').count()) === 0, 'registo: o filtro «Eventos» mostra só as 2 linhas dos eventos');
+  await p.click('[data-filtro="conta"]');
+  await p.waitForFunction(() => document.querySelectorAll('#registo [data-registo-id]').length > 2 && !document.querySelector('#registo [data-tipo="evento"]'));
+  await p.fill('input[data-pesquisa="registo"]', 'sistema');
+  ok((await p.locator('#registo [data-registo-id]').count()) === 1, 'registo: procurar «sistema» deixa só a promoção feita pela configuração');
+  ok((await p.locator('a.registo-ligacao').count()) === 0, 'registo: as linhas de contas não têm ligação para jogos');
+  await p.click('[data-filtro="tudo"]');
+  await p.fill('input[data-pesquisa="registo"]', '');
+  await p.locator('a.registo-ligacao').first().waitFor();
+  ok((await p.locator('a.registo-ligacao').first().getAttribute('href')) === `eventos.html?jogo=${jogo.id}&admin=1`, 'registo: as linhas dos eventos abrem o jogo no modo de administração');
+
+  await p.close();
+  await ctxAdmin.close();
+});
+
 // ======================= Resultado =======================
 ok(errosPaginas.length === 0, `sem erros de JavaScript nem da consola${errosPaginas.length ? `: ${errosPaginas.join(' | ')}` : ''}`);
 ok(semAssentar.length === 0, `todas as páginas assentam na rede${semAssentar.length ? `: ${semAssentar.join(' | ')}` : ''}`);
