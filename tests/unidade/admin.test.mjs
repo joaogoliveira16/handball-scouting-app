@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  acoesDaConta, avisoDaAcao, confirmacao, contarContas, corresponde, filtrarContas, filtrarJogos, filtrarRegisto, ligacaoDosEventos, normalizar,
+  acoesDaConta, avisoDaAcao, confirmacao, contarContas, corresponde, emailConfere, filtrarContas, filtrarJogos, filtrarRegisto, ligacaoDosEventos, normalizar,
 } from '../../frontend/js/admin-calculos.js';
 
 const conta = (id, nome, extra = {}) => ({
@@ -56,37 +56,52 @@ test('os filtros das contas deixam passar só o que dizem', () => {
 });
 
 test('ninguém mexe na própria conta', () => {
-  assert.deepEqual(acoesDaConta(CONTAS[0], 1), { propria: true, repor: false, papel: null, ativa: null });
+  assert.deepEqual(acoesDaConta(CONTAS[0], 1), { propria: true, repor: false, papel: null, ativa: null, eliminar: false });
 });
 
-test('as ações de uma conta ativa: repor, tornar admin, desativar', () => {
-  assert.deepEqual(acoesDaConta(CONTAS[1], 1), { propria: false, repor: true, papel: 'admin', ativa: false });
+test('as ações de uma conta ativa: repor, tornar admin, desativar, eliminar', () => {
+  assert.deepEqual(acoesDaConta(CONTAS[1], 1), { propria: false, repor: true, papel: 'admin', ativa: false, eliminar: true });
 });
 
-test('as ações de um admin: tirar o papel em vez de o dar', () => {
+test('as ações de um admin: tirar o papel em vez de o dar, e nunca eliminar', () => {
   const outroAdmin = conta(9, 'Outro Admin', { papel: 'admin' });
-  assert.deepEqual(acoesDaConta(outroAdmin, 1), { propria: false, repor: true, papel: 'normal', ativa: false });
+  assert.deepEqual(acoesDaConta(outroAdmin, 1), { propria: false, repor: true, papel: 'normal', ativa: false, eliminar: false });
 });
 
 test('uma conta por confirmar não pode ser admin, mas pode receber a ligação e ser desativada', () => {
-  assert.deepEqual(acoesDaConta(CONTAS[2], 1), { propria: false, repor: true, papel: null, ativa: false });
+  assert.deepEqual(acoesDaConta(CONTAS[2], 1), { propria: false, repor: true, papel: null, ativa: false, eliminar: true });
 });
 
-test('uma conta desativada só se volta a ativar (sem repor a palavra-passe nem tornar admin)', () => {
-  assert.deepEqual(acoesDaConta(CONTAS[3], 1), { propria: false, repor: false, papel: null, ativa: true });
-  assert.deepEqual(acoesDaConta(CONTAS[4], 1), { propria: false, repor: false, papel: 'normal', ativa: true }, 'um admin desativado ainda pode perder o papel');
+test('uma conta desativada só se volta a ativar ou elimina (sem repor a palavra-passe nem tornar admin)', () => {
+  assert.deepEqual(acoesDaConta(CONTAS[3], 1), { propria: false, repor: false, papel: null, ativa: true, eliminar: true });
+  assert.deepEqual(acoesDaConta(CONTAS[4], 1), { propria: false, repor: false, papel: 'normal', ativa: true, eliminar: false }, 'um admin desativado ainda pode perder o papel, mas só se elimina depois');
 });
 
 test('as frases de confirmação dizem a quem se faz o quê', () => {
   const c = CONTAS[1];
-  for (const acao of ['repor', 'admin', 'normal', 'desativar', 'ativar']) {
+  for (const acao of ['repor', 'admin', 'normal', 'desativar', 'ativar', 'eliminar']) {
     const frase = confirmacao(acao, c);
     assert.ok(frase.includes(c.nome) && frase.includes(c.email), `${acao}: nome e email`);
     assert.match(avisoDaAcao(acao, c), /\.$/);
   }
   assert.match(confirmacao('desativar', c), /sessão termina/);
   assert.match(confirmacao('repor', c), /palavra-passe atual continua/);
+  assert.match(confirmacao('eliminar', c), /não se pode desfazer/);
+  assert.match(confirmacao('eliminar', c), /Desativar/, 'lembra a alternativa que não apaga nada');
+  assert.match(confirmacao('eliminar', c), /escreve o email/);
   assert.equal(confirmacao('outra', c), '');
+});
+
+test('eliminar só avança com o email da conta escrito (sem espaços nem maiúsculas a mais)', () => {
+  const c = conta(7, 'Rui Pereira', { email: 'Rui.Pereira@Exemplo.pt' });
+  assert.ok(emailConfere('rui.pereira@exemplo.pt', c));
+  assert.ok(emailConfere('  RUI.PEREIRA@EXEMPLO.PT  ', c));
+  assert.ok(!emailConfere('', c), 'vazio não serve');
+  assert.ok(!emailConfere(null, c), 'cancelar não serve');
+  assert.ok(!emailConfere('rui.pereira@exemplo.pt.mal', c));
+  assert.ok(!emailConfere('rui', c));
+  assert.ok(!emailConfere('', { email: '' }), 'uma conta sem email nunca coincide');
+  assert.ok(!emailConfere('x', null));
 });
 
 const jogo = (id, casa, fora, extra = {}) => ({

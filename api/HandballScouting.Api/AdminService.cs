@@ -65,6 +65,27 @@ public class AdminService(
         return ResultadoAdmin.Sucesso();
     }
 
+    /// <summary>
+    /// Elimina uma conta e tudo o que é dela (equipas, jogadores, jogos com os eventos). Não se desfaz, por isso quem
+    /// elimina tem de escrever o email da conta. Ninguém elimina a própria conta, e uma conta de admin perde primeiro o papel.
+    /// </summary>
+    public async Task<ResultadoAdmin> EliminarContaAsync(Utilizador autor, int id, string? email, CancellationToken ct = default)
+    {
+        if (id == autor.Id) return ResultadoAdmin.Falha(400, "Não podes eliminar a tua própria conta.");
+
+        await using var con = await dados.OpenConnectionAsync(ct);
+        if (await UtilizadorAsync(con, sql, id, ct) is not { } alvo) return ResultadoAdmin.Falha(404, "Conta não encontrada.");
+        if (alvo.Papel == Papeis.Admin) return ResultadoAdmin.Falha(409, "Uma conta de admin não se elimina: tira-lhe primeiro o papel de admin.");
+        if (ContaValidador.NormalizarEmail(email) != ContaValidador.NormalizarEmail(alvo.Email))
+            return ResultadoAdmin.Falha(400, "Escreve o email da conta para confirmar que a queres eliminar.");
+
+        var saiu = await con.QuerySingleOrDefaultAsync<ContaEliminada>(Cmd(sql["admin_eliminar_conta"], new { id }, ct));
+        if (saiu is null) return ResultadoAdmin.Falha(409, "A conta mudou entretanto: atualiza a lista e tenta outra vez.");
+
+        await RegistarAsync(con, autor, "conta", "Conta eliminada", DescricaoAlteracoes.ContaEliminada(alvo, saiu), null, ct);
+        return ResultadoAdmin.Sucesso();
+    }
+
     /// <summary>Envia à conta o link para escolher outra palavra-passe. O admin nunca vê nem escolhe a palavra-passe.</summary>
     public async Task<ResultadoAdmin> ReporPalavraPasseAsync(Utilizador autor, int id, CancellationToken ct = default)
     {

@@ -1744,6 +1744,7 @@ await passo('Administração: acesso, contas, jogos, eventos e registo', async (
   const rotas = [
     ['GET', '/api/admin/utilizadores'], ['PUT', '/api/admin/utilizadores/1/papel', { papel: 'admin' }],
     ['PUT', '/api/admin/utilizadores/1/ativa', { ativa: false }], ['POST', '/api/admin/utilizadores/1/repor-palavra-passe'],
+    ['POST', '/api/admin/utilizadores/1/eliminar', { email: 'alguem@exemplo.pt' }],
     ['GET', '/api/admin/jogos'], ['GET', '/api/admin/jogos/2'], ['GET', '/api/admin/jogos/2/eventos'],
     ['PUT', '/api/admin/jogos/2/eventos/1', {}], ['DELETE', '/api/admin/jogos/2/eventos/1'], ['GET', '/api/admin/registo'],
   ];
@@ -1892,6 +1893,48 @@ await passo('Administração: acesso, contas, jogos, eventos e registo', async (
   ok((await http('POST', '/api/conta/entrar', { email: emailVitima, palavraPasse: SENHA }, new Sessao('antiga'))).status === 401, 'a palavra-passe antiga já não entra');
   ok((await http('POST', '/api/conta/entrar', { email: emailVitima, palavraPasse: NOVA }, new Sessao('nova'))).status === 200, 'a nova entra');
 
+  // ---- Eliminar uma conta: apaga-a com tudo o que é dela, e só com o email dela escrito
+  const emailAEliminar = `eliminar-${sufixo}@exemplo.pt`;
+  await novaConta('Eliminar', emailAEliminar);
+  const dela = new Sessao('conta a eliminar');
+  ok((await http('POST', '/api/conta/entrar', { email: emailAEliminar, palavraPasse: SENHA }, dela)).status === 200, 'a conta a eliminar entra');
+  const equipaDela = (await http('GET', '/api/equipas', undefined, dela)).json?.find((x) => x.propria)?.id;
+  const adversariaDela = (await http('POST', '/api/equipas', { nome: 'Adversária da eliminada' }, dela)).json?.id;
+  const jogadoraDela = (await http('POST', `/api/equipas/${equipaDela}/jogadores`, { numero: 8, nome: 'Jogadora Oito', posicao: 'LE' }, dela)).json?.id;
+  const jogoDela = (await http('POST', '/api/jogos', { casaId: equipaDela, foraId: adversariaDela }, dela)).json?.id;
+  const eventoDela = await http('POST', `/api/jogos/${jogoDela}/eventos`, { tipoEvento: 'DOIS_MINUTOS', equipaId: equipaDela, jogadorId: jogadoraDela, parte: 1, segundoJogo: 100 }, dela);
+  ok(equipaDela > 0 && adversariaDela > 0 && jogadoraDela > 0 && jogoDela > 0 && eventoDela.status === 201, 'a conta tem equipas, uma jogadora, um jogo e um evento', `${equipaDela} ${adversariaDela} ${jogadoraDela} ${jogoDela} ${eventoDela.status}`);
+  const idEliminar = (await daConta(emailAEliminar))?.id;
+  const contasAntes = (await utilizadores()).length;
+  const eliminar = (id, corpo) => http('POST', `/api/admin/utilizadores/${id}/eliminar`, corpo, admin);
+
+  r = await eliminar(idAdmin, { email: emailAdmin });
+  ok(r.status === 400 && /própria conta/.test(r.texto), 'ninguém elimina a própria conta = 400', descricao(r));
+  ok((await eliminar(999999, { email: 'x@exemplo.pt' })).status === 404, 'eliminar uma conta que não existe = 404');
+  r = await eliminar(idEliminar, {});
+  ok(r.status === 400 && /email/.test(r.texto), 'eliminar sem escrever o email = 400', descricao(r));
+  r = await eliminar(idEliminar, { email: 'outra-pessoa@exemplo.pt' });
+  ok(r.status === 400 && /email/.test(r.texto), 'eliminar com o email de outra conta = 400', descricao(r));
+  ok((await daConta(emailAEliminar)) !== undefined && (await http('GET', '/api/conta', undefined, dela)).status === 200
+    && (await http('GET', '/api/jogos', undefined, dela)).json?.some((j) => j.id === jogoDela), 'e a conta, a sessão e o jogo ficam como estavam');
+  ok((await papel(idEliminar, { papel: 'admin' })).status === 204, 'tornar a conta admin = 204');
+  r = await eliminar(idEliminar, { email: emailAEliminar });
+  ok(r.status === 409 && /admin/.test(r.texto), 'uma conta de admin não se elimina = 409', descricao(r));
+  ok((await daConta(emailAEliminar)) !== undefined, 'e continua na lista');
+  ok((await papel(idEliminar, { papel: 'normal' })).status === 204, 'tirar-lhe o papel de admin = 204');
+
+  r = await eliminar(idEliminar, { email: `  ${emailAEliminar.toUpperCase()} ` });
+  ok(r.status === 204 && r.texto === '', 'eliminar com o email certo (sem ligar a maiúsculas nem espaços) = 204', descricao(r));
+  ok((await daConta(emailAEliminar)) === undefined && (await utilizadores()).length === contasAntes - 1, 'a conta sai da lista');
+  ok((await http('POST', '/api/conta/entrar', { email: emailAEliminar, palavraPasse: SENHA }, new Sessao('eliminada'))).status === 401, 'já não entra');
+  ok((await http('GET', '/api/conta', undefined, dela)).status === 401, 'e a sessão que tinha aberta deixa de servir');
+  ok((await http('GET', `/api/admin/jogos/${jogoDela}`, undefined, admin)).status === 404
+    && !(await http('GET', '/api/admin/jogos', undefined, admin)).json?.some((j) => j.id === jogoDela), 'o jogo dela também saiu (com os eventos)');
+  ok((await eliminar(idEliminar, { email: emailAEliminar })).status === 404, 'eliminar outra vez = 404');
+  ok((await daConta(emailPrincipal))?.jogos > 0 && (await http('GET', '/api/jogos', undefined, principal)).json?.length > 0, 'as outras contas ficam com os seus jogos');
+  r = await http('POST', '/api/conta/registar', { nome: 'Eliminar', equipa: `Eliminar FC ${sufixo}`, email: emailAEliminar, palavraPasse: SENHA }, anonima);
+  ok(r.status === 201, 'o email fica livre: dá para registar uma conta nova com ele', descricao(r));
+
   // ---- Jogos de todas as contas
   const equipaSegundaId = (await http('GET', '/api/equipas', undefined, segunda)).json?.find((e) => e.propria)?.id;
   const adversaria = (await http('POST', '/api/equipas', { nome: `Adversária Admin ${sufixo}` }, segunda)).json?.id;
@@ -1989,6 +2032,10 @@ await passo('Administração: acesso, contas, jogos, eventos e registo', async (
   ok(linha('Conta desativada', emailVitima, (l) => l.autorNome === nomeAdmin && l.tipo === 'conta' && l.jogoId === null), 'a conta desativada');
   ok(linha('Conta ativada', emailVitima, (l) => l.autorNome === nomeAdmin), 'a conta ativada');
   ok(linha('Ligação para repor a palavra-passe enviada', emailVitima, (l) => l.autorNome === nomeAdmin), 'a ligação para repor a palavra-passe');
+  const eliminadaNoRegisto = linha('Conta eliminada', emailAEliminar, (l) => l.autorNome === nomeAdmin && l.tipo === 'conta' && l.jogoId === null);
+  ok(!!eliminadaNoRegisto && eliminadaNoRegisto.detalhe.includes('(Eliminar)') && eliminadaNoRegisto.detalhe.includes('2 equipas, 1 jogador e 1 jogo eliminados'),
+    'a conta eliminada fica no registo, com quem era e o que saiu com ela', eliminadaNoRegisto?.detalhe);
+  ok(!registo?.some((l) => l.acao === 'Conta eliminada' && !l.detalhe.includes(emailAEliminar)), 'e só há essa conta eliminada (as recusadas não deixam linha)');
   const corrigida = linha('Evento corrigido', `conta Segunda ${sufixo}`, (l) => l.jogoId === jogoAdmin && l.detalhe.includes('resultado de Fora para Golo'));
   ok(!!corrigida && corrigida.tipo === 'evento' && corrigida.autorNome === nomeAdmin && corrigida.detalhe.includes('jogador de #71 Rui Admin para #72 Tiago Admin')
     && corrigida.detalhe.includes('tempo de 1.ª 02:00 para 1.ª 03:05') && corrigida.detalhe.includes('defesa do adversário de não indicado para 6:0'), 'a correção do evento diz o que mudou (de quê para quê)', corrigida?.detalhe);

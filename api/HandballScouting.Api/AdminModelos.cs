@@ -88,6 +88,20 @@ public record PapelRequest(string? Papel);
 /// <summary>Corpo do PUT /api/admin/utilizadores/{id}/ativa: true volta a ativar a conta, false desativa-a.</summary>
 public record AtivaRequest(bool? Ativa);
 
+/// <summary>
+/// Corpo do POST /api/admin/utilizadores/{id}/eliminar: o email da conta que se quer eliminar, escrito por quem eliminou.
+/// Serve de segunda confirmação (uma conta eliminada não volta) e a API recusa se não coincidir.
+/// </summary>
+public record EliminarRequest(string? Email);
+
+/// <summary>O que saiu com uma conta eliminada (devolvido pela função eliminar_conta).</summary>
+public class ContaEliminada
+{
+    public int EquipasEliminadas { get; set; }
+    public int JogadoresEliminados { get; set; }
+    public int JogosEliminados { get; set; }
+}
+
 /// <summary>Resultado de uma ação de administração: Status é o código HTTP da resposta.</summary>
 public record ResultadoAdmin(bool Ok, int Status, string? Erro)
 {

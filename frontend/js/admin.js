@@ -6,7 +6,7 @@ import { obter, enviar } from './api.js';
 import { exigirConta } from './conta.js';
 import {
   ESTADOS, PAPEIS, FILTROS_CONTAS, FILTROS_JOGOS, FILTROS_REGISTO,
-  acoesDaConta, avisoDaAcao, confirmacao, contarContas, filtrarContas, filtrarJogos, filtrarRegisto, ligacaoDosEventos,
+  acoesDaConta, avisoDaAcao, confirmacao, contarContas, emailConfere, filtrarContas, filtrarJogos, filtrarRegisto, ligacaoDosEventos,
 } from './admin-calculos.js';
 
 const conta = await exigirConta();
@@ -17,7 +17,7 @@ const abas = [...document.querySelectorAll('#abas a')];
 const ABAS = {
   utilizadores: {
     titulo: 'Utilizadores',
-    sub: 'Todas as contas da app. Desativar termina logo a sessão e impede a entrada; os jogos e as equipas ficam como estão. A palavra-passe nunca se vê: repor envia à pessoa uma ligação para escolher outra.',
+    sub: 'Todas as contas da app. Desativar termina logo a sessão e impede a entrada; os jogos e as equipas ficam como estão. Eliminar apaga a conta e tudo o que é dela, e não se desfaz. A palavra-passe nunca se vê: repor envia à pessoa uma ligação para escolher outra.',
   },
   jogos: {
     titulo: 'Jogos',
@@ -87,10 +87,22 @@ function etiquetaPapel(c) {
   return h('span', { class: `etiqueta papel-${c.papel}`, 'data-papel': c.papel }, PAPEIS[c.papel] ?? c.papel);
 }
 
+/** Pergunta antes de agir. Eliminar não se desfaz: pede-se o email da conta, escrito (a API volta a conferi-lo). */
+function confirmar(acao, c) {
+  if (acao !== 'eliminar') return confirm(confirmacao(acao, c));
+  const escrito = prompt(confirmacao(acao, c));
+  if (escrito === null) return false;
+  if (!emailConfere(escrito, c)) {
+    avisar('O email escrito não é o da conta: não foi eliminada.', { erro: true, duracao: 6000 });
+    return false;
+  }
+  return true;
+}
+
 /** Faz uma ação a uma conta: confirma, envia, volta a ler a lista e avisa. */
 async function fazer(acao, c, executar) {
   if (estado.ocupado) return;
-  if (!confirm(confirmacao(acao, c))) return;
+  if (!confirmar(acao, c)) return;
   estado.ocupado = true;
   desenharLista();
   try {
@@ -117,7 +129,8 @@ function botoesDaConta(c) {
     a.papel === 'admin' ? botao('Tornar admin', 'admin', () => enviar('PUT', `${base}/papel`, { papel: 'admin' })) : null,
     a.papel === 'normal' ? botao('Tirar admin', 'normal', () => enviar('PUT', `${base}/papel`, { papel: 'normal' })) : null,
     a.ativa === false ? botao('Desativar', 'desativar', () => enviar('PUT', `${base}/ativa`, { ativa: false }), 'perigo') : null,
-    a.ativa === true ? botao('Ativar', 'ativar', () => enviar('PUT', `${base}/ativa`, { ativa: true }), 'primario') : null);
+    a.ativa === true ? botao('Ativar', 'ativar', () => enviar('PUT', `${base}/ativa`, { ativa: true }), 'primario') : null,
+    a.eliminar ? botao('Eliminar', 'eliminar', () => enviar('POST', `${base}/eliminar`, { email: c.email }), 'perigo') : null);
 }
 
 function linhaConta(c) {

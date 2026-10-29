@@ -21,6 +21,13 @@ public static class DescricaoAlteracoes
         ["6_0"] = "6:0", ["5_1"] = "5:1", ["3_2_1"] = "3:2:1", ["4_2"] = "4:2", ["INDIVIDUAL"] = "Individual",
     };
 
+    private static string Plural(int n, string singular, string plural) => $"{n} {(n == 1 ? singular : plural)}";
+
+    /// <summary>«ana@exemplo.pt (Ana): 2 equipas, 14 jogadores e 3 jogos eliminados».</summary>
+    public static string ContaEliminada(UtilizadorAdmin conta, ContaEliminada saiu) =>
+        $"{conta.Email} ({conta.Nome}): {Plural(saiu.EquipasEliminadas, "equipa", "equipas")}, "
+        + $"{Plural(saiu.JogadoresEliminados, "jogador", "jogadores")} e {Plural(saiu.JogosEliminados, "jogo", "jogos")} eliminados";
+
     /// <summary>135 segundos -> «02:15».</summary>
     public static string Minuto(int segundos)
     {

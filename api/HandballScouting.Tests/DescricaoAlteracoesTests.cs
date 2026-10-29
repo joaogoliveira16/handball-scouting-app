@@ -42,6 +42,17 @@ public class DescricaoAlteracoesTests
         Assert.Equal("1.ª 00:00", DescricaoAlteracoes.Tempo(Golo(e => { e.Parte = 1; e.SegundoJogo = 0; })));
     }
 
+    [Theory]
+    [InlineData(2, 14, 3, "dora@exemplo.pt (Dora): 2 equipas, 14 jogadores e 3 jogos eliminados")]
+    [InlineData(1, 1, 1, "dora@exemplo.pt (Dora): 1 equipa, 1 jogador e 1 jogo eliminados")]
+    [InlineData(0, 0, 0, "dora@exemplo.pt (Dora): 0 equipas, 0 jogadores e 0 jogos eliminados")]
+    public void Uma_conta_eliminada_diz_quem_era_e_o_que_saiu_com_ela(int equipas, int jogadores, int jogos, string esperado)
+    {
+        var conta = new UtilizadorAdmin { Id = 4, Nome = "Dora", Email = "dora@exemplo.pt" };
+        var saiu = new ContaEliminada { EquipasEliminadas = equipas, JogadoresEliminados = jogadores, JogosEliminados = jogos };
+        Assert.Equal(esperado, DescricaoAlteracoes.ContaEliminada(conta, saiu));
+    }
+
     [Fact]
     public void O_jogo_diz_as_equipas_e_a_conta_dona()
     {

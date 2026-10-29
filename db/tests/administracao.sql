@@ -16,6 +16,7 @@
 \set q_registo    `cat api/HandballScouting.Api/Sql/admin_registo.sql`
 \set q_jogos      `cat api/HandballScouting.Api/Sql/admin_jogos.sql`
 \set q_dono       `cat api/HandballScouting.Api/Sql/admin_dono_do_jogo.sql`
+\set q_eliminar   `cat api/HandballScouting.Api/Sql/admin_eliminar_conta.sql`
 
 BEGIN;
 
@@ -42,7 +43,8 @@ SELECT set_config('q.papel',     pg_temp.preparar(:'q_papel', 'papel', 'id'), tr
        set_config('q.registar',  pg_temp.preparar(:'q_registar', 'autorId', 'autorNome', 'tipo', 'acao', 'detalhe', 'jogoId'), true),
        set_config('q.registo',   pg_temp.preparar(:'q_registo', 'tipo', 'limite'), true),
        set_config('q.jogos',     pg_temp.preparar(:'q_jogos'), true),
-       set_config('q.dono',      pg_temp.preparar(:'q_dono', 'jogoId'), true)
+       set_config('q.dono',      pg_temp.preparar(:'q_dono', 'jogoId'), true),
+       set_config('q.eliminar',  pg_temp.preparar(:'q_eliminar', 'id'), true)
 \gset
 
 DO $$
@@ -56,6 +58,18 @@ DECLARE
     v_bool BOOLEAN;
     v_jogo INT;
     v_adversaria INT;
+    v_d INT;   -- conta a eliminar
+    v_equipa_d INT;
+    v_adv_d INT;
+    v_jogador_d INT;
+    v_jogador_ad INT;
+    v_jogo_d INT;
+    v_jogo_antigo INT;
+    v_eq INT;
+    v_jg INT;
+    v_jo INT;
+    v_outros_jogos INT;
+    v_outras_equipas INT;
 BEGIN
     -- Ponto de partida: nenhuma conta e tudo sem dono (como numa base acabada de criar)
     DELETE FROM sessoes;
@@ -201,6 +215,51 @@ BEGIN
     ASSERT v_id IS NULL, 'um jogo sem dono não se corrige pela administração';
     EXECUTE 'SELECT dono_nome FROM (' || current_setting('q.jogos') || ') s WHERE id = $1' INTO v_texto USING v_jogo;
     ASSERT v_texto IS NULL, 'mas aparece na lista, sem conta dona';
+
+    -- ------------------------------------------------------------ eliminar uma conta e tudo o que é dela
+    v_d := registar_utilizador('dora@exemplo.pt', 'Dora', 'hash-d', 'Equipa da Dora');
+    SELECT equipa_id INTO v_equipa_d FROM utilizadores WHERE id = v_d;
+    INSERT INTO equipas (nome, dono_id) VALUES ('Adversária da Dora', v_d) RETURNING id INTO v_adv_d;
+    INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES (v_equipa_d, 7, 'Dora Sete', 'LE') RETURNING id INTO v_jogador_d;
+    INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES (v_adv_d, 9, 'Adversária Nove', 'LE') RETURNING id INTO v_jogador_ad;
+    INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, data_hora) VALUES (v_equipa_d, v_adv_d, v_d, now()) RETURNING id INTO v_jogo_d;
+    INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, data_hora) VALUES (v_equipa_d, v_adv_d, v_d, now());
+    INSERT INTO convocados (jogo_id, jogador_id) VALUES (v_jogo_d, v_jogador_d);
+    INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, guarda_redes_id, resultado, x, y, parte, segundo_jogo)
+    VALUES (v_jogo_d, v_equipa_d, 'REMATE', v_jogador_d, v_jogador_ad, 'GOLO', 50, 50, 1, 60);
+    INSERT INTO escudos (equipa_id, tipo, dados) VALUES (v_equipa_d, 'image/png', '\x89504e47'::bytea);
+    INSERT INTO sessoes (token_hash, utilizador_id, expira_em) VALUES (repeat('3', 64), v_d, now() + interval '1 day');
+    -- Um jogo antigo, sem dono, que usa uma equipa da Dora (de antes de haver contas)
+    INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, data_hora) VALUES (v_equipa_d, v_adv_d, NULL, now()) RETURNING id INTO v_jogo_antigo;
+
+    -- O que é de outras contas não se toca: a Ana (admin) e o Bruno
+    SELECT count(*) INTO v_outros_jogos FROM jogos WHERE dono_id IS DISTINCT FROM v_d AND id <> v_jogo_antigo;
+    SELECT count(*) INTO v_outras_equipas FROM equipas WHERE dono_id IS DISTINCT FROM v_d;
+
+    -- Um admin não se elimina (perde primeiro o papel), e uma conta que não existe também não
+    EXECUTE 'SELECT count(*) FROM (' || current_setting('q.eliminar') || ') s' INTO v_n USING v_a;
+    ASSERT v_n = 0, 'uma conta de admin não se elimina';
+    ASSERT EXISTS (SELECT 1 FROM utilizadores WHERE id = v_a), 'a Ana continua a existir';
+    EXECUTE 'SELECT count(*) FROM (' || current_setting('q.eliminar') || ') s' INTO v_n USING 999999;
+    ASSERT v_n = 0, 'uma conta que não existe não devolve nada';
+    ASSERT (SELECT count(*) FROM jogos WHERE dono_id = v_d) = 2, 'recusar não apagou nada à Dora';
+
+    EXECUTE current_setting('q.eliminar') INTO v_eq, v_jg, v_jo USING v_d;
+    ASSERT v_eq = 2 AND v_jg = 2 AND v_jo = 3, format('devolve o que saiu: 2 equipas, 2 jogadores e 3 jogos (veio %s, %s, %s)', v_eq, v_jg, v_jo);
+    ASSERT NOT EXISTS (SELECT 1 FROM utilizadores WHERE id = v_d), 'a conta saiu';
+    ASSERT NOT EXISTS (SELECT 1 FROM equipas WHERE dono_id = v_d), 'as equipas saíram';
+    ASSERT NOT EXISTS (SELECT 1 FROM equipas WHERE id IN (v_equipa_d, v_adv_d)), 'a equipa da conta e o adversário saíram';
+    ASSERT NOT EXISTS (SELECT 1 FROM jogadores WHERE id IN (v_jogador_d, v_jogador_ad)), 'os jogadores saíram';
+    ASSERT NOT EXISTS (SELECT 1 FROM jogos WHERE id IN (v_jogo_d, v_jogo_antigo) OR dono_id = v_d), 'os jogos saíram, também o antigo sem dono';
+    ASSERT NOT EXISTS (SELECT 1 FROM eventos WHERE jogo_id = v_jogo_d), 'os eventos saíram';
+    ASSERT NOT EXISTS (SELECT 1 FROM convocados WHERE jogo_id = v_jogo_d), 'a convocatória saiu';
+    ASSERT NOT EXISTS (SELECT 1 FROM escudos WHERE equipa_id = v_equipa_d), 'o escudo saiu';
+    ASSERT NOT EXISTS (SELECT 1 FROM sessoes WHERE utilizador_id = v_d), 'as sessões saíram';
+    ASSERT (SELECT count(*) FROM utilizadores) = 3, 'as outras 3 contas ficam';
+    ASSERT (SELECT count(*) FROM jogos) = v_outros_jogos, 'os jogos de outras contas ficam';
+    ASSERT (SELECT count(*) FROM equipas) = v_outras_equipas, 'as equipas de outras contas ficam';
+    EXECUTE current_setting('q.eliminar') INTO v_eq USING v_d;
+    ASSERT v_eq IS NULL, 'eliminar outra vez a mesma conta não faz nada';
 
     -- ------------------------------------------------------------ registo de alterações
     EXECUTE current_setting('q.registar') USING v_a, 'Ana', 'conta', 'Conta desativada', 'bruno@exemplo.pt', NULL::int;

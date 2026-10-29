@@ -73,7 +73,8 @@ async function pagina(caminho, { contexto = ctx, tolerar = [], rapida = false, r
   page.on('websocket', (w) => historico.push(`WS ${w.url().replace(servidor.url, '')}`));
   page.on('pageerror', (e) => errosPaginas.push(`${caminho}: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !esperados.some((e) => m.text().includes(e))) errosPaginas.push(`${caminho}: ${m.text()}`); });
-  page.on('dialog', (d) => d.accept());
+  // Um prompt aceita-se com page.respostaAoPrompt (por defeito vazio); com null cancela-se
+  page.on('dialog', (d) => (d.type() === 'prompt' && page.respostaAoPrompt === null ? d.dismiss() : d.accept(d.type() === 'prompt' ? (page.respostaAoPrompt ?? '') : undefined)));
   await page.goto(servidor.url + caminho, { waitUntil: 'domcontentloaded' });
   if (!rapida) {
     try {
@@ -3027,6 +3028,52 @@ await passo('Administração: contas, jogos, correção de eventos e registo de 
   const tokenRepor = await ultimoToken(emailB, 2, 'redefinir');
   ok(!!tokenRepor && (await mensagensPara(emailB)).length === 2, 'administração: «Repor palavra-passe» envia à conta o email com a ligação');
   ok(!(await p.content()).includes(tokenRepor), 'administração: e a página do admin não mostra o código da ligação');
+
+  // Eliminar uma conta: a página pede o email dela, e só com ele certo apaga a conta e tudo o que é dela
+  const emailE = `eduardo-${sufixo}@exemplo.pt`;
+  const [{ id: idE }] = await q("SELECT registar_utilizador($1, 'Eduardo', 'hash-e', $2) AS id", [emailE, `Eduardo FC ${sufixo}`]);
+  await q('UPDATE utilizadores SET email_verificado_em = now() WHERE id = $1', [idE]);
+  const [{ equipa_id: equipaE }] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [idE]);
+  const [advE] = await q('INSERT INTO equipas (nome, dono_id) VALUES ($1, $2) RETURNING id', [`Adversária Eduardo ${sufixo}`, idE]);
+  await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1, 8, 'Jogador Oito', 'LE')", [equipaE]);
+  const [jogoE] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, data_hora) VALUES ($1,$2,$3,now()) RETURNING id', [equipaE, advE.id, idE]);
+  const contaE = async () => (await q('SELECT (SELECT COUNT(*)::int FROM utilizadores WHERE id = $1) AS contas, (SELECT COUNT(*)::int FROM equipas WHERE dono_id = $1) AS equipas, (SELECT COUNT(*)::int FROM jogos WHERE dono_id = $1) AS jogos', [idE]))[0];
+  const linhaE = p.locator(`#tabela-contas tr[data-email="${emailE}"]`);
+  const abrirUtilizadores = async () => { await p.reload(); await p.waitForSelector('#tabela-contas'); };
+
+  await q("UPDATE utilizadores SET papel = 'admin' WHERE id = $1", [idE]);
+  await abrirUtilizadores();
+  ok((await linhaE.locator('[data-acao="eliminar"]').count()) === 0 && (await linhaE.locator('[data-acao="normal"]').count()) === 1, 'administração: uma conta de admin não tem «Eliminar» (perde primeiro o papel)');
+  await q("UPDATE utilizadores SET papel = 'normal' WHERE id = $1", [idE]);
+  await abrirUtilizadores();
+  ok((await linhaAdmin.locator('[data-acao="eliminar"]').count()) === 0 && (await linhaE.locator('[data-acao="eliminar"]').count()) === 1, 'administração: ninguém se elimina a si próprio, as outras contas têm «Eliminar»');
+  const antesE = await contaE();
+  ok(antesE.contas === 1 && antesE.equipas === 2 && antesE.jogos === 1, 'administração: a conta do Eduardo tem 2 equipas e 1 jogo', JSON.stringify(antesE));
+
+  let pedido = null;
+  p.on('dialog', (d) => { if (d.type() === 'prompt') pedido = d.message(); });
+  p.respostaAoPrompt = null;   // cancelar
+  await linhaE.locator('[data-acao="eliminar"]').click();
+  await esperarPor(async () => pedido !== null);
+  ok(pedido.includes('Eduardo') && pedido.includes(emailE) && /não se pode desfazer/.test(pedido) && /escreve o email/.test(pedido), 'administração: «Eliminar» avisa que não se desfaz e pede o email da conta', pedido);
+  ok(JSON.stringify(await contaE()) === JSON.stringify(antesE) && (await linhaE.count()) === 1, 'administração: cancelar não apaga nada');
+  p.respostaAoPrompt = `outra-${emailE}`;
+  await linhaE.locator('[data-acao="eliminar"]').click();
+  await p.waitForFunction(() => document.getElementById('aviso')?.textContent.includes('não é o da conta'));
+  ok(JSON.stringify(await contaE()) === JSON.stringify(antesE) && (await linhaE.count()) === 1, 'administração: com outro email a conta não é eliminada');
+  p.respostaAoPrompt = emailE.toUpperCase();
+  await linhaE.locator('[data-acao="eliminar"]').click();
+  await linhaE.waitFor({ state: 'detached' });
+  const depoisE = await contaE();
+  ok(depoisE.contas === 0 && depoisE.equipas === 0 && depoisE.jogos === 0, 'administração: com o email certo a conta sai, com as equipas e os jogos', JSON.stringify(depoisE));
+  ok((await q('SELECT COUNT(*)::int AS n FROM jogadores WHERE nome = $1', ['Jogador Oito']))[0].n === 0 && (await q('SELECT COUNT(*)::int AS n FROM jogos WHERE id = $1', [jogoE.id]))[0].n === 0, 'administração: e os jogadores e o jogo também');
+  ok((await texto(p.locator('#n-total'))) === `${n}contas`, 'administração: o topo volta a contar as contas que sobram');
+  await p.click('#abas a[data-aba="registo"]');
+  await p.waitForSelector('#registo');
+  await p.fill('input[data-pesquisa="registo"]', emailE);
+  ok((await texto(p.locator('#registo [data-registo-id]'))).includes('Contaeliminada') && (await texto(p.locator('#registo [data-registo-id]'))).includes('2equipas,1jogadore1jogoeliminados'),
+    'administração: a conta eliminada fica no registo, com o que saiu com ela');
+  await p.fill('input[data-pesquisa="registo"]', '');
 
   // Jogos de todas as contas, e corrigir os eventos de um
   await p.click('#abas a[data-aba="jogos"]');

@@ -441,6 +441,13 @@ admin.MapPut("/utilizadores/{id:int}/ativa", async (int id, AtivaRequest pedido,
     return r.Ok ? Results.NoContent() : FalhaAdmin(r);
 });
 
+// Elimina a conta e tudo o que é dela: o corpo leva o email da conta, escrito por quem elimina, como segunda confirmação
+admin.MapPost("/utilizadores/{id:int}/eliminar", async (int id, EliminarRequest pedido, HttpContext http, AdminService servico, CancellationToken ct) =>
+{
+    var r = await servico.EliminarContaAsync(http.ContaAtual(), id, pedido.Email, ct);
+    return r.Ok ? Results.NoContent() : FalhaAdmin(r);
+});
+
 // Envia à conta o link para escolher outra palavra-passe (o admin nunca a vê)
 admin.MapPost("/utilizadores/{id:int}/repor-palavra-passe", async (int id, HttpContext http, AdminService servico, CancellationToken ct) =>
 {

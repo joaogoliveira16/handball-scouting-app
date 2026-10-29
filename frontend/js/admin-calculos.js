@@ -65,14 +65,21 @@ export function filtrarContas(contas, { texto = '', filtro = 'todas' } = {}) {
  *   repor  - enviar a ligação para escolher outra palavra-passe (não vale para contas desativadas)
  *   papel  - 'admin' (tornar admin), 'normal' (tirar o papel) ou null; só uma conta ativa pode passar a admin
  *   ativa  - false (desativar), true (voltar a ativar)
+ *   eliminar - apagar a conta e tudo o que é dela; um admin perde primeiro o papel
  */
 export function acoesDaConta(conta, euId) {
-  if (!conta || conta.id === euId) return { propria: true, repor: false, papel: null, ativa: null };
+  if (!conta || conta.id === euId) return { propria: true, repor: false, papel: null, ativa: null, eliminar: false };
   const desativada = conta.estado === 'desativado';
   let papel = null;
   if (conta.papel === 'admin') papel = 'normal';
   else if (conta.estado === 'ativo') papel = 'admin';
-  return { propria: false, repor: !desativada, papel, ativa: desativada };
+  return { propria: false, repor: !desativada, papel, ativa: desativada, eliminar: conta.papel !== 'admin' };
+}
+
+/** O email escrito para confirmar que se elimina a conta: tem de ser o dela (sem espaços nem maiúsculas a mais). */
+export function emailConfere(escrito, conta) {
+  const certo = String(conta?.email ?? '').trim().toLowerCase();
+  return certo !== '' && String(escrito ?? '').trim().toLowerCase() === certo;
 }
 
 /** A frase de confirmação de cada ação (diz o que vai acontecer, e a quem). */
@@ -89,6 +96,9 @@ export function confirmacao(acao, conta) {
       return `Desativar a conta de ${quem}? A sessão termina já e a pessoa deixa de entrar. Os jogos e equipas ficam como estão.`;
     case 'ativar':
       return `Voltar a ativar a conta de ${quem}?`;
+    case 'eliminar':
+      return `Eliminar a conta de ${quem}? Isto apaga também as equipas, os jogadores e os jogos dela, e não se pode desfazer. `
+        + `Se só queres que a pessoa deixe de entrar, usa «Desativar». Para eliminar, escreve o email da conta:`;
     default:
       return '';
   }
@@ -102,6 +112,7 @@ export function avisoDaAcao(acao, conta) {
     case 'normal': return `${conta.nome} deixou de ser admin.`;
     case 'desativar': return `Conta de ${conta.nome} desativada.`;
     case 'ativar': return `Conta de ${conta.nome} ativada.`;
+    case 'eliminar': return `Conta de ${conta.nome} eliminada.`;
     default: return 'Feito.';
   }
 }
