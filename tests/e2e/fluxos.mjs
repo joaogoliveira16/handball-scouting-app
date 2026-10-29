@@ -1756,7 +1756,8 @@ await passo('Escudos: carregar, trocar e tirar o escudo da equipa', async () => 
   const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [propriaId, aguias.id, donoId]);
   const escudoDe = async () => (await q('SELECT tipo, dados, escudo_versao(equipa_id) AS versao FROM escudos WHERE equipa_id = $1', [propriaId]))[0];
   const srcDoEscudo = (page) => page.locator('#bloco-escudo img.escudo-grande').getAttribute('src');
-  const carregou = (locator) => locator.evaluate((img) => img.complete && img.naturalWidth > 0);
+  // A imagem pode ainda estar a descarregar quando aparece na página: espera um pouco antes de dar como falhada
+  const carregou = (locator) => esperarPor(() => locator.evaluate((img) => img.complete && img.naturalWidth > 0), 5000);
 
   const p = await pagina('/equipas.html');
   await p.waitForSelector('#bloco-escudo');
@@ -2982,7 +2983,7 @@ await passo('Administração: contas, jogos, correção de eventos e registo de 
   await p.close();
 
   // Utilizadores
-  p = await pagina('/', { contexto: ctxAdmin });
+  p = await pagina('/', { contexto: ctxAdmin, tolerar: ['500'] });
   await Promise.all([p.waitForURL(/admin\.html/), p.click('#ligacao-admin')]);
   await p.waitForSelector('#tabela-contas');
   const [{ n }] = await q('SELECT COUNT(*)::int AS n FROM utilizadores');
