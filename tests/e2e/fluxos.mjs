@@ -1070,7 +1070,10 @@ await passo('Superioridade: o banco conta os 2 minutos, marca o 7×6 e o dashboa
   // O dashboard (outro ecrã) vê o relógio a andar e a mesma contagem
   await empurrar(dash, jogoId);
   ok(await esperarPor(async () => await dash.locator('#relogio-dash').isVisible()), 'superioridade: o dashboard mostra o relógio do jogo');
-  ok(/^10:[0-3]\d$/.test((await texto(dash.locator('#relogio-dash'))) ?? ''), `superioridade: o relógio do dashboard está nos 10 minutos (${await texto(dash.locator('#relogio-dash'))})`);
+  // O relógio aparece antes de ter o segundo certo (começa em 00:00): espera por ele
+  const relogioDash = async () => (await texto(dash.locator('#relogio-dash'))) ?? '';
+  await esperarPor(async () => /^10:[0-3]\d$/.test(await relogioDash()));
+  ok(/^10:[0-3]\d$/.test(await relogioDash()), `superioridade: o relógio do dashboard está nos 10 minutos (${await relogioDash()})`);
   ok((await dash.locator('#relogio-dash.parado').count()) === 0, 'superioridade: com o relógio a andar não aparece como parado');
   ok(await esperarPor(async () => await faixaDash.isVisible()) && (await texto(faixaDash.locator('.rotulo-numerica'))) === '6×5', 'superioridade: o dashboard mostra a faixa 6×5');
   const noDash = await restanteDe(faixaDash);
