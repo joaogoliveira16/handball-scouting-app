@@ -24,6 +24,14 @@ export async function enviar(metodo, url, corpo) {
   return resposta.status === 204 ? null : resposta.json();
 }
 
+/** Descarrega um ficheiro da API: o conteúdo e o cabeçalho Content-Disposition (que traz o nome do ficheiro). */
+export async function obterFicheiro(url) {
+  const resposta = await fetch(url);
+  await resposta401(resposta, url);
+  if (!resposta.ok) throw await erroDe(resposta);
+  return { blob: await resposta.blob(), disposicao: resposta.headers.get('Content-Disposition') };
+}
+
 /** Envia um ficheiro (por exemplo a imagem de um escudo) como corpo do pedido, sem JSON. */
 export async function enviarFicheiro(metodo, url, ficheiro) {
   const resposta = await fetch(url, { method: metodo, headers: { 'Content-Type': ficheiro.type || 'application/octet-stream' }, body: ficheiro });

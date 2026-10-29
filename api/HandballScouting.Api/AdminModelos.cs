@@ -20,6 +20,8 @@ public class UtilizadorAdmin
     public string Email { get; set; } = "";
     public string Papel { get; set; } = Papeis.Normal;
     public DateTime CriadoEm { get; set; }
+    /// <summary>A última vez que a conta usou a app (null se ainda não usou desde que isto se regista).</summary>
+    public DateTime? UltimoAcessoEm { get; set; }
     public string Estado { get; set; } = "ativo";
     /// <summary>A equipa da conta (null enquanto a conta não tem equipa).</summary>
     public string? Equipa { get; set; }
@@ -70,7 +72,7 @@ public class DonoDoJogo
     public string DonoNome { get; set; } = "";
 }
 
-/// <summary>Uma linha do registo de alterações. Tipo: conta ou evento.</summary>
+/// <summary>Uma linha do registo de alterações. Tipo: conta, evento ou jogo.</summary>
 public class RegistoAlteracao
 {
     public long Id { get; set; }
@@ -107,4 +109,26 @@ public record ResultadoAdmin(bool Ok, int Status, string? Erro)
 {
     public static ResultadoAdmin Sucesso() => new(true, 204, null);
     public static ResultadoAdmin Falha(int status, string erro) => new(false, status, erro);
+}
+
+/// <summary>Corpo do PUT /api/admin/utilizadores/{id}: o nome e o email novos da conta.</summary>
+public record EditarContaRequest(string? Nome, string? Email);
+
+/// <summary>Corpo do PUT /api/admin/jogos/{id}/terminado: true termina o jogo, false volta a abri-lo.</summary>
+public record TerminadoRequest(bool? Terminado);
+
+/// <summary>A linha que a edição de uma conta devolve (ver admin_editar_conta.sql).</summary>
+public class ContaEditada
+{
+    public int Id { get; set; }
+    public bool EmailMudou { get; set; }
+}
+
+/// <summary>
+/// Resultado de editar uma conta. Se o email mudou, a conta volta a ficar por confirmar e segue um email para o endereço
+/// novo: EmailEnviado diz se esse email saiu (se não, o admin pode pedir outro com «Repor palavra-passe» ou a conta pede na entrada).
+/// </summary>
+public record ResultadoEdicaoConta(bool Ok, int Status, string? Erro, bool EmailMudou = false, bool EmailEnviado = false)
+{
+    public static ResultadoEdicaoConta Falha(int status, string erro) => new(false, status, erro);
 }

@@ -272,6 +272,18 @@ public class ContaService(
         return await EnviarLinkAsync(con, LinkRedefinicao, conta.Id, conta.Nome, conta.Email, ct);
     }
 
+    /// <summary>
+    /// Envia à conta o link para confirmar o email, a pedido de um admin que acabou de mudar o email dela.
+    /// Null se a conta não existe; false se o email não pôde seguir.
+    /// </summary>
+    public async Task<bool?> EnviarConfirmacaoDaContaAsync(int utilizadorId, CancellationToken ct = default)
+    {
+        await using var con = await dados.OpenConnectionAsync(ct);
+        var conta = await con.QuerySingleOrDefaultAsync<Utilizador>(Cmd(sql["utilizador_por_id"], new { id = utilizadorId }, ct));
+        if (conta is null) return null;
+        return await EnviarConfirmacaoAsync(con, conta.Id, conta.Nome, conta.Email, ct);
+    }
+
     private async Task<string> CriarSessaoAsync(NpgsqlConnection con, int utilizadorId, CancellationToken ct)
     {
         await con.ExecuteAsync(Cmd(sql["limpar_sessoes"], null, ct));   // aproveita para apagar as sessões que já expiraram

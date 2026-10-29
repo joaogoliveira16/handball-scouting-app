@@ -24,21 +24,33 @@ public static partial class ContaValidador
     {
         var erros = new List<string>();
 
-        var nome = r.Nome?.Trim() ?? "";
-        if (nome.Length == 0) erros.Add("o nome é obrigatório.");
-        else if (nome.Length > 80) erros.Add("o nome tem no máximo 80 caracteres.");
+        if (ErroNome(r.Nome) is { } erroNome) erros.Add(erroNome);
 
         var equipa = r.Equipa?.Trim() ?? "";
         if (equipa.Length == 0) erros.Add("o nome da equipa é obrigatório.");
         else if (equipa.Length > 80) erros.Add("o nome da equipa tem no máximo 80 caracteres.");
 
-        var email = NormalizarEmail(r.Email);
-        if (email.Length == 0) erros.Add("o email é obrigatório.");
-        else if (email.Length > 160 || !PadraoEmail().IsMatch(email)) erros.Add("o email não é válido.");
+        if (ErroEmail(r.Email) is { } erroEmail) erros.Add(erroEmail);
 
         if (ErroPalavraPasse(r.PalavraPasse) is { } erroPalavraPasse) erros.Add(erroPalavraPasse);
 
         return erros;
+    }
+
+    /// <summary>O que está mal num nome de pessoa (uma frase em minúsculas); null se estiver bom.</summary>
+    public static string? ErroNome(string? nome)
+    {
+        var n = nome?.Trim() ?? "";
+        if (n.Length == 0) return "o nome é obrigatório.";
+        return n.Length > 80 ? "o nome tem no máximo 80 caracteres." : null;
+    }
+
+    /// <summary>O que está mal num email (depois de o normalizar); null se estiver bom.</summary>
+    public static string? ErroEmail(string? emailBruto)
+    {
+        var email = NormalizarEmail(emailBruto);
+        if (email.Length == 0) return "o email é obrigatório.";
+        return email.Length > 160 || !PadraoEmail().IsMatch(email) ? "o email não é válido." : null;
     }
 
     /// <summary>O que está mal numa palavra-passe nova (uma frase em minúsculas, sem maiúscula inicial); null se estiver boa.</summary>

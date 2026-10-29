@@ -426,6 +426,12 @@ var admin = api.MapGroup("/admin").ExigirAdmin();
 
 static IResult FalhaAdmin(ResultadoAdmin r) => Results.Json(new { erro = r.Erro }, statusCode: r.Status);
 
+static IResult FicheiroJson(Exportacao copia, HttpContext http)
+{
+    http.Response.Headers.CacheControl = "no-store";
+    return Results.File(System.Text.Encoding.UTF8.GetBytes(copia.Json), "application/json", copia.Ficheiro);
+}
+
 admin.MapGet("/utilizadores", async (AdminService servico, CancellationToken ct) =>
     Results.Ok(await servico.UtilizadoresAsync(ct)));
 
@@ -441,6 +447,17 @@ admin.MapPut("/utilizadores/{id:int}/ativa", async (int id, AtivaRequest pedido,
     return r.Ok ? Results.NoContent() : FalhaAdmin(r);
 });
 
+// Muda o nome e o email de uma conta (se o email muda, a conta volta a ficar por confirmar e o email novo recebe o link)
+admin.MapPut("/utilizadores/{id:int}", async (int id, EditarContaRequest pedido, HttpContext http, AdminService servico, CancellationToken ct) =>
+{
+    var r = await servico.EditarContaAsync(http.ContaAtual(), id, pedido, ct);
+    return r.Ok ? Results.Ok(new { emailMudou = r.EmailMudou, emailEnviado = r.EmailEnviado }) : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
+});
+
+// Cópia de segurança de uma conta, em JSON, para o browser guardar (tem dados pessoais: nunca fica em cache)
+admin.MapGet("/utilizadores/{id:int}/exportar", async (int id, HttpContext http, AdminService servico, CancellationToken ct) =>
+    await servico.ExportarContaAsync(id, ct) is { } copia ? FicheiroJson(copia, http) : Results.NotFound(new { erro = "Conta não encontrada." }));
+
 // Elimina a conta e tudo o que é dela: o corpo leva o email da conta, escrito por quem elimina, como segunda confirmação
 admin.MapPost("/utilizadores/{id:int}/eliminar", async (int id, EliminarRequest pedido, HttpContext http, AdminService servico, CancellationToken ct) =>
 {
@@ -455,11 +472,43 @@ admin.MapPost("/utilizadores/{id:int}/repor-palavra-passe", async (int id, HttpC
     return r.Ok ? Results.NoContent() : FalhaAdmin(r);
 });
 
+// Como estão os emails (sem segredos) e um email de teste para o próprio admin
+admin.MapGet("/email", (AdminService servico) => Results.Ok(servico.EstadoDoEmail()));
+
+admin.MapPost("/email/testar", async (HttpContext http, AdminService servico, CancellationToken ct) =>
+{
+    var r = await servico.TestarEmailAsync(http.ContaAtual(), ct);
+    return r.Ok ? Results.NoContent() : FalhaAdmin(r);
+});
+
 admin.MapGet("/jogos", async (AdminService servico, CancellationToken ct) =>
     Results.Ok(await servico.JogosAsync(ct)));
 
 admin.MapGet("/jogos/{id:int}", async (int id, AdminService servico, CancellationToken ct) =>
     await servico.JogoAsync(id, ct) is { } jogo ? Results.Ok(jogo) : Results.NotFound(new { erro = "Jogo não encontrado." }));
+
+// Cópia de segurança de um jogo, em JSON
+admin.MapGet("/jogos/{id:int}/exportar", async (int id, HttpContext http, AdminService servico, CancellationToken ct) =>
+    await servico.ExportarJogoAsync(id, ct) is { } copia ? FicheiroJson(copia, http) : Results.NotFound(new { erro = "Jogo não encontrado." }));
+
+// Terminar ou reabrir o jogo de outra conta; os bancos e dashboards abertos passam a mostrar o novo estado
+admin.MapPut("/jogos/{id:int}/terminado", async (
+    int id, TerminadoRequest pedido, HttpContext http,
+    AdminService servico, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+{
+    var r = await servico.DefinirTerminadoAsync(http.ContaAtual(), id, pedido.Terminado, ct);
+    if (!r.Ok) return FalhaAdmin(r);
+
+    await EmitirEstadoAsync(id, est, hub);
+    return Results.NoContent();
+});
+
+// Apaga o jogo de outra conta (com os eventos): não se desfaz, por isso a página tira antes uma cópia de segurança
+admin.MapDelete("/jogos/{id:int}", async (int id, HttpContext http, AdminService servico, CancellationToken ct) =>
+{
+    var r = await servico.ApagarJogoAsync(http.ContaAtual(), id, ct);
+    return r.Ok ? Results.NoContent() : FalhaAdmin(r);
+});
 
 admin.MapGet("/jogos/{id:int}/eventos", async (int id, AdminService servico, CancellationToken ct) =>
     await servico.EventosAsync(id, ct) is { } lista ? Results.Ok(lista) : Results.NotFound(new { erro = "Jogo não encontrado." }));
@@ -487,11 +536,11 @@ admin.MapDelete("/jogos/{id:int}/eventos/{eventoId:long}", async (
     return Results.NoContent();
 });
 
-// tipo = conta | evento (sem tipo: tudo)
+// tipo = conta | evento | jogo (sem tipo: tudo)
 admin.MapGet("/registo", async (string? tipo, AdminService servico, CancellationToken ct) =>
     await servico.RegistoAsync(tipo, ct) is { } linhas
         ? Results.Ok(linhas)
-        : Results.BadRequest(new { erro = "tipo tem de ser «conta» ou «evento»." }));
+        : Results.BadRequest(new { erro = "tipo tem de ser «conta», «evento» ou «jogo»." }));
 
 app.MapHub<JogoHub>("/hub/jogo");
 

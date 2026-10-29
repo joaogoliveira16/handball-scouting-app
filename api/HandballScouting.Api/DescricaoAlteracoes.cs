@@ -28,6 +28,19 @@ public static class DescricaoAlteracoes
         $"{conta.Email} ({conta.Nome}): {Plural(saiu.EquipasEliminadas, "equipa", "equipas")}, "
         + $"{Plural(saiu.JogadoresEliminados, "jogador", "jogadores")} e {Plural(saiu.JogosEliminados, "jogo", "jogos")} eliminados";
 
+    /// <summary>«ana@exemplo.pt (Ana): nome de Ana para Ana Maria; email de ana@exemplo.pt para ana2@exemplo.pt (volta a ficar por confirmar)».</summary>
+    public static string ContaEditada(UtilizadorAdmin antes, string nome, string email)
+    {
+        var mudancas = new List<string>();
+        if (nome != antes.Nome) mudancas.Add($"nome de {antes.Nome} para {nome}");
+        if (email != antes.Email) mudancas.Add($"email de {antes.Email} para {email} (volta a ficar por confirmar)");
+        return $"{antes.Email} ({antes.Nome}): {string.Join("; ", mudancas)}";
+    }
+
+    /// <summary>«Leões vs Falcões (conta Ana): 31 eventos apagados».</summary>
+    public static string JogoApagado(JogoDetalhe jogo, string donoNome, int eventos) =>
+        $"{Jogo(jogo, donoNome)}: {(eventos == 1 ? "1 evento apagado" : $"{eventos} eventos apagados")}";
+
     /// <summary>135 segundos -> «02:15».</summary>
     public static string Minuto(int segundos)
     {

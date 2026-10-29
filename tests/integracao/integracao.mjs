@@ -1745,6 +1745,9 @@ await passo('Administração: acesso, contas, jogos, eventos e registo', async (
     ['GET', '/api/admin/utilizadores'], ['PUT', '/api/admin/utilizadores/1/papel', { papel: 'admin' }],
     ['PUT', '/api/admin/utilizadores/1/ativa', { ativa: false }], ['POST', '/api/admin/utilizadores/1/repor-palavra-passe'],
     ['POST', '/api/admin/utilizadores/1/eliminar', { email: 'alguem@exemplo.pt' }],
+    ['PUT', '/api/admin/utilizadores/1', { nome: 'Alguém', email: 'alguem@exemplo.pt' }], ['GET', '/api/admin/utilizadores/1/exportar'],
+    ['GET', '/api/admin/jogos/2/exportar'], ['PUT', '/api/admin/jogos/2/terminado', { terminado: true }], ['DELETE', '/api/admin/jogos/2'],
+    ['GET', '/api/admin/email'], ['POST', '/api/admin/email/testar'],
     ['GET', '/api/admin/jogos'], ['GET', '/api/admin/jogos/2'], ['GET', '/api/admin/jogos/2/eventos'],
     ['PUT', '/api/admin/jogos/2/eventos/1', {}], ['DELETE', '/api/admin/jogos/2/eventos/1'], ['GET', '/api/admin/registo'],
   ];
@@ -1776,8 +1779,8 @@ await passo('Administração: acesso, contas, jogos, eventos e registo', async (
   const respostaLista = await http('GET', '/api/admin/utilizadores', undefined, admin);
   ok(respostaLista.status === 200 && /no-store/.test(respostaLista.cabecalhos.get('cache-control') ?? ''), 'GET utilizadores = 200 (e fora da cache)', descricao(respostaLista));
   const lista = respostaLista.json;
-  ok(Array.isArray(lista) && lista.every((u) => JSON.stringify(Object.keys(u).sort()) === '["criadoEm","email","equipa","estado","id","jogos","nome","papel"]'),
-    'cada conta traz id, nome, email, papel, estado, equipa, jogos e data de criação', JSON.stringify(lista?.[0]));
+  ok(Array.isArray(lista) && lista.every((u) => JSON.stringify(Object.keys(u).sort()) === '["criadoEm","email","equipa","estado","id","jogos","nome","papel","ultimoAcessoEm"]'),
+    'cada conta traz id, nome, email, papel, estado, equipa, jogos, data de criação e último acesso', JSON.stringify(lista?.[0]));
   ok(!/hash|palavra|token/i.test(respostaLista.texto), 'e nenhum campo guarda palavras-passe, hashes ou códigos');
   const dePrincipal = lista?.find((u) => u.email === emailPrincipal);
   ok(dePrincipal?.estado === 'ativo' && dePrincipal.papel === 'normal' && dePrincipal.nome === `Principal ${sufixo}` && dePrincipal.equipa === equipaPrincipal && dePrincipal.jogos > 0,
@@ -1893,6 +1896,24 @@ await passo('Administração: acesso, contas, jogos, eventos e registo', async (
   ok((await http('POST', '/api/conta/entrar', { email: emailVitima, palavraPasse: SENHA }, new Sessao('antiga'))).status === 401, 'a palavra-passe antiga já não entra');
   ok((await http('POST', '/api/conta/entrar', { email: emailVitima, palavraPasse: NOVA }, new Sessao('nova'))).status === 200, 'a nova entra');
 
+  // ---- Emails: como estão configurados e um email de teste para o próprio admin
+  r = await http('GET', '/api/admin/email', undefined, admin);
+  ok(r.status === 200 && /no-store/.test(r.cabecalhos.get('cache-control') ?? ''), 'GET email = 200 (fora da cache)', descricao(r));
+  ok(r.json?.modo === 'teste' && r.json.host === 'localhost' && r.json.porta === 1025 && r.json.urlPublicoLocal === true && r.json.temUtilizador === false,
+    'o estado diz que os emails vão para a caixa de teste (localhost:1025) e que as ligações apontam para localhost', JSON.stringify(r.json));
+  ok(JSON.stringify(Object.keys(r.json ?? {}).sort()) === '["de","host","modo","porta","temUtilizador","urlPublico","urlPublicoLocal","usaSsl"]', 'só traz o que a página precisa');
+  ok(!/senha|password|segredo/i.test(r.texto), 'e nunca leva a senha do servidor');
+  const antesTeste = (await mensagensPara(emailAdmin)).length;
+  r = await http('POST', '/api/admin/email/testar', undefined, admin);
+  ok(r.status === 204 && r.texto === '', 'POST email/testar = 204', descricao(r));
+  let recebido = null;
+  ok(await (async () => { for (let i = 0; i < 80; i++) { const m = await mensagensPara(emailAdmin); if (m.length > antesTeste) { recebido = m[0]; return true; } await esperar(100); } return false; })(), 'o email de teste chega ao próprio admin');
+  const textoTeste = recebido ? (await lerMensagem(recebido.ID)).Text : '';
+  ok(recebido?.Subject === 'Email de teste do Scouting de Andebol' && textoTeste.includes('Olá Admin Teste,') && /funcionar/.test(textoTeste), 'com o assunto e o texto certos', `${recebido?.Subject} / ${textoTeste.slice(0, 80)}`);
+  const estados = [];
+  for (let i = 0; i < 4; i++) estados.push((await http('POST', '/api/admin/email/testar', undefined, admin)).status);
+  ok(estados.includes(429) && estados[0] === 204, 'pedir emails de teste sem parar é travado (429)', estados.join(','));
+
   // ---- Eliminar uma conta: apaga-a com tudo o que é dela, e só com o email dela escrito
   const emailAEliminar = `eliminar-${sufixo}@exemplo.pt`;
   await novaConta('Eliminar', emailAEliminar);
@@ -1934,6 +1955,61 @@ await passo('Administração: acesso, contas, jogos, eventos e registo', async (
   ok((await daConta(emailPrincipal))?.jogos > 0 && (await http('GET', '/api/jogos', undefined, principal)).json?.length > 0, 'as outras contas ficam com os seus jogos');
   r = await http('POST', '/api/conta/registar', { nome: 'Eliminar', equipa: `Eliminar FC ${sufixo}`, email: emailAEliminar, palavraPasse: SENHA }, anonima);
   ok(r.status === 201, 'o email fica livre: dá para registar uma conta nova com ele', descricao(r));
+
+  // ---- Editar o nome e o email de uma conta (e o último acesso)
+  const emailEditar = `editar-${sufixo}@exemplo.pt`;
+  const emailEditado = `editado-${sufixo}@exemplo.pt`;
+  await novaConta('Editar', emailEditar);
+  const editada = new Sessao('conta a editar');
+  ok((await daConta(emailEditar))?.ultimoAcessoEm === null, 'uma conta que ainda não usou a app não tem último acesso');
+  ok((await http('POST', '/api/conta/entrar', { email: emailEditar, palavraPasse: SENHA }, editada)).status === 200, 'a conta a editar entra');
+  ok((await http('GET', '/api/conta', undefined, editada)).status === 200, 'e usa a app');
+  const acessoEditar = (await daConta(emailEditar))?.ultimoAcessoEm;
+  ok(typeof acessoEditar === 'string' && Math.abs(Date.now() - Date.parse(acessoEditar)) < 120000, 'a lista mostra agora o último acesso dela (há menos de 2 minutos)', acessoEditar);
+  ok((await daConta(emailPorConfirmar))?.ultimoAcessoEm === null, 'e quem nunca entrou continua sem último acesso');
+  const idEditar = (await daConta(emailEditar))?.id;
+  const editar = (id, corpo, sessao = admin) => http('PUT', `/api/admin/utilizadores/${id}`, corpo, sessao);
+
+  r = await editar(idAdmin, { nome: 'Outro Nome', email: emailAdmin });
+  ok(r.status === 400 && /própria conta/.test(r.texto), 'ninguém edita a própria conta = 400', descricao(r));
+  ok((await editar(999999, { nome: 'Alguém', email: 'alguem@exemplo.pt' })).status === 404, 'editar uma conta que não existe = 404');
+  for (const [nome, corpo, parte] of [
+    ['sem nome', { nome: '   ', email: emailEditar }, /nome/i], ['com um nome enorme', { nome: 'x'.repeat(81), email: emailEditar }, /80/],
+    ['sem email', { nome: 'Editar', email: '' }, /email/i], ['com um email que não é válido', { nome: 'Editar', email: 'sem-arroba' }, /email/i],
+    ['sem corpo', {}, /nome/i],
+  ]) {
+    r = await editar(idEditar, corpo);
+    ok(r.status === 400 && parte.test(r.json?.erro ?? ''), `editar ${nome} = 400`, descricao(r));
+  }
+  r = await editar(idEditar, { nome: ' Editar ', email: emailEditar.toUpperCase() });
+  ok(r.status === 400 && /nada/.test(r.texto), 'editar sem mudar nada (espaços e maiúsculas não contam) = 400', descricao(r));
+  r = await editar(idEditar, { nome: 'Editar', email: emailSegunda });
+  ok(r.status === 409 && /Já existe/.test(r.texto), 'editar para o email de outra conta = 409', descricao(r));
+  ok((await papel(idEditar, { papel: 'admin' })).status === 204, 'tornar a conta admin = 204');
+  r = await editar(idEditar, { nome: 'Editar Admin', email: emailEditar });
+  ok(r.status === 409 && /admin/.test(r.texto), 'uma conta de admin não se edita = 409', descricao(r));
+  ok((await papel(idEditar, { papel: 'normal' })).status === 204, 'tirar-lhe o papel de admin = 204');
+  ok((await daConta(emailEditar))?.nome === 'Editar' && (await http('GET', '/api/conta', undefined, editada)).status === 200, 'e nada disto mudou a conta nem a sessão dela');
+  ok((await mensagensPara(emailEditar)).length === 1, 'nem enviou emails (só o de confirmar a conta)');
+
+  r = await editar(idEditar, { nome: ' Editar Novo ', email: emailEditar });
+  ok(r.status === 200 && r.json?.emailMudou === false && r.json?.emailEnviado === false, 'mudar só o nome = 200 (o email não mudou)', descricao(r));
+  const aposNome = await daConta(emailEditar);
+  ok(aposNome?.nome === 'Editar Novo' && aposNome.estado === 'ativo', 'o nome muda (sem espaços nas pontas) e a conta continua ativa', JSON.stringify(aposNome));
+  ok((await http('GET', '/api/conta', undefined, editada)).json?.nome === 'Editar Novo', 'a sessão dela continua a servir, já com o nome novo');
+  ok((await mensagensPara(emailEditar)).length === 1, 'e não envia nenhum email');
+
+  r = await editar(idEditar, { nome: 'Editar Novo', email: `  ${emailEditado.toUpperCase()} ` });
+  ok(r.status === 200 && r.json?.emailMudou === true && r.json?.emailEnviado === true, 'mudar o email = 200 (e o email com a ligação saiu)', descricao(r));
+  const aposEmail = await daConta(emailEditado);
+  ok(aposEmail?.id === idEditar && aposEmail.estado === 'por_confirmar' && (await daConta(emailEditar)) === undefined, 'a conta passa a ter o email novo (em minúsculas) e fica por confirmar', JSON.stringify(aposEmail));
+  ok((await http('GET', '/api/conta', undefined, editada)).status === 401, 'a sessão que tinha deixa de servir');
+  ok((await http('POST', '/api/conta/entrar', { email: emailEditar, palavraPasse: SENHA }, new Sessao('email antigo'))).status === 401, 'o email antigo já não entra');
+  r = await http('POST', '/api/conta/entrar', { email: emailEditado, palavraPasse: SENHA }, new Sessao('por confirmar'));
+  ok(r.status === 403 && r.json?.codigo === 'email_por_confirmar', 'o email novo ainda não entra: falta confirmar', descricao(r));
+  ok((await mensagensPara(emailEditado)).length === 1 && (await mensagensPara(emailEditar)).length === 1, 'o email de confirmação foi para o endereço novo (e nenhum novo para o antigo)');
+  ok((await http('POST', '/api/conta/confirmar-email', { token: await ultimoToken(emailEditado) }, anonima)).status === 204, 'a pessoa confirma o email novo');
+  ok((await http('POST', '/api/conta/entrar', { email: emailEditado, palavraPasse: SENHA }, new Sessao('confirmada'))).status === 200, 'e entra com ele');
 
   // ---- Jogos de todas as contas
   const equipaSegundaId = (await http('GET', '/api/equipas', undefined, segunda)).json?.find((e) => e.propria)?.id;
@@ -2018,6 +2094,61 @@ await passo('Administração: acesso, contas, jogos, eventos e registo', async (
   ok((await http('DELETE', `${base}/eventos/${idDois}`, undefined, admin)).status === 404, 'apagar outra vez = 404');
   ok((await http('DELETE', '/api/admin/jogos/99999/eventos/1', undefined, admin)).status === 404, 'apagar num jogo que não existe = 404');
 
+
+  // ---- Cópia de segurança (JSON) de uma conta e de um jogo
+  const exportarConta = (id, sessao = admin) => http('GET', `/api/admin/utilizadores/${id}/exportar`, undefined, sessao);
+  r = await exportarConta(idSegunda);
+  const disposicaoConta = r.cabecalhos.get('content-disposition') ?? '';
+  ok(r.status === 200 && /application\/json/.test(r.cabecalhos.get('content-type') ?? '') && /no-store/.test(r.cabecalhos.get('cache-control') ?? ''), 'GET exportar conta = 200, em JSON e fora da cache', descricao(r));
+  ok(/attachment/.test(disposicaoConta) && new RegExp(`conta-${idSegunda}-segunda-[a-z0-9-]+-\\d{8}-\\d{4}\\.json`).test(disposicaoConta), 'e descarrega-se como ficheiro conta-<id>-<email>-<data>.json', disposicaoConta);
+  const copiaConta = r.json;
+  ok(copiaConta?.tipo === 'conta' && copiaConta.versao === 1 && typeof copiaConta.exportado_em === 'string' && copiaConta.conta?.email === emailSegunda, 'o ficheiro diz o que é, a versão, quando foi feito e de que conta', JSON.stringify(Object.keys(copiaConta ?? {})));
+  ok(!/palavra_passe/.test(r.texto) && !('palavra_passe_hash' in (copiaConta?.conta ?? {})), 'e a palavra-passe (o hash) nunca sai');
+  ok(copiaConta?.equipas?.some((e) => e.id === equipaSegundaId) && copiaConta.equipas.some((e) => e.id === adversaria), 'traz as equipas da conta');
+  ok(copiaConta?.jogadores?.length >= 4 && copiaConta.jogadores.some((x) => x.id === lateral1), 'e os jogadores');
+  ok(copiaConta?.jogos?.some((j) => j.id === jogoAdmin) && copiaConta.eventos?.filter((e) => e.jogo_id === jogoAdmin).length === (await verEventos()).length, 'e os jogos com os eventos (os mesmos que o dono vê)');
+  ok(Array.isArray(copiaConta?.convocados) && Array.isArray(copiaConta?.relogios) && Array.isArray(copiaConta?.escudos), 'e a convocatória, os relógios e os escudos (mesmo vazios, como listas)');
+  ok(!copiaConta?.equipas?.some((e) => e.dono_id !== null && e.dono_id !== idSegunda), 'sem equipas nem jogos de outras contas');
+  ok((await exportarConta(999999)).status === 404, 'exportar uma conta que não existe = 404');
+  r = await exportarConta(idAdmin);
+  ok(r.status === 200 && r.json?.conta?.email === emailAdmin, 'um admin também se exporta');
+
+  const jogoApagar = (await http('POST', '/api/jogos', { casaId: equipaSegundaId, foraId: adversaria, local: 'Pavilhão Apagar' }, segunda)).json?.id;
+  ok(jogoApagar > 0 && (await http('POST', `/api/jogos/${jogoApagar}/eventos`, remate, segunda)).status === 201, 'a segunda conta cria mais um jogo, com um evento', `${jogoApagar}`);
+  const daLista = async (id) => (await http('GET', '/api/admin/jogos', undefined, admin)).json?.find((j) => j.id === id);
+  r = await http('GET', `/api/admin/jogos/${jogoApagar}/exportar`, undefined, admin);
+  const disposicaoJogo = r.cabecalhos.get('content-disposition') ?? '';
+  ok(r.status === 200 && /application\/json/.test(r.cabecalhos.get('content-type') ?? '') && /no-store/.test(r.cabecalhos.get('cache-control') ?? ''), 'GET exportar jogo = 200, em JSON e fora da cache', descricao(r));
+  ok(new RegExp(`attachment.*jogo-${jogoApagar}-[a-z0-9-]+-vs-adversaria-admin-[a-z0-9-]+-\\d{8}-\\d{4}\\.json`).test(disposicaoJogo), 'e o nome do ficheiro tem o id e as duas equipas', disposicaoJogo);
+  ok(r.json?.tipo === 'jogo' && r.json.jogo?.id === jogoApagar && r.json.equipas?.length === 2 && r.json.jogadores?.length >= 4 && r.json.eventos?.length === 1,
+    'traz o jogo, as duas equipas, os jogadores e o evento', JSON.stringify(Object.keys(r.json ?? {})));
+  ok((await http('GET', '/api/admin/jogos/99999/exportar', undefined, admin)).status === 404, 'exportar um jogo que não existe = 404');
+
+  // ---- Terminar, reabrir e apagar o jogo de outra conta
+  const terminar = (id, corpo, sessao = admin) => http('PUT', `/api/admin/jogos/${id}/terminado`, corpo, sessao);
+  ok((await terminar(jogoApagar, {})).status === 400, 'terminar sem dizer se termina ou reabre = 400');
+  ok((await terminar(99999, { terminado: true })).status === 404, 'terminar um jogo que não existe = 404');
+  ok((await daLista(jogoApagar))?.terminadoEm === null, 'o jogo começa por terminar');
+  r = await terminar(jogoApagar, { terminado: true });
+  ok(r.status === 204 && r.texto === '', 'o admin termina o jogo = 204', descricao(r));
+  ok(typeof (await daLista(jogoApagar))?.terminadoEm === 'string', 'e a lista mostra-o terminado');
+  r = await terminar(jogoApagar, { terminado: true });
+  ok(r.status === 409 && /já estava terminado/.test(r.texto), 'terminar um jogo já terminado = 409', descricao(r));
+  r = await terminar(jogoApagar, { terminado: false });
+  ok(r.status === 204 && (await daLista(jogoApagar))?.terminadoEm === null, 'reabrir = 204 (e volta a ficar por terminar)', descricao(r));
+  r = await terminar(jogoApagar, { terminado: false });
+  ok(r.status === 409 && /a decorrer/.test(r.texto), 'reabrir um jogo que já está a decorrer = 409', descricao(r));
+
+  r = await http('DELETE', '/api/admin/jogos/99999', undefined, admin);
+  ok(r.status === 404, 'apagar um jogo que não existe = 404', descricao(r));
+  ok((await daLista(jogoApagar)) !== undefined, 'e nada foi apagado');
+  r = await http('DELETE', `/api/admin/jogos/${jogoApagar}`, undefined, admin);
+  ok(r.status === 204 && r.texto === '', 'o admin apaga o jogo = 204', descricao(r));
+  ok((await daLista(jogoApagar)) === undefined && (await http('GET', `/api/admin/jogos/${jogoApagar}`, undefined, admin)).status === 404, 'o jogo sai da lista');
+  ok(!(await http('GET', '/api/jogos', undefined, segunda)).json?.some((j) => j.id === jogoApagar), 'e a conta dona também já não o tem');
+  ok((await http('GET', '/api/equipas', undefined, segunda)).json?.some((e) => e.id === equipaSegundaId) && (await verEventos()).length === 1, 'mas as equipas e o outro jogo (com o seu evento) ficam');
+  ok((await http('DELETE', `/api/admin/jogos/${jogoApagar}`, undefined, admin)).status === 404, 'apagar outra vez = 404');
+
   // ---- Registo de alterações
   const respostaRegisto = await http('GET', '/api/admin/registo', undefined, admin);
   const registo = respostaRegisto.json;
@@ -2044,10 +2175,24 @@ await passo('Administração: acesso, contas, jogos, eventos e registo', async (
   ok(!!apagada && apagada.tipo === 'evento' && /2 minutos/.test(apagada.detalhe) && apagada.detalhe.includes('#5 Nuno Admin') && apagada.detalhe.includes('2.ª 35:00'), 'o evento apagado fica descrito no registo', apagada?.detalhe);
   ok(registo?.filter((l) => l.acao === 'Evento corrigido').length === 2, 'e as correções recusadas não deixam linha (só as duas que se fizeram)');
 
+  const nomeEditado = linha('Conta editada', emailEditar, (l) => l.tipo === 'conta' && l.autorNome === nomeAdmin && l.jogoId === null && l.detalhe.includes('nome de Editar para Editar Novo'));
+  ok(!!nomeEditado && !nomeEditado.detalhe.includes('email de'), 'a edição do nome fica no registo, só com o nome', nomeEditado?.detalhe);
+  const emailEditadoNoRegisto = linha('Conta editada', emailEditar, (l) => l.detalhe.includes(`email de ${emailEditar} para ${emailEditado}`));
+  ok(!!emailEditadoNoRegisto && emailEditadoNoRegisto.detalhe.includes('volta a ficar por confirmar'), 'e a do email diz de qual para qual (e que ficou por confirmar)', emailEditadoNoRegisto?.detalhe);
+  ok(registo?.filter((l) => l.acao === 'Conta editada').length === 2, 'e as edições recusadas não deixam linha (só as duas que se fizeram)');
+  const terminada = linha('Jogo terminado', `conta Segunda ${sufixo}`, (l) => l.tipo === 'jogo' && l.jogoId === jogoApagar && l.autorNome === nomeAdmin);
+  const reaberta = linha('Jogo reaberto', `conta Segunda ${sufixo}`, (l) => l.tipo === 'jogo' && l.jogoId === jogoApagar);
+  ok(!!terminada && !!reaberta && terminada.detalhe === `${equipaSegunda} vs Adversária Admin ${sufixo} (conta Segunda ${sufixo})`, 'terminar e reabrir o jogo ficam no registo, com as equipas e a conta dona', terminada?.detalhe);
+  const jogoApagadoNoRegisto = linha('Jogo apagado', `conta Segunda ${sufixo}`, (l) => l.tipo === 'jogo' && l.jogoId === null);
+  ok(!!jogoApagadoNoRegisto && jogoApagadoNoRegisto.detalhe.includes('1 evento apagado'), 'e o jogo apagado, com quantos eventos tinha (e sem ligação para um jogo que já não existe)', jogoApagadoNoRegisto?.detalhe);
+  ok(registo?.filter((l) => l.tipo === 'jogo').length === 3, 'só há essas três linhas de jogos (as ações recusadas não deixam linha)');
+
   const soEventos = (await http('GET', '/api/admin/registo?tipo=evento', undefined, admin)).json;
   const soContas = (await http('GET', '/api/admin/registo?tipo=conta', undefined, admin)).json;
-  ok(soEventos?.length > 0 && soEventos.every((l) => l.tipo === 'evento') && soContas?.length > 0 && soContas.every((l) => l.tipo === 'conta') && soEventos.length + soContas.length === registo?.length,
-    '?tipo=evento e ?tipo=conta separam as linhas (e juntas dão o registo todo)', `${soEventos?.length} + ${soContas?.length} / ${registo?.length}`);
+  const soJogos = (await http('GET', '/api/admin/registo?tipo=jogo', undefined, admin)).json;
+  ok(soEventos?.length > 0 && soEventos.every((l) => l.tipo === 'evento') && soContas?.length > 0 && soContas.every((l) => l.tipo === 'conta') && soJogos?.length > 0 && soJogos.every((l) => l.tipo === 'jogo')
+    && soEventos.length + soContas.length + soJogos.length === registo?.length,
+    '?tipo=evento, ?tipo=conta e ?tipo=jogo separam as linhas (e juntas dão o registo todo)', `${soEventos?.length} + ${soContas?.length} + ${soJogos?.length} / ${registo?.length}`);
   r = await http('GET', '/api/admin/registo?tipo=outro', undefined, admin);
   ok(r.status === 400 && typeof r.json?.erro === 'string', '?tipo=outro = 400', descricao(r));
 

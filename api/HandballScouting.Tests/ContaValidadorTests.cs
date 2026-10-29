@@ -135,4 +135,47 @@ public class ContaValidadorTests
         Assert.Null(ContaValidador.ErroPalavraPasse(new string('a', 128)));
         Assert.Contains("128", ContaValidador.ErroPalavraPasse(new string('a', 129)));
     }
+
+    [Theory]
+    [InlineData("Ana")]
+    [InlineData("  Ana Maria  ")]
+    public void Nome_bom_nao_tem_erro(string nome)
+    {
+        Assert.Null(ContaValidador.ErroNome(nome));
+    }
+
+    [Theory]
+    [InlineData(null, "obrigatório")]
+    [InlineData("", "obrigatório")]
+    [InlineData("   ", "obrigatório")]
+    public void Nome_vazio_diz_que_e_obrigatorio(string? nome, string parte)
+    {
+        Assert.Contains(parte, ContaValidador.ErroNome(nome));
+    }
+
+    [Fact]
+    public void Nome_com_mais_de_80_caracteres_e_recusado()
+    {
+        Assert.Null(ContaValidador.ErroNome(" " + new string('a', 80) + " "));
+        Assert.Contains("80", ContaValidador.ErroNome(new string('a', 81)));
+    }
+
+    [Theory]
+    [InlineData("ana@exemplo.pt")]
+    [InlineData("  ANA@Exemplo.PT ")]
+    public void Email_bom_nao_tem_erro(string email)
+    {
+        Assert.Null(ContaValidador.ErroEmail(email));
+    }
+
+    [Theory]
+    [InlineData(null, "obrigatório")]
+    [InlineData("  ", "obrigatório")]
+    [InlineData("ana", "não é válido")]
+    [InlineData("ana@exemplo", "não é válido")]
+    [InlineData("ana @exemplo.pt", "não é válido")]
+    public void Email_mau_diz_o_que_esta_mal(string? email, string parte)
+    {
+        Assert.Contains(parte, ContaValidador.ErroEmail(email));
+    }
 }

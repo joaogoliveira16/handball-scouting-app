@@ -4,14 +4,17 @@ using Npgsql;
 namespace HandballScouting.Api;
 
 /// <summary>
-/// A área de administração: ver todas as contas e jogos, desativar contas, mudar o papel, pedir a recuperação da
-/// palavra-passe e corrigir ou apagar eventos de qualquer jogo. Cada ação deixa uma linha no registo de alterações.
+/// A área de administração: ver todas as contas e jogos, editar, desativar e eliminar contas, mudar o papel, pedir a
+/// recuperação da palavra-passe, terminar, reabrir e apagar jogos e corrigir ou apagar eventos de qualquer jogo, e tirar
+/// cópias de segurança (JSON) de uma conta ou de um jogo. Cada alteração deixa uma linha no registo de alterações.
 /// A autorização (só admins) é das rotas /api/admin (ver <see cref="Autenticacao.ExigirAdmin"/>); aqui tratam-se as regras.
 /// </summary>
 public class AdminService(
-    NpgsqlDataSource dados, SqlLoader sql, ContaService contas, EventosService eventos, EstatisticasService estatisticas,
-    ILogger<AdminService> log)
+    NpgsqlDataSource dados, SqlLoader sql, ContaService contas, CadastroService cadastro, EventosService eventos,
+    EstatisticasService estatisticas, OpcoesEmail opcoesEmail, IEnviadorEmail enviador, LimiteEnvios envios, ILogger<AdminService> log)
 {
+    private const string ViolacaoUnicidade = "23505";
+
     /// <summary>Quantas linhas do registo a página mostra.</summary>
     public const int LinhasDoRegisto = 200;
 
@@ -66,6 +69,46 @@ public class AdminService(
     }
 
     /// <summary>
+    /// Muda o nome e o email de uma conta. Uma conta de admin não se edita (tira-se-lhe primeiro o papel) nem a própria.
+    /// Se o email muda, a conta volta a ficar por confirmar, perde as sessões e os links antigos, e o email novo recebe
+    /// o link para confirmar: sem isso, quem escreveu o email errado ficava com uma conta a que ninguém acede.
+    /// </summary>
+    public async Task<ResultadoEdicaoConta> EditarContaAsync(Utilizador autor, int id, EditarContaRequest pedido, CancellationToken ct = default)
+    {
+        if (id == autor.Id) return ResultadoEdicaoConta.Falha(400, "Não podes editar a tua própria conta aqui.");
+        var erros = new[] { ContaValidador.ErroNome(pedido.Nome), ContaValidador.ErroEmail(pedido.Email) }.OfType<string>().ToList();
+        if (erros.Count > 0) return ResultadoEdicaoConta.Falha(400, string.Join(" ", erros.Select(Maiuscula)));
+
+        var nome = pedido.Nome!.Trim();
+        var email = ContaValidador.NormalizarEmail(pedido.Email);
+
+        await using var con = await dados.OpenConnectionAsync(ct);
+        if (await UtilizadorAsync(con, sql, id, ct) is not { } alvo) return ResultadoEdicaoConta.Falha(404, "Conta não encontrada.");
+        if (alvo.Papel == Papeis.Admin) return ResultadoEdicaoConta.Falha(409, "Uma conta de admin não se edita: tira-lhe primeiro o papel de admin.");
+        if (nome == alvo.Nome && email == alvo.Email) return ResultadoEdicaoConta.Falha(400, "Não mudaste nada.");
+
+        ContaEditada? editada;
+        try
+        {
+            editada = await con.QuerySingleOrDefaultAsync<ContaEditada>(Cmd(sql["admin_editar_conta"], new { id, nome, email }, ct));
+        }
+        catch (PostgresException e) when (e.SqlState == ViolacaoUnicidade)
+        {
+            return ResultadoEdicaoConta.Falha(409, "Já existe uma conta com este email.");
+        }
+        if (editada is null) return ResultadoEdicaoConta.Falha(409, "A conta mudou entretanto: atualiza a lista e tenta outra vez.");
+
+        await RegistarAsync(con, autor, "conta", "Conta editada", DescricaoAlteracoes.ContaEditada(alvo, nome, email), null, ct);
+        if (!editada.EmailMudou) return new ResultadoEdicaoConta(true, 200, null);
+
+        var enviado = await contas.EnviarConfirmacaoDaContaAsync(id, ct) == true;
+        return new ResultadoEdicaoConta(true, 200, null, EmailMudou: true, EmailEnviado: enviado);
+    }
+
+    /// <summary>«o email não é válido.» -> «O email não é válido.»</summary>
+    private static string Maiuscula(string frase) => frase.Length == 0 ? frase : char.ToUpperInvariant(frase[0]) + frase[1..];
+
+    /// <summary>
     /// Elimina uma conta e tudo o que é dela (equipas, jogadores, jogos com os eventos). Não se desfaz, por isso quem
     /// elimina tem de escrever o email da conta. Ninguém elimina a própria conta, e uma conta de admin perde primeiro o papel.
     /// </summary>
@@ -100,6 +143,39 @@ public class AdminService(
         }
         await RegistarAsync(con, autor, "conta", "Ligação para repor a palavra-passe enviada", alvo.Email, null, ct);
         return ResultadoAdmin.Sucesso();
+    }
+
+    // ------------------------------------------------------------------ emails
+
+    /// <summary>Como está configurado o envio de emails (sem segredos).</summary>
+    public EstadoEmail EstadoDoEmail() => EstadoEmail.DasOpcoes(opcoesEmail);
+
+    /// <summary>Manda um email de teste ao próprio admin, para ele ver se o envio funciona.</summary>
+    public async Task<ResultadoAdmin> TestarEmailAsync(Utilizador autor, CancellationToken ct = default)
+    {
+        if (!opcoesEmail.Configurado) return ResultadoAdmin.Falha(409, "O envio de emails não está configurado (falta EMAIL_HOST no .env).");
+        if (!envios.PodePedir(autor.Email) || !envios.PodeEnviar())
+            return ResultadoAdmin.Falha(429, "Já pediste emails de teste a mais: tenta outra vez daqui a pouco.");
+
+        envios.RegistarPedido(autor.Email);
+        try
+        {
+            await enviador.EnviarAsync(autor.Email, EmailTeste.Assunto, EmailTeste.Texto(autor.Nome), EmailTeste.Html(autor.Nome), ct);
+            envios.RegistarEnvio();
+            return ResultadoAdmin.Sucesso();
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            log.LogWarning(e, "O email de teste para {Email} falhou.", autor.Email);
+            return ResultadoAdmin.Falha(503, $"Não foi possível enviar o email: {Resumo(e)}");
+        }
+    }
+
+    /// <summary>A mensagem do erro numa só linha e curta (um erro de SMTP diz muitas vezes o que está mal: «Authentication failed»).</summary>
+    public static string Resumo(Exception e)
+    {
+        var texto = string.Join(' ', e.GetBaseException().Message.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return texto.Length > 200 ? texto[..200] + "…" : texto;
     }
 
     // ------------------------------------------------------------------ jogos e eventos
@@ -162,12 +238,73 @@ public class AdminService(
         return ResultadoAdmin.Sucesso();
     }
 
+    /// <summary>Terminar ou reabrir o jogo de outra conta (as mesmas regras do dono). O registo guarda quem o fez.</summary>
+    public async Task<ResultadoAdmin> DefinirTerminadoAsync(Utilizador autor, int jogoId, bool? terminado, CancellationToken ct = default)
+    {
+        if (terminado is null) return ResultadoAdmin.Falha(400, "Diz se o jogo fica terminado ou reaberto.");
+
+        await using var con = await dados.OpenConnectionAsync(ct);
+        if (await DonoAsync(con, sql, jogoId, ct) is not { } dono || await estatisticas.JogoAsync(jogoId, ct) is not { } jogo)
+            return ResultadoAdmin.Falha(404, "Jogo não encontrado.");
+        if ((jogo.TerminadoEm is not null) == terminado.Value)
+            return ResultadoAdmin.Falha(409, terminado.Value ? "O jogo já estava terminado." : "O jogo já estava a decorrer.");
+
+        var r = await cadastro.TerminarJogoAsync(dono.DonoId, jogoId, new TerminarJogoRequest(terminado), ct);
+        if (!r.Ok) return ResultadoAdmin.Falha(r.Status, r.Erro ?? "Não foi possível mudar o jogo.");
+
+        await RegistarAsync(con, autor, "jogo", terminado.Value ? "Jogo terminado" : "Jogo reaberto",
+            DescricaoAlteracoes.Jogo(jogo, dono.DonoNome), jogoId, ct);
+        return ResultadoAdmin.Sucesso();
+    }
+
+    /// <summary>
+    /// Apaga o jogo de outra conta com os eventos, a convocatória e o relógio. O registo guarda que jogo era e
+    /// quantos eventos tinha (a página de administração tira antes uma cópia de segurança).
+    /// </summary>
+    public async Task<ResultadoAdmin> ApagarJogoAsync(Utilizador autor, int jogoId, CancellationToken ct = default)
+    {
+        await using var con = await dados.OpenConnectionAsync(ct);
+        if (await DonoAsync(con, sql, jogoId, ct) is not { } dono || await estatisticas.JogoAsync(jogoId, ct) is not { } jogo)
+            return ResultadoAdmin.Falha(404, "Jogo não encontrado.");
+
+        var nEventos = (await eventos.ListarAsync(dono.DonoId, jogoId, ct))?.Count ?? 0;
+        var r = await cadastro.ApagarJogoAsync(dono.DonoId, jogoId, ct);
+        if (!r.Ok) return ResultadoAdmin.Falha(r.Status, r.Erro ?? "Não foi possível apagar o jogo.");
+
+        // Sem jogo_id: o jogo já não existe, por isso a linha não leva a lado nenhum
+        await RegistarAsync(con, autor, "jogo", "Jogo apagado", DescricaoAlteracoes.JogoApagado(jogo, dono.DonoNome, nEventos), null, ct);
+        return ResultadoAdmin.Sucesso();
+    }
+
+    // ------------------------------------------------------------------ cópias de segurança
+
+    /// <summary>
+    /// Tudo o que é de uma conta num JSON (conta sem palavra-passe, equipas, escudos, jogadores, jogos com convocatória,
+    /// relógio e eventos). Null se a conta não existe.
+    /// </summary>
+    public async Task<Exportacao?> ExportarContaAsync(int id, CancellationToken ct = default)
+    {
+        await using var con = await dados.OpenConnectionAsync(ct);
+        if (await UtilizadorAsync(con, sql, id, ct) is not { } conta) return null;
+        var json = await con.QuerySingleOrDefaultAsync<string>(Cmd(sql["admin_exportar_conta"], new { id }, ct));
+        return json is null ? null : new Exportacao(json, NomesDeExportacao.Conta(id, conta.Email, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>Um jogo num JSON (jogo, equipas, jogadores, convocatória, relógio e eventos). Null se o jogo não existe.</summary>
+    public async Task<Exportacao?> ExportarJogoAsync(int id, CancellationToken ct = default)
+    {
+        if (await estatisticas.JogoAsync(id, ct) is not { } jogo) return null;
+        await using var con = await dados.OpenConnectionAsync(ct);
+        var json = await con.QuerySingleOrDefaultAsync<string>(Cmd(sql["admin_exportar_jogo"], new { id }, ct));
+        return json is null ? null : new Exportacao(json, NomesDeExportacao.Jogo(id, jogo.CasaNome, jogo.ForaNome, DateTimeOffset.UtcNow));
+    }
+
     // ------------------------------------------------------------------ registo
 
-    /// <summary>As últimas alterações. tipo: «conta», «evento» ou vazio (todas). Null se o tipo não existir.</summary>
+    /// <summary>As últimas alterações. tipo: «conta», «evento», «jogo» ou vazio (todas). Null se o tipo não existir.</summary>
     public async Task<List<RegistoAlteracao>?> RegistoAsync(string? tipo, CancellationToken ct = default)
     {
-        if (!string.IsNullOrEmpty(tipo) && tipo is not ("conta" or "evento")) return null;
+        if (!string.IsNullOrEmpty(tipo) && tipo is not ("conta" or "evento" or "jogo")) return null;
         await using var con = await dados.OpenConnectionAsync(ct);
         return (await con.QueryAsync<RegistoAlteracao>(Cmd(sql["admin_registo"], new
         {

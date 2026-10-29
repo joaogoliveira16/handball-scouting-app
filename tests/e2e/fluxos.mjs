@@ -1060,7 +1060,10 @@ await passo('Superioridade: o banco conta os 2 minutos, marca o 7×6 e o dashboa
     'superioridade: o «2 minutos» ficou registado ao minuto 10');
   await empurrar(banco, jogoId);
   ok(await esperarPor(async () => await faixaBanco.isVisible()), 'superioridade: com um jogador a menos aparece a faixa no banco');
-  ok((await texto(faixaBanco.locator('.rotulo-numerica'))) === '6×5', 'superioridade: a casa joga com 5 e o adversário com 6 (6×5)');
+  // A faixa aparece antes de o rótulo estar certo (o SignalR real entrega o estado por partes): espera por ele
+  const rotuloBanco = async () => (await faixaBanco.locator('.rotulo-numerica').count()) ? await texto(faixaBanco.locator('.rotulo-numerica')) : '';
+  await esperarPor(async () => (await rotuloBanco()) === '6×5');
+  ok((await rotuloBanco()) === '6×5', `superioridade: a casa joga com 5 e o adversário com 6 (6×5) (rótulo: «${await rotuloBanco()}»)`);
   ok(((await faixaBanco.textContent()) ?? '').includes('Superioridade · Leões do Sul'), 'superioridade: a faixa diz quem está em superioridade');
   const inicio = await restanteDe(faixaBanco);
   ok(inicio >= 115 && inicio <= 120, `superioridade: a contagem começa nos 2 minutos (${inicio} s)`);
@@ -2984,6 +2987,14 @@ await passo('Administração: contas, jogos, correção de eventos e registo de 
   const [{ n }] = await q('SELECT COUNT(*)::int AS n FROM utilizadores');
   ok((await texto(p.locator('#n-total'))) === `${n}contas`, `administração: o topo conta as contas (${n})`);
   ok((await p.locator('#tabela-contas tbody tr').count()) === n, 'administração: a tabela tem uma linha por conta');
+  // Emails: a faixa diz que só há a caixa de teste e o botão manda um email de teste ao próprio admin
+  const faixaEmail = p.locator('#faixa-email');
+  ok((await faixaEmail.getAttribute('data-modo')) === 'teste' && /não chegam a ninguém/.test(await faixaEmail.textContent()) && /localhost:8025/.test(await faixaEmail.textContent()), 'administração: a faixa diz que os emails só vão para a caixa de teste');
+  const emailsAntes = (await mensagensPara(emailAdmin)).length;
+  await p.click('#testar-email');
+  await p.waitForFunction(() => document.getElementById('aviso')?.textContent.includes('email de teste'));
+  ok(/caixa de teste/.test(await p.locator('#aviso').textContent()), 'administração: «Enviar email de teste» avisa onde o ir ver');
+  ok(await esperarPor(async () => (await mensagensPara(emailAdmin)).length === emailsAntes + 1), 'administração: o email de teste chega ao admin');
   const linhaB = p.locator(`#tabela-contas tr[data-email="${emailB}"]`);
   ok((await texto(linhaB)).includes(nomeB) && (await texto(linhaB.locator('[data-estado]'))) === 'Ativa' && (await texto(linhaB.locator('[data-papel]'))) === 'Normal', 'administração: a conta do Bruno aparece ativa e normal');
   const linhaAdmin = p.locator(`#tabela-contas tr[data-email="${emailAdmin}"]`);

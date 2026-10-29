@@ -60,6 +60,11 @@ BEGIN
         'a atualização não devia dar o papel de admin a ninguém nem deixar linhas no registo (repetir os scripts também não)';
     ASSERT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'eliminar_conta'),
         'a função eliminar_conta devia existir depois da atualização (e repetir os scripts não falha)';
+    ASSERT (SELECT COUNT(*) = 1 FROM information_schema.columns WHERE table_name = 'utilizadores' AND column_name = 'ultimo_acesso_em')
+       AND (SELECT ultimo_acesso_em IS NULL FROM utilizadores WHERE email = 'antiga@exemplo.pt'),
+        'a coluna ultimo_acesso_em devia ser acrescentada à base antiga, vazia (ninguém entrou ainda)';
+    ASSERT (SELECT pg_get_constraintdef(oid) LIKE '%jogo%' FROM pg_constraint WHERE conname = 'registo_alteracoes_tipo_check'),
+        'o registo de alterações devia aceitar o tipo «jogo» depois da atualização (e repetir os scripts não duplica a regra)';
     ASSERT (SELECT COUNT(*) > 0 FROM eventos WHERE jogo_id = 2 AND sistema_defensivo IS NOT NULL),
         'o jogo de exemplo devia ficar com a defesa do adversário marcada nos remates posicionais';
 END

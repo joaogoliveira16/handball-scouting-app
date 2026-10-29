@@ -54,6 +54,26 @@ public class DescricaoAlteracoesTests
     }
 
     [Fact]
+    public void Uma_conta_editada_diz_o_que_mudou_de_quê_para_quê()
+    {
+        var antes = new UtilizadorAdmin { Id = 4, Nome = "Dora", Email = "dora@exemplo.pt" };
+        Assert.Equal("dora@exemplo.pt (Dora): nome de Dora para Dora Maria", DescricaoAlteracoes.ContaEditada(antes, "Dora Maria", "dora@exemplo.pt"));
+        Assert.Equal("dora@exemplo.pt (Dora): email de dora@exemplo.pt para dora2@exemplo.pt (volta a ficar por confirmar)",
+            DescricaoAlteracoes.ContaEditada(antes, "Dora", "dora2@exemplo.pt"));
+        Assert.Equal("dora@exemplo.pt (Dora): nome de Dora para Ana; email de dora@exemplo.pt para ana@exemplo.pt (volta a ficar por confirmar)",
+            DescricaoAlteracoes.ContaEditada(antes, "Ana", "ana@exemplo.pt"));
+    }
+
+    [Theory]
+    [InlineData(31, "Leões vs Falcões (conta Ana): 31 eventos apagados")]
+    [InlineData(1, "Leões vs Falcões (conta Ana): 1 evento apagado")]
+    [InlineData(0, "Leões vs Falcões (conta Ana): 0 eventos apagados")]
+    public void Um_jogo_apagado_diz_quantos_eventos_tinha(int eventos, string esperado)
+    {
+        Assert.Equal(esperado, DescricaoAlteracoes.JogoApagado(Jogo, "Ana", eventos));
+    }
+
+    [Fact]
     public void O_jogo_diz_as_equipas_e_a_conta_dona()
     {
         Assert.Equal("Leões vs Falcões (conta Ana)", DescricaoAlteracoes.Jogo(Jogo, "Ana"));

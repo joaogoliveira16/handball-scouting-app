@@ -17,6 +17,9 @@
 \set q_jogos      `cat api/HandballScouting.Api/Sql/admin_jogos.sql`
 \set q_dono       `cat api/HandballScouting.Api/Sql/admin_dono_do_jogo.sql`
 \set q_eliminar   `cat api/HandballScouting.Api/Sql/admin_eliminar_conta.sql`
+\set q_editar     `cat api/HandballScouting.Api/Sql/admin_editar_conta.sql`
+\set q_exp_conta  `cat api/HandballScouting.Api/Sql/admin_exportar_conta.sql`
+\set q_exp_jogo   `cat api/HandballScouting.Api/Sql/admin_exportar_jogo.sql`
 
 BEGIN;
 
@@ -44,8 +47,18 @@ SELECT set_config('q.papel',     pg_temp.preparar(:'q_papel', 'papel', 'id'), tr
        set_config('q.registo',   pg_temp.preparar(:'q_registo', 'tipo', 'limite'), true),
        set_config('q.jogos',     pg_temp.preparar(:'q_jogos'), true),
        set_config('q.dono',      pg_temp.preparar(:'q_dono', 'jogoId'), true),
-       set_config('q.eliminar',  pg_temp.preparar(:'q_eliminar', 'id'), true)
+       set_config('q.eliminar',  pg_temp.preparar(:'q_eliminar', 'id'), true),
+       set_config('q.editar',    pg_temp.preparar(:'q_editar', 'nome', 'email', 'id'), true),
+       set_config('q.exp_conta', pg_temp.preparar(:'q_exp_conta', 'id'), true),
+       set_config('q.exp_jogo',  pg_temp.preparar(:'q_exp_jogo', 'id'), true)
 \gset
+
+-- A consulta da sessão também escreve (marca o último acesso), por isso não pode ir dentro de uma subconsulta
+CREATE FUNCTION pg_temp.sessao(p_hash TEXT) RETURNS TABLE (id INT, nome VARCHAR, email VARCHAR, admin BOOLEAN) LANGUAGE plpgsql AS $$
+BEGIN
+    RETURN QUERY EXECUTE current_setting('q.sessao') USING p_hash;
+END
+$$;
 
 DO $$
 DECLARE
@@ -70,6 +83,16 @@ DECLARE
     v_jo INT;
     v_outros_jogos INT;
     v_outras_equipas INT;
+    v_e INT;   -- conta a editar e a exportar
+    v_f INT;
+    v_equipa_e INT;
+    v_adv_e INT;
+    v_jogador_e INT;
+    v_jogador_adv INT;
+    v_jogo_e INT;
+    v_json TEXT;
+    v_j JSONB;
+    v_data TIMESTAMPTZ;
 BEGIN
     -- Ponto de partida: nenhuma conta e tudo sem dono (como numa base acabada de criar)
     DELETE FROM sessoes;
@@ -144,11 +167,11 @@ BEGIN
     INSERT INTO sessoes (token_hash, utilizador_id, expira_em) VALUES
         (repeat('1', 64), v_b, now() + interval '1 day'),
         (repeat('2', 64), v_a, now() + interval '1 day');
-    EXECUTE 'SELECT id, nome FROM (' || current_setting('q.sessao') || ') s' INTO v_id, v_texto USING repeat('1', 64);
+    SELECT s.id, s.nome INTO v_id, v_texto FROM pg_temp.sessao(repeat('1', 64)) s;
     ASSERT v_id = v_b AND v_texto = 'Bruno', 'a sessão do Bruno devia servir';
-    EXECUTE 'SELECT admin FROM (' || current_setting('q.sessao') || ') s' INTO v_bool USING repeat('2', 64);
+    SELECT s.admin INTO v_bool FROM pg_temp.sessao(repeat('2', 64)) s;
     ASSERT v_bool IS TRUE, 'a sessão da Ana diz que ela é admin';
-    EXECUTE 'SELECT admin FROM (' || current_setting('q.sessao') || ') s' INTO v_bool USING repeat('1', 64);
+    SELECT s.admin INTO v_bool FROM pg_temp.sessao(repeat('1', 64)) s;
     ASSERT v_bool IS FALSE, 'e a do Bruno que não é';
 
     EXECUTE current_setting('q.ativa') INTO v_id USING FALSE, v_b;
@@ -162,7 +185,7 @@ BEGIN
     ASSERT v_id IS NULL, 'uma conta que não existe não muda nada';
 
     -- A sessão de uma conta desativada deixa de servir logo, sem apagar a linha
-    EXECUTE 'SELECT count(*) FROM (' || current_setting('q.sessao') || ') s' INTO v_n USING repeat('1', 64);
+    SELECT count(*) INTO v_n FROM pg_temp.sessao(repeat('1', 64)) s;
     ASSERT v_n = 0, 'uma conta desativada não tem sessão válida';
     ASSERT (SELECT COUNT(*) FROM sessoes WHERE utilizador_id = v_b) = 1, 'a linha da sessão ainda lá está (quem desativa é que as apaga)';
     DELETE FROM sessoes WHERE utilizador_id = v_b;
@@ -260,6 +283,131 @@ BEGIN
     ASSERT (SELECT count(*) FROM equipas) = v_outras_equipas, 'as equipas de outras contas ficam';
     EXECUTE current_setting('q.eliminar') INTO v_eq USING v_d;
     ASSERT v_eq IS NULL, 'eliminar outra vez a mesma conta não faz nada';
+
+
+    -- ------------------------------------------------------------ editar o nome e o email de uma conta
+    v_e := registar_utilizador('edgar@exemplo.pt', 'Edgar', 'hash-e', 'Equipa do Edgar');
+    v_f := registar_utilizador('filipa@exemplo.pt', 'Filipa', 'hash-f', 'Equipa da Filipa');
+    UPDATE utilizadores SET email_verificado_em = now() WHERE id IN (v_e, v_f);
+    INSERT INTO sessoes (token_hash, utilizador_id, expira_em) VALUES (repeat('4', 64), v_e, now() + interval '1 day');
+    INSERT INTO verificacoes_email (token_hash, utilizador_id, expira_em) VALUES (repeat('5', 64), v_e, now() + interval '1 day');
+    INSERT INTO redefinicoes_palavra_passe (token_hash, utilizador_id, expira_em) VALUES (repeat('6', 64), v_e, now() + interval '1 hour');
+
+    -- Só o nome: nada mais muda (a conta continua confirmada, com a sessão e os links)
+    EXECUTE current_setting('q.editar') INTO v_id, v_bool USING 'Edgar Novo', 'edgar@exemplo.pt', v_e;
+    ASSERT v_id = v_e AND v_bool IS FALSE, 'mudar só o nome devolve a conta e email_mudou = false';
+    ASSERT (SELECT nome FROM utilizadores WHERE id = v_e) = 'Edgar Novo', 'o nome mudou';
+    ASSERT (SELECT email_verificado_em IS NOT NULL FROM utilizadores WHERE id = v_e), 'o email continua confirmado';
+    ASSERT (SELECT count(*) FROM sessoes WHERE utilizador_id = v_e) = 1, 'a sessão continua';
+    ASSERT (SELECT count(*) FROM verificacoes_email WHERE utilizador_id = v_e) = 1, 'o link de confirmação continua';
+    ASSERT (SELECT count(*) FROM redefinicoes_palavra_passe WHERE utilizador_id = v_e) = 1, 'o link de recuperação continua';
+
+    -- O email: a conta volta a ficar por confirmar e perde as sessões e os links (também o do email antigo)
+    EXECUTE current_setting('q.editar') INTO v_id, v_bool USING 'Edgar Novo', 'edgar.novo@exemplo.pt', v_e;
+    ASSERT v_id = v_e AND v_bool IS TRUE, 'mudar o email devolve email_mudou = true';
+    ASSERT (SELECT email FROM utilizadores WHERE id = v_e) = 'edgar.novo@exemplo.pt', 'o email mudou';
+    ASSERT (SELECT email_verificado_em IS NULL FROM utilizadores WHERE id = v_e), 'o email novo está por confirmar';
+    ASSERT (SELECT count(*) FROM sessoes WHERE utilizador_id = v_e) = 0, 'as sessões saíram';
+    ASSERT (SELECT count(*) FROM verificacoes_email WHERE utilizador_id = v_e) = 0, 'os links de confirmação do email antigo saíram';
+    ASSERT (SELECT count(*) FROM redefinicoes_palavra_passe WHERE utilizador_id = v_e) = 0, 'os links de recuperação do email antigo saíram';
+    EXECUTE 'SELECT estado FROM (' || current_setting('q.contas') || ') s' INTO v_texto USING v_e;
+    ASSERT v_texto = 'por_confirmar', 'a lista mostra a conta por confirmar';
+    -- Não mexeu nas outras contas
+    ASSERT (SELECT email_verificado_em IS NOT NULL FROM utilizadores WHERE id = v_f), 'a Filipa continua confirmada';
+
+    -- Um email que já é de outra conta não serve
+    BEGIN
+        EXECUTE current_setting('q.editar') INTO v_id, v_bool USING 'Filipa', 'edgar.novo@exemplo.pt', v_f;
+        RAISE EXCEPTION 'devia ter recusado o email de outra conta';
+    EXCEPTION WHEN unique_violation THEN NULL;
+    END;
+    ASSERT (SELECT email FROM utilizadores WHERE id = v_f) = 'filipa@exemplo.pt', 'a Filipa ficou como estava';
+
+    -- Um admin não se edita por aqui, e uma conta que não existe também não
+    EXECUTE current_setting('q.editar') INTO v_id, v_bool USING 'Ana Outra', 'ana.outra@exemplo.pt', v_a;
+    ASSERT v_id IS NULL, 'uma conta de admin não se edita';
+    ASSERT (SELECT email FROM utilizadores WHERE id = v_a) = 'ana@exemplo.pt', 'a Ana ficou como estava';
+    EXECUTE current_setting('q.editar') INTO v_id, v_bool USING 'Ninguém', 'ninguem@exemplo.pt', 999999;
+    ASSERT v_id IS NULL, 'uma conta que não existe não se edita';
+
+    -- ------------------------------------------------------------ último acesso
+    EXECUTE 'SELECT ultimo_acesso_em FROM (' || current_setting('q.contas') || ') s' INTO v_data USING v_f;
+    ASSERT v_data IS NULL, 'uma conta que ainda não usou a app não tem último acesso';
+    INSERT INTO sessoes (token_hash, utilizador_id, expira_em) VALUES (repeat('7', 64), v_f, now() + interval '1 day');
+    SELECT s.id INTO v_id FROM pg_temp.sessao(repeat('7', 64)) s;
+    ASSERT v_id = v_f, 'a consulta continua a devolver a conta da sessão';
+    EXECUTE 'SELECT ultimo_acesso_em FROM (' || current_setting('q.contas') || ') s' INTO v_data USING v_f;
+    ASSERT v_data = now(), 'usar a sessão marca o último acesso';
+
+    UPDATE utilizadores SET ultimo_acesso_em = now() - interval '30 minutes' WHERE id = v_f;
+    PERFORM 1 FROM pg_temp.sessao(repeat('7', 64));
+    ASSERT (SELECT ultimo_acesso_em FROM utilizadores WHERE id = v_f) = now() - interval '30 minutes', 'dentro da hora não volta a escrever';
+    UPDATE utilizadores SET ultimo_acesso_em = now() - interval '2 hours' WHERE id = v_f;
+    PERFORM 1 FROM pg_temp.sessao(repeat('7', 64));
+    ASSERT (SELECT ultimo_acesso_em FROM utilizadores WHERE id = v_f) = now(), 'passada a hora marca outra vez';
+
+    -- Uma sessão que não serve (conta por confirmar) não marca nada
+    INSERT INTO sessoes (token_hash, utilizador_id, expira_em) VALUES (repeat('8', 64), v_e, now() + interval '1 day');
+    SELECT count(*) INTO v_n FROM pg_temp.sessao(repeat('8', 64)) s;
+    ASSERT v_n = 0, 'a conta por confirmar não tem sessão válida';
+    ASSERT (SELECT ultimo_acesso_em IS NULL FROM utilizadores WHERE id = v_e), 'e não ficou com último acesso';
+    DELETE FROM sessoes WHERE utilizador_id IN (v_e, v_f);
+
+    -- ------------------------------------------------------------ cópia de segurança (JSON)
+    -- Os dados do Edgar: a equipa dele, um adversário, os jogadores, um jogo com convocatória, relógio, evento e escudo,
+    -- e um jogo antigo (sem dono) contra uma equipa também sem dono, que sai com a conta e por isso entra no ficheiro
+    SELECT equipa_id INTO v_equipa_e FROM utilizadores WHERE id = v_e;
+    INSERT INTO equipas (nome, dono_id) VALUES ('Adversária do Edgar', v_e) RETURNING id INTO v_adv_e;
+    INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES (v_equipa_e, 7, 'Edgar Sete', 'LE') RETURNING id INTO v_jogador_e;
+    INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES (v_adv_e, 9, 'Adversária Nove', 'LE') RETURNING id INTO v_jogador_adv;
+    INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, data_hora) VALUES (v_equipa_e, v_adv_e, v_e, now()) RETURNING id INTO v_jogo_e;
+    INSERT INTO convocados (jogo_id, jogador_id) VALUES (v_jogo_e, v_jogador_e);
+    INSERT INTO relogios_jogo (jogo_id, segundo, a_correr) VALUES (v_jogo_e, 120, FALSE);
+    INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, guarda_redes_id, resultado, x, y, parte, segundo_jogo)
+    VALUES (v_jogo_e, v_equipa_e, 'REMATE', v_jogador_e, v_jogador_adv, 'GOLO', 50, 50, 1, 60);
+    INSERT INTO escudos (equipa_id, tipo, dados) VALUES (v_equipa_e, 'image/png', '\x89504e47'::bytea);
+    INSERT INTO equipas (nome, dono_id) VALUES ('Equipa antiga', NULL) RETURNING id INTO v_eq;
+    INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, data_hora) VALUES (v_equipa_e, v_eq, NULL, now()) RETURNING id INTO v_jogo_antigo;
+    -- Um jogo da Filipa, sem nada a ver com o Edgar: não pode aparecer no ficheiro dele
+    INSERT INTO equipas (nome, dono_id) VALUES ('Adversária da Filipa', v_f) RETURNING id INTO v_outras_equipas;
+    INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, data_hora)
+    VALUES ((SELECT equipa_id FROM utilizadores WHERE id = v_f), v_outras_equipas, v_f, now());
+
+    EXECUTE current_setting('q.exp_conta') INTO v_json USING v_e;
+    v_j := v_json::jsonb;
+    ASSERT v_j->>'tipo' = 'conta' AND (v_j->>'versao')::int = 1 AND v_j->>'exportado_em' IS NOT NULL, 'o ficheiro diz o que é, a versão e quando foi feito';
+    ASSERT v_j->'conta'->>'email' = 'edgar.novo@exemplo.pt' AND v_j->'conta'->>'nome' = 'Edgar Novo', 'traz a conta';
+    ASSERT NOT (v_j->'conta' ? 'palavra_passe_hash'), 'a palavra-passe (o hash) nunca sai';
+    ASSERT position('hash-e' in v_json) = 0, 'o hash não aparece em lado nenhum';
+    ASSERT jsonb_array_length(v_j->'equipas') = 3, 'traz a equipa da conta, o adversário e a equipa antiga que jogou contra ela';
+    ASSERT NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_j->'equipas') e WHERE e->>'nome' IN ('Equipa da Filipa', 'Adversária da Filipa')), 'não traz equipas de outras contas';
+    ASSERT jsonb_array_length(v_j->'jogadores') = 2, 'traz os jogadores das equipas';
+    ASSERT jsonb_array_length(v_j->'jogos') = 2
+       AND (SELECT array_agg((x->>'id')::int ORDER BY (x->>'id')::int) FROM jsonb_array_elements(v_j->'jogos') x) = ARRAY[v_jogo_e, v_jogo_antigo],
+       'traz o jogo da conta e o jogo antigo que sai com ela, e não os de outras contas';
+    ASSERT jsonb_array_length(v_j->'convocados') = 1, 'traz a convocatória';
+    ASSERT jsonb_array_length(v_j->'relogios') = 1, 'traz o relógio';
+    ASSERT jsonb_array_length(v_j->'eventos') = 1 AND v_j->'eventos'->0->>'resultado' = 'GOLO', 'traz os eventos';
+    ASSERT jsonb_array_length(v_j->'escudos') = 1 AND v_j->'escudos'->0->>'dados_base64' = 'iVBORw==', 'traz o escudo em base64';
+    EXECUTE 'SELECT count(*) FROM (' || current_setting('q.exp_conta') || ') s' INTO v_n USING 999999;
+    ASSERT v_n = 0, 'uma conta que não existe não devolve nada';
+    -- Uma conta sem nada (a Carla só tem a equipa que o registo cria)
+    EXECUTE current_setting('q.exp_conta') INTO v_json USING v_c;
+    ASSERT jsonb_array_length(v_json::jsonb->'jogos') = 0 AND jsonb_array_length(v_json::jsonb->'eventos') = 0, 'sem jogos as listas vêm vazias, não null';
+
+    EXECUTE current_setting('q.exp_jogo') INTO v_json USING v_jogo_e;
+    v_j := v_json::jsonb;
+    ASSERT v_j->>'tipo' = 'jogo' AND (v_j->'jogo'->>'id')::int = v_jogo_e, 'o ficheiro do jogo diz o que é e traz o jogo';
+    ASSERT jsonb_array_length(v_j->'equipas') = 2 AND jsonb_array_length(v_j->'jogadores') = 2, 'traz as duas equipas e os jogadores delas';
+    ASSERT jsonb_array_length(v_j->'convocados') = 1 AND jsonb_array_length(v_j->'relogios') = 1 AND jsonb_array_length(v_j->'eventos') = 1, 'traz convocatória, relógio e eventos';
+    EXECUTE 'SELECT count(*) FROM (' || current_setting('q.exp_jogo') || ') s' INTO v_n USING 999999;
+    ASSERT v_n = 0, 'um jogo que não existe não devolve nada';
+
+    -- O registo aceita as alterações a jogos (e continua a recusar tipos que não existem)
+    EXECUTE current_setting('q.registar') USING v_a, 'Ana', 'jogo', 'Jogo apagado', 'Leões vs Falcões (conta Edgar)', NULL::int;
+    EXECUTE 'SELECT count(*) FROM (' || current_setting('q.registo') || ') s' INTO v_n USING 'jogo', 100;
+    ASSERT v_n = 1, 'o registo filtra por jogos';
+    DELETE FROM registo_alteracoes WHERE tipo = 'jogo';
 
     -- ------------------------------------------------------------ registo de alterações
     EXECUTE current_setting('q.registar') USING v_a, 'Ana', 'conta', 'Conta desativada', 'bruno@exemplo.pt', NULL::int;
