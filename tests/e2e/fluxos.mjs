@@ -1188,8 +1188,11 @@ await passo('Time-out: o relógio de jogo pára e o minuto do time-out desconta 
   // Enganou-se no time-out: apagar o evento cancela o minuto (e o relógio fica parado)
   await pedirTimeout();
   ok(await esperarPor(async () => await faixa.isVisible() && (await nTimeouts()) === 3), 'time-out: terceiro time-out registado');
+  // O servidor grava o evento antes de responder: espera pela resposta (a fila vazia) e só então pede as estatísticas,
+  // senão o «desfazer» apanharia o evento ainda como «por enviar» e só o tiraria da fila do tablet
+  await esperarPor(async () => await banco.locator('#pendentes').isHidden());
   await empurrar(banco, jogoId);
-  await esperarPor(async () => (await banco.locator('#ultimos li:not(.pendente)').count()) >= 1);
+  await esperarPor(async () => (await banco.locator('#ultimos li:first-child:not(.pendente)').count()) === 1);
   await banco.click('#btn-desfazer');
   ok(await esperarPor(async () => (await nTimeouts()) === 2), 'time-out: apagar o evento tira-o da base de dados');
   ok(await esperarPor(async () => await faixa.isHidden()), 'time-out: apagar o time-out cancela o minuto');
