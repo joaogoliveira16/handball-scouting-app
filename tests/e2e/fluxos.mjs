@@ -2965,7 +2965,8 @@ await passo('Administração: contas, jogos, correção de eventos e registo de 
 
   // O admin cria a conta pela página (o email está em Administracao__Emails) e entra
   const ctxAdmin = await novoContexto();
-  let p = await pagina('/', { contexto: ctxAdmin, tolerar: ['401'], rapida: true });
+  // O 500 é o que os testes de «a cópia de segurança falhou» simulam com page.route (a consola regista-o)
+  let p = await pagina('/', { contexto: ctxAdmin, tolerar: ['401', '500'], rapida: true });
   await p.waitForURL(/entrar\.html/);
   await registarPelaPagina(p, { nome: 'Admin Teste', equipa: `Admin FC ${sufixo}`, email: emailAdmin, senha: SENHA });
   await p.waitForSelector('#painel-confirmar:not([hidden])');
