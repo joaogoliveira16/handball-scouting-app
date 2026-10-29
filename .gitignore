@@ -161,3 +161,6 @@ __pycache__/
 tests/node_modules/
 tests/resultados/
 tests/publicado/
+
+# Cópias de segurança da base de dados (scripts/backup.sh|ps1): têm dados pessoais, nunca vão para o git
+backups/

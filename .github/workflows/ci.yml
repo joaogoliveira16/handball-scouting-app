@@ -64,6 +64,9 @@ jobs:
       - name: Atualizar uma base de dados antiga (contas que já existiam ficam confirmadas)
         run: bash db/tests/atualizacao.sh
 
+      - name: Cópia de segurança e restauro (pg_dump e pg_restore como nos scripts/)
+        run: bash db/tests/copia_de_seguranca.sh
+
   integracao:
     name: Integração - API real, Excel e browser
     runs-on: ubuntu-latest
