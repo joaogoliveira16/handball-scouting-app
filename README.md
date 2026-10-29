@@ -60,11 +60,19 @@ Por omissão o `docker compose` junta uma caixa de correio de teste (**Mailpit**
 
 Quem administra a app tem uma **área à parte** (`/admin.html`, ligação **Administração** no menu da conta, que só aparece a admins), com as suas próprias rotas (`/api/admin/...`) e o seu registo, mas dentro da mesma app e da mesma base de dados. Três separadores:
 
-- **Utilizadores**: todas as contas com equipa, número de jogos, papel (*Normal* ou *Admin*) e estado (*Ativa*, *Por confirmar* ou *Desativada*), com pesquisa e filtros. Por conta: **Repor palavra-passe** (envia à conta o email com a ligação para escolher outra; o admin **nunca vê nem escolhe** a palavra-passe), **Tornar admin** / **Tirar admin**, **Desativar** / **Ativar** e **Eliminar**. Desativar termina logo as sessões da conta e impede-a de entrar (a página de entrada diz que a conta foi desativada); as equipas, os jogos e os eventos ficam como estavam e voltam a funcionar quando a conta é ativada. **Eliminar** apaga a conta e tudo o que é dela (equipas, jogadores, jogos com os eventos e a convocatória, escudos) e **não se desfaz**: a página pede que escrevas o email da conta para confirmar, e o email fica livre para uma conta nova. Uma conta de admin tem de perder primeiro o papel, e ninguém elimina a própria conta. Fica no registo quem eliminou e o que saiu com a conta. Ninguém muda o próprio papel nem desativa a própria conta, só uma conta ativa (com o email confirmado) pode passar a admin e a app nunca fica sem um admin ativo.
-- **Jogos**: os jogos de todas as contas (os 500 mais recentes), com a conta dona, o resultado e o número de eventos. *Eventos* abre a página de eventos do jogo em modo admin (`eventos.html?jogo=ID&admin=1`), onde se **corrige ou apaga** qualquer evento com a mesma janela e as mesmas regras do dono; quem tem o dashboard aberto recebe os números corrigidos em direto. O admin só corrige eventos: não regista eventos novos, não termina nem apaga jogos de outras contas.
-- **Registo**: uma linha por ação de um admin (quem, quando, o quê e o detalhe: para um evento, o que era e o que mudou, de quê para quê), com filtro *Eventos* / *Contas* e pesquisa. Fica na tabela `registo_alteracoes`, com o nome de quem agiu copiado, por isso sobrevive a uma conta apagada. A promoção dos emails da configuração fica registada como feita pelo *Sistema*.
+- **Utilizadores**: todas as contas com equipa, número de jogos, papel (*Normal* ou *Admin*) e estado (*Ativa*, *Por confirmar* ou *Desativada*), com a data do **último acesso** (atualizada no máximo uma vez por hora) e com pesquisa e filtros. Por conta: **Editar** (nome e email: se o email muda, a conta volta a *Por confirmar* e o email novo recebe a ligação de confirmação; as sessões abertas terminam), **Exportar** (descarrega uma cópia de segurança da conta em JSON, ver *Cópias de segurança*), **Repor palavra-passe** (envia à conta o email com a ligação para escolher outra; o admin **nunca vê nem escolhe** a palavra-passe), **Tornar admin** / **Tirar admin**, **Desativar** / **Ativar** e **Eliminar**. Desativar termina logo as sessões da conta e impede-a de entrar (a página de entrada diz que a conta foi desativada); as equipas, os jogos e os eventos ficam como estavam e voltam a funcionar quando a conta é ativada. **Eliminar** apaga a conta e tudo o que é dela (equipas, jogadores, jogos com os eventos e a convocatória, escudos) e **não se desfaz**: a página pede que escrevas o email da conta para confirmar, e o email fica livre para uma conta nova. Antes de eliminar, a página descarrega sozinha a cópia de segurança da conta e, se a cópia falhar, não apaga nada. Uma conta de admin tem de perder primeiro o papel (também para ser editada ou eliminada), e ninguém edita nem elimina a própria conta. Fica no registo quem eliminou e o que saiu com a conta. Ninguém muda o próprio papel nem desativa a própria conta, só uma conta ativa (com o email confirmado) pode passar a admin e a app nunca fica sem um admin ativo.
+- **Jogos**: os jogos de todas as contas (os 500 mais recentes), com a conta dona, o resultado e o número de eventos. *Exportar* descarrega a cópia de segurança do jogo (JSON); *Terminar* / *Reabrir* fecha ou reabre o registo (os bancos e dashboards abertos recebem o novo estado); *Apagar* elimina o jogo com os eventos, depois de descarregar sozinha a cópia. *Eventos* abre a página de eventos do jogo em modo admin (`eventos.html?jogo=ID&admin=1`), onde se **corrige ou apaga** qualquer evento com a mesma janela e as mesmas regras do dono; quem tem o dashboard aberto recebe os números corrigidos em direto. O admin não regista eventos novos nem muda equipas, jogadores ou convocatórias de outras contas. Um jogo sem conta dona (dos dados antigos) só se exporta.
+- **Registo**: uma linha por ação de um admin (quem, quando, o quê e o detalhe: para um evento, o que era e o que mudou, de quê para quê), com filtro *Eventos* / *Contas* / *Jogos* e pesquisa. Fica na tabela `registo_alteracoes`, com o nome de quem agiu copiado, por isso sobrevive a uma conta apagada. A promoção dos emails da configuração fica registada como feita pelo *Sistema*.
 
 **O primeiro admin** nasce na configuração, nunca pelo registo público: no `.env` põe `ADMIN_EMAILS=joaooliveira@playbyplay.pt` (vários, separados por vírgula) e `docker compose up -d`. Cria e confirma a conta com esse email (ou usa uma que já exista): passa a admin ao arrancar a API ou na próxima vez que entrar. Os emails da lista voltam a ser admin sempre que entram, mesmo que outro admin lhes tire o papel; para os deixar de ter, tira-os de `ADMIN_EMAILS`. Os outros admins escolhem-se na página. Sem `ADMIN_EMAILS` e sem nenhum admin, ninguém consegue abrir a administração.
+
+### Cópias de segurança
+
+Há três maneiras de guardar os dados, da mais pequena à maior:
+
+- **Exportar uma conta ou um jogo** (botão *Exportar* na administração): um ficheiro JSON legível com as equipas, jogadores, escudos, jogos, convocatórias, relógios e eventos (a conta vai sem a palavra-passe). O mesmo ficheiro é descarregado sozinho antes de **Eliminar** uma conta e antes de **Apagar** um jogo. Tem dados pessoais: guarda-o com cuidado.
+- **Cópia de toda a base de dados** (`scripts/backup`): grava um ficheiro `.dump` em `backups/` (pasta fora do git) com o nome da data e da hora. No Windows: `powershell -ExecutionPolicy Bypass -File scripts\backup.ps1`; em Linux/macOS: `bash scripts/backup.sh`. Corre com os contentores a funcionar (`docker compose up -d`).
+- **Restaurar** (`scripts/restaurar`): `powershell -ExecutionPolicy Bypass -File scripts\restaurar.ps1 backups\FICHEIRO.dump` (ou `bash scripts/restaurar.sh backups/FICHEIRO.dump`). **Substitui** toda a base de dados atual, por isso pede para escreveres `sim` (ou usa `-Sim` / `--sim`), para a API, restaura e volta a arrancar tudo; o serviço `migrar` aplica depois as migrações que a cópia ainda não tinha.
 
 ## Preparar o jogo
 
@@ -300,19 +308,24 @@ As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas
 | PUT | `/api/jogos/{id}/eventos/{eventoId}` | Corrige um evento: o mesmo corpo e as mesmas regras do registo (400 com a razão se algo estiver mal; 404 se o jogo ou o evento não são da conta). 204; fica o identificador do tablet e a hora de registo, e os dashboards recebem o estado novo. O guarda-redes tem de ser da equipa que defende neste jogo |
 | DELETE | `/api/jogos/{id}/eventos/{eventoId}` | Apaga um evento |
 | PUT | `/api/jogos/{id}/relogio` | O banco diz em que segundo está o relógio: `{ "segundo": 0 a 7200, "aCorrer": true/false }` (204; 400 se faltar algum; 404 se o jogo não é da conta) |
-| GET | `/api/admin/utilizadores` | Todas as contas: `{ id, nome, email, papel, estado, equipa, jogos, criadoEm }` (`estado`: `ativo`, `por_confirmar` ou `desativado`; nunca traz palavras-passe nem códigos) *(só admins)* |
+| GET | `/api/admin/utilizadores` | Todas as contas: `{ id, nome, email, papel, estado, equipa, jogos, criadoEm, ultimoAcessoEm }` (`estado`: `ativo`, `por_confirmar` ou `desativado`; nunca traz palavras-passe nem códigos) *(só admins)* |
 | PUT | `/api/admin/utilizadores/{id}/papel` | Muda o papel: `{ "papel": "admin" }` ou `"normal"` (204; 400 papel inválido ou a própria conta; 404; 409 se já tem esse papel, se a conta não está ativa ou se deixava a app sem admin) *(só admins)* |
 | PUT | `/api/admin/utilizadores/{id}/ativa` | Desativa ou ativa a conta: `{ "ativa": false }` (204; 400 sem valor ou a própria conta; 404; 409 se já estava assim). Desativar termina as sessões da conta *(só admins)* |
 | POST | `/api/admin/utilizadores/{id}/repor-palavra-passe` | Envia à conta o email com a ligação para escolher outra palavra-passe (204; 404; 409 se a conta está desativada; 503 se o email não seguiu) *(só admins)* |
 | GET | `/api/admin/email` | Como estão configurados os emails (`modo`: `nao_configurado`, `teste` ou `real`; servidor, remetente, endereço público; nunca a senha) *(só admins)* |
 | POST | `/api/admin/email/testar` | Envia um email de teste ao próprio admin (204; 409 se não há servidor configurado; 429 se pede muitos seguidos; 503 com o motivo se o servidor recusou) *(só admins)* |
+| PUT | `/api/admin/utilizadores/{id}` | Edita o nome e o email da conta: `{ "nome", "email" }` (200 com `{ emailMudou, emailEnviado }`; 400 se algo está inválido, se não mudou nada ou é a própria conta; 404; 409 se a conta é de admin ou o email já existe). Se o email muda, a conta fica por confirmar e o email novo recebe a ligação *(só admins)* |
+| GET | `/api/admin/utilizadores/{id}/exportar` | Cópia de segurança da conta, em JSON, para descarregar (404 se não existe) *(só admins)* |
 | POST | `/api/admin/utilizadores/{id}/eliminar` | Elimina a conta e tudo o que é dela (equipas, jogadores, jogos com os eventos): `{ "email" }` com o email da conta, escrito por quem elimina (204; 400 se falta ou não coincide, ou se é a própria conta; 404; 409 se a conta é de admin) *(só admins)* |
 | GET | `/api/admin/jogos` | Os jogos de todas as contas, do mais recente para o mais antigo (máx. 500): `{ id, dataHora, local, terminadoEm, donoId, donoNome, casaNome, foraNome, golosCasa, golosFora, eventos }` *(só admins)* |
 | GET | `/api/admin/jogos/{id}` | O jogo como `GET /api/jogos/{id}` (com `codigo`), mais `donoNome` (404 se não existe) *(só admins)* |
+| GET | `/api/admin/jogos/{id}/exportar` | Cópia de segurança do jogo (equipas, convocados, relógios e eventos), em JSON (404 se não existe) *(só admins)* |
+| PUT | `/api/admin/jogos/{id}/terminado` | Termina ou reabre o jogo de outra conta: `{ "terminado": true }` (204; 400 sem valor; 404; 409 se já estava assim) *(só admins)* |
+| DELETE | `/api/admin/jogos/{id}` | Apaga o jogo de outra conta com os eventos (204; 404; fica no registo) *(só admins)* |
 | GET | `/api/admin/jogos/{id}/eventos` | Os eventos do jogo, como os vê o dono (404 se o jogo não existe) *(só admins)* |
 | PUT | `/api/admin/jogos/{id}/eventos/{eventoId}` | Corrige um evento de qualquer conta: o mesmo corpo e as mesmas regras de `PUT /api/jogos/{id}/eventos/{eventoId}`. Fica no registo e os dashboards recebem o estado novo *(só admins)* |
 | DELETE | `/api/admin/jogos/{id}/eventos/{eventoId}` | Apaga um evento de qualquer conta (fica no registo) *(só admins)* |
-| GET | `/api/admin/registo` | As últimas 200 alterações dos admins, a mais recente primeiro: `{ id, quando, autorNome, tipo, acao, detalhe, jogoId }`; `?tipo=conta` ou `evento` filtra (400 outro valor) *(só admins)* |
+| GET | `/api/admin/registo` | As últimas 200 alterações dos admins, a mais recente primeiro: `{ id, quando, autorNome, tipo, acao, detalhe, jogoId }`; `?tipo=conta`, `evento` ou `jogo` filtra (400 outro valor) *(só admins)* |
 | GET | `/api/tipos-evento` | Tipos de evento disponíveis (aberta) |
 | GET | `/api/saude` | Estado da API (aberta) |
 
@@ -378,6 +391,7 @@ psql -v ON_ERROR_STOP=1 -f db/tests/sistema_defensivo.sql # defesa do adversári
 psql -v ON_ERROR_STOP=1 -f db/tests/superioridade.sql  # tipos do 7×6 e relógio do jogo guardado no servidor
 psql -v ON_ERROR_STOP=1 -f db/tests/fila_offline.sql  # eventos enviados mais de uma vez (clienteId único por jogo, hora do tablet)
 psql -v ON_ERROR_STOP=1 -f db/tests/administracao.sql  # papéis, contas desativadas, registo de alterações e as consultas da administração
+bash db/tests/copia_de_seguranca.sh                    # pg_dump e pg_restore de uma base de dados com dados (usa duas bases temporárias)
 python3 db/tests/validar_consultas.py                  # todas as consultas contra o esquema
 
 # Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR, a contagem dos 2 minutos, a fila de eventos sem rede, o service worker, os relatórios do intervalo e do adversário e as estatísticas dos jogadores e as contas da página de administração
@@ -394,7 +408,7 @@ Há ainda testes que usam a **API verdadeira** e um browser (pasta `tests/`, ver
 O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada pull request:
 
 1. **API**: restaura, compila e corre os testes .NET.
-2. **Base de dados**: cria o esquema num PostgreSQL temporário, carrega os dados, corre `db/tests` e valida as consultas.
+2. **Base de dados**: cria o esquema num PostgreSQL temporário, carrega os dados, corre `db/tests` (incluindo o ciclo de cópia de segurança e restauro) e valida as consultas.
 3. **Integração**: corre os testes unitários do frontend, publica e arranca a API contra um PostgreSQL temporário e uma caixa de correio de teste (Mailpit) e corre os testes de `tests/` (API, Excel e browser). As capturas de ecrã e os `.xlsx` gerados ficam disponíveis como artefacto da execução (`resultados-integracao`).
 4. **Docker**: valida o `docker-compose.yml` e compila as imagens da API e do frontend. Em `main`, publica-as no GitHub Container Registry (`ghcr.io/<utilizador>/<repositório>/api` e `/frontend`).
 
@@ -412,8 +426,9 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 
 ```
 api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
-db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões, escudos, superioridade numérica, fila sem rede, golos na baliza e administração (correm por ordem)
+db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões, escudos, superioridade numérica, fila sem rede, golos na baliza, administração e cópias de segurança (correm por ordem)
 db/tests/              testes SQL
+scripts/               cópia de segurança e restauro da base de dados (`backup` e `restaurar`, em bash e PowerShell)
 frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard, administração), JS, CSS e fontes; `sw.js` (service worker) e `manifest.webmanifest` para abrir sem rede; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
 tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)
 docker-compose.yml     os 3 contentores (mais o `migrar`, que atualiza a base de dados em cada arranque)

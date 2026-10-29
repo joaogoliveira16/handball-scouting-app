@@ -3064,6 +3064,89 @@ await passo('Administração: contas, jogos, correção de eventos e registo de 
   const antesE = await contaE();
   ok(antesE.contas === 1 && antesE.equipas === 2 && antesE.jogos === 1, 'administração: a conta do Eduardo tem 2 equipas e 1 jogo', JSON.stringify(antesE));
 
+  // Último acesso, editar nome e email, exportar e a cópia de segurança antes de eliminar (numa conta à parte, a Filipa)
+  const emailF = `filipa-${sufixo}@exemplo.pt`;
+  const emailF2 = `filipa.nova-${sufixo}@exemplo.pt`;
+  const [{ id: idF }] = await q("SELECT registar_utilizador($1, 'Filipa', 'hash-f-secreto', $2) AS id", [emailF, `Filipa FC ${sufixo}`]);
+  await q('UPDATE utilizadores SET email_verificado_em = now() WHERE id = $1', [idF]);
+  await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) SELECT equipa_id, 9, 'Jogadora Nove', 'LE' FROM utilizadores WHERE id = $1", [idF]);
+  await abrirUtilizadores();
+  const linhaF = p.locator(`#tabela-contas tr[data-email="${emailF}"]`);
+  const linhaF2 = p.locator(`#tabela-contas tr[data-email="${emailF2}"]`);
+  const dadosF = async () => (await q('SELECT nome, email, email_verificado_em FROM utilizadores WHERE id = $1', [idF]))[0];
+  const aviso = (parte) => p.waitForFunction((t) => document.getElementById('aviso')?.textContent.includes(t), parte);
+  const lerDescarga = async (descarga) => fs.readFileSync(await descarga.path(), 'utf8');
+
+  ok((await texto(p.locator('#tabela-contas thead th', { hasText: 'Último acesso' }))) === 'Últimoacesso', 'administração: a tabela tem a coluna «Último acesso»');
+  ok((await texto(linhaF.locator('td.acesso'))) === '–', 'administração: uma conta que nunca entrou mostra «–» no último acesso');
+  ok((await texto(linhaAdmin.locator('td.acesso'))) === 'naúltimahora', 'administração: a conta que acabou de entrar mostra «na última hora»');
+  ok((await linhaAdmin.locator('[data-acao="editar"], [data-acao="exportar"]').count()) === 0, 'administração: na própria conta também não há «Editar» nem «Exportar»');
+
+  // Editar: o formulário traz o que está guardado e recusa o que não presta, sem gravar nada
+  await linhaF.locator('[data-acao="editar"]').click();
+  await p.waitForSelector('#edicao-nome');
+  ok((await p.inputValue('#edicao-nome')) === 'Filipa' && (await p.inputValue('#edicao-email')) === emailF, 'administração: «Editar» abre o formulário com o nome e o email atuais');
+  await p.click('#edicao-guardar');
+  await p.waitForSelector('#erro-edicao');
+  ok(/Não mudaste nada/.test(await p.locator('#erro-edicao').textContent()), 'administração: guardar sem mudar nada diz que não mudaste nada');
+  await p.fill('#edicao-email', 'sem-arroba');
+  await p.click('#edicao-guardar');
+  await p.waitForFunction(() => /email não é válido/.test(document.getElementById('erro-edicao')?.textContent ?? ''));
+  ok((await p.inputValue('#edicao-email')) === 'sem-arroba', 'administração: um email inválido é recusado e o formulário guarda o que escreveste');
+  await p.fill('#edicao-email', emailB);
+  await p.click('#edicao-guardar');
+  await p.waitForFunction(() => /Já existe uma conta com este email/.test(document.getElementById('erro-edicao')?.textContent ?? ''));
+  await p.click('#edicao-cancelar');
+  await linhaF.locator('[data-acao="editar"]').waitFor();
+  ok((await p.locator('tr.linha-edicao').count()) === 0 && (await dadosF()).email === emailF, 'administração: o email de outra conta é recusado e cancelar deixa a conta como estava');
+
+  // Só o nome: a conta continua confirmada e não sai email nenhum
+  await linhaF.locator('[data-acao="editar"]').click();
+  await p.fill('#edicao-nome', 'Filipa Costa');
+  await p.click('#edicao-guardar');
+  await aviso('atualizada');
+  const aposNome = await dadosF();
+  ok(aposNome.nome === 'Filipa Costa' && aposNome.email === emailF && aposNome.email_verificado_em !== null && (await mensagensPara(emailF)).length === 0,
+    'administração: mudar só o nome guarda-o, a conta continua confirmada e não sai email');
+  ok((await texto(linhaF)).includes('FilipaCosta') && (await texto(linhaF.locator('[data-estado]'))) === 'Ativa', 'administração: a linha mostra o nome novo');
+
+  // O email (em maiúsculas, para ver que se normaliza): a conta fica por confirmar e o email novo recebe a ligação
+  await linhaF.locator('[data-acao="editar"]').click();
+  await p.fill('#edicao-email', emailF2.toUpperCase());
+  await p.click('#edicao-guardar');
+  await aviso('por confirmar');
+  await linhaF2.waitFor();
+  const aposEmail = await dadosF();
+  ok(aposEmail.email === emailF2 && aposEmail.email_verificado_em === null, 'administração: mudar o email guarda-o em minúsculas e a conta volta a ficar por confirmar', JSON.stringify(aposEmail));
+  ok((await linhaF2.locator('[data-estado]').getAttribute('data-estado')) === 'por_confirmar', 'administração: a linha passa a «Por confirmar»');
+  ok(await esperarPor(async () => (await mensagensPara(emailF2)).length === 1) && !!(await ultimoToken(emailF2, 1, 'verificar')) && (await mensagensPara(emailF)).length === 0,
+    'administração: o email novo recebe a ligação de confirmação e o antigo não recebe nada');
+  ok((await q("SELECT 1 FROM registo_alteracoes WHERE acao = 'Conta editada' AND detalhe LIKE $1", [`%${emailF2}%`])).length === 1, 'administração: a edição fica no registo, com o email novo');
+
+  // Exportar: descarrega a cópia de segurança em JSON, sem palavra-passe
+  const [copiaF] = await Promise.all([p.waitForEvent('download'), linhaF2.locator('[data-acao="exportar"]').click()]);
+  const jsonF = await lerDescarga(copiaF);
+  const exportadaF = JSON.parse(jsonF);
+  ok(/^conta-\d+-filipa-nova-.*\.json$/.test(copiaF.suggestedFilename()) && exportadaF.tipo === 'conta' && exportadaF.conta?.email === emailF2,
+    `administração: «Exportar» descarrega o JSON da conta (${copiaF.suggestedFilename()})`, jsonF.slice(0, 200));
+  ok(exportadaF.equipas?.length === 1 && exportadaF.jogadores?.some((j) => j.nome === 'Jogadora Nove') && !jsonF.includes('hash-f-secreto') && !jsonF.includes('palavra_passe_hash'),
+    'administração: a cópia traz a equipa e os jogadores e nunca a palavra-passe');
+  await aviso('Cópia de segurança guardada');
+
+  // Eliminar: se a cópia falhar nada é apagado; com a cópia a conta sai e o ficheiro fica descarregado
+  await p.route('**/api/admin/utilizadores/*/exportar', (rota) => rota.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ erro: 'falha de teste' }) }));
+  p.respostaAoPrompt = emailF2;
+  await linhaF2.locator('[data-acao="eliminar"]').click();
+  await aviso('a cópia de segurança falhou');
+  ok((await dadosF())?.email === emailF2 && (await linhaF2.count()) === 1, 'administração: se a cópia de segurança falha, a conta não é eliminada');
+  await p.unroute('**/api/admin/utilizadores/*/exportar');
+  const [copiaAntes] = await Promise.all([p.waitForEvent('download'), linhaF2.locator('[data-acao="eliminar"]').click()]);
+  await linhaF2.waitFor({ state: 'detached' });
+  const copiada = JSON.parse(await lerDescarga(copiaAntes));
+  ok(copiada.tipo === 'conta' && copiada.conta?.email === emailF2 && copiada.jogadores?.some((j) => j.nome === 'Jogadora Nove'), 'administração: antes de eliminar o browser descarrega a cópia de segurança da conta');
+  ok((await q('SELECT 1 FROM utilizadores WHERE id = $1', [idF])).length === 0, 'administração: e depois a conta sai da base de dados');
+  await aviso(copiaAntes.suggestedFilename());
+
   let pedido = null;
   p.on('dialog', (d) => { if (d.type() === 'prompt') pedido = d.message(); });
   p.respostaAoPrompt = null;   // cancelar
@@ -3154,6 +3237,69 @@ await passo('Administração: contas, jogos, correção de eventos e registo de 
   await p.fill('input[data-pesquisa="registo"]', '');
   await p.locator('a.registo-ligacao').first().waitFor();
   ok((await p.locator('a.registo-ligacao').first().getAttribute('href')) === `eventos.html?jogo=${jogo.id}&admin=1`, 'registo: as linhas dos eventos abrem o jogo no modo de administração');
+
+  // Jogos de outras contas: exportar, terminar, reabrir e apagar (a cópia de segurança sai antes de apagar)
+  const localJogo2 = `Pavilhão Cópia ${sufixo}`;
+  const [jogo2] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, local, data_hora) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+    [bruno.equipa_id, adversaria.id, bruno.id, localJogo2, '2026-10-21T18:00:00Z']);
+  await q(`INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, guarda_redes_id, resultado, x, y, parte, segundo_jogo)
+           VALUES ($1,$2,'REMATE',$3,$4,'FORA',50,40,1,300)`, [jogo2.id, bruno.equipa_id, lateral1.id, guardaRedes.id]);
+  const nomeLivre = `Antiga ${sufixo}`;
+  const [livre1] = await q('INSERT INTO equipas (nome) VALUES ($1) RETURNING id', [`${nomeLivre} A`]);
+  const [livre2] = await q('INSERT INTO equipas (nome) VALUES ($1) RETURNING id', [`${nomeLivre} B`]);
+  const [jogoLivre] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, local, data_hora) VALUES ($1,$2,$3,$4) RETURNING id', [livre1.id, livre2.id, `Pavilhão ${nomeLivre}`, '2026-10-19T18:00:00Z']);
+  await p.click('#abas a[data-aba="jogos"]');
+  await p.waitForSelector('#tabela-jogos');
+  await p.fill('input[data-pesquisa="jogos"]', localJogo2);
+  const linhaJ2 = p.locator(`#tabela-jogos tr[data-jogo-id="${jogo2.id}"]`);
+  const acoesJ2 = async () => (await linhaJ2.locator('[data-acao]').evaluateAll((els) => els.map((e) => e.dataset.acao))).join(',');
+  ok((await acoesJ2()) === 'eventos,exportar,terminar,apagar', 'administração: o jogo da conta tem Eventos, Exportar, Terminar e Apagar', await acoesJ2());
+
+  const [copiaJ] = await Promise.all([p.waitForEvent('download'), linhaJ2.locator('[data-acao="exportar"]').click()]);
+  const jsonJ = await lerDescarga(copiaJ);
+  const exportadoJ = JSON.parse(jsonJ);
+  ok(/^jogo-\d+-.*-vs-.*\.json$/.test(copiaJ.suggestedFilename()) && exportadoJ.tipo === 'jogo' && exportadoJ.eventos?.length === 1 && !jsonJ.includes('palavra_passe_hash'),
+    `administração: «Exportar» no jogo descarrega o JSON com os eventos (${copiaJ.suggestedFilename()})`, jsonJ.slice(0, 200));
+
+  await linhaJ2.locator('[data-acao="terminar"]').click();
+  await linhaJ2.locator('.etiqueta.terminado').waitFor();
+  ok((await q('SELECT terminado_em FROM jogos WHERE id = $1', [jogo2.id]))[0].terminado_em !== null && (await acoesJ2()) === 'eventos,exportar,reabrir,apagar', 'administração: «Terminar» fecha o jogo e o botão passa a «Reabrir»', await acoesJ2());
+  await linhaJ2.locator('[data-acao="reabrir"]').click();
+  await linhaJ2.locator('.etiqueta.terminado').waitFor({ state: 'detached' });
+  ok((await q('SELECT terminado_em FROM jogos WHERE id = $1', [jogo2.id]))[0].terminado_em === null && (await acoesJ2()) === 'eventos,exportar,terminar,apagar', 'administração: «Reabrir» volta a abrir o registo');
+
+  // Um jogo antigo, sem conta dona, só se exporta
+  await p.fill('input[data-pesquisa="jogos"]', nomeLivre);
+  const linhaLivre = p.locator(`#tabela-jogos tr[data-jogo-id="${jogoLivre.id}"]`);
+  ok((await linhaLivre.locator('[data-acao]').evaluateAll((els) => els.map((e) => e.dataset.acao))).join(',') === 'eventos,exportar' && (await texto(linhaLivre.locator('td.dono'))) === 'Semconta',
+    'administração: um jogo sem conta dona só tem Eventos e Exportar');
+  const [copiaLivre] = await Promise.all([p.waitForEvent('download'), linhaLivre.locator('[data-acao="exportar"]').click()]);
+  ok(JSON.parse(await lerDescarga(copiaLivre)).eventos?.length === 0, 'administração: e esse jogo exporta-se na mesma');
+
+  // Apagar: sem cópia de segurança não apaga; com ela, o jogo sai e o ficheiro fica descarregado
+  await p.fill('input[data-pesquisa="jogos"]', localJogo2);
+  await p.route('**/api/admin/jogos/*/exportar', (rota) => rota.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ erro: 'falha de teste' }) }));
+  await linhaJ2.locator('[data-acao="apagar"]').click();
+  await aviso('a cópia de segurança falhou');
+  ok((await q('SELECT 1 FROM jogos WHERE id = $1', [jogo2.id])).length === 1 && (await linhaJ2.count()) === 1, 'administração: se a cópia de segurança do jogo falha, o jogo não é apagado');
+  await p.unroute('**/api/admin/jogos/*/exportar');
+  const [copiaApagar] = await Promise.all([p.waitForEvent('download'), linhaJ2.locator('[data-acao="apagar"]').click()]);
+  await linhaJ2.waitFor({ state: 'detached' });
+  ok(JSON.parse(await lerDescarga(copiaApagar)).eventos?.length === 1, 'administração: antes de apagar o jogo o browser descarrega a cópia com o evento');
+  ok((await q('SELECT (SELECT COUNT(*)::int FROM jogos WHERE id = $1) AS jogos, (SELECT COUNT(*)::int FROM eventos WHERE jogo_id = $1) AS eventos', [jogo2.id]))[0].jogos === 0
+    && (await q('SELECT COUNT(*)::int AS n FROM eventos WHERE jogo_id = $1', [jogo2.id]))[0].n === 0, 'administração: e o jogo sai da base de dados, com os eventos');
+  await aviso(copiaApagar.suggestedFilename());
+  await captura(p, 'admin-jogos-acoes');
+
+  // O registo ganhou o filtro «Jogos»
+  await p.click('#abas a[data-aba="registo"]');
+  await p.waitForSelector('#registo');
+  await p.click('[data-filtro="jogo"]');
+  await p.waitForFunction(() => document.querySelectorAll('#registo [data-registo-id]').length === 3 && document.querySelectorAll('#registo [data-tipo="jogo"]').length === 3);
+  const acoesDoRegisto = (await p.locator('#registo [data-tipo="jogo"] .etiqueta').allTextContents()).sort();
+  ok(JSON.stringify(acoesDoRegisto) === JSON.stringify(['Jogo apagado', 'Jogo reaberto', 'Jogo terminado']), 'registo: o filtro «Jogos» mostra o jogo terminado, reaberto e apagado', JSON.stringify(acoesDoRegisto));
+  ok((await p.locator('#registo [data-tipo="jogo"]', { hasText: 'Admin Teste' }).count()) === 3, 'registo: e diz que foi o admin');
+  await p.click('[data-filtro="tudo"]');
 
   await p.close();
   await ctxAdmin.close();
