@@ -74,6 +74,51 @@ Há três maneiras de guardar os dados, da mais pequena à maior:
 - **Cópia de toda a base de dados** (`scripts/backup`): grava um ficheiro `.dump` em `backups/` (pasta fora do git) com o nome da data e da hora. No Windows: `powershell -ExecutionPolicy Bypass -File scripts\backup.ps1`; em Linux/macOS: `bash scripts/backup.sh`. Corre com os contentores a funcionar (`docker compose up -d`).
 - **Restaurar** (`scripts/restaurar`): `powershell -ExecutionPolicy Bypass -File scripts\restaurar.ps1 backups\FICHEIRO.dump` (ou `bash scripts/restaurar.sh backups/FICHEIRO.dump`). **Substitui** toda a base de dados atual, por isso pede para escreveres `sim` (ou usa `-Sim` / `--sim`), para a API, restaura e volta a arrancar tudo; o serviço `migrar` aplica depois as migrações que a cópia ainda não tinha.
 
+## Pôr na internet
+
+Por omissão a app só abre no teu computador (`http://localhost:8080`). Para a usares noutros sítios (o tablet no pavilhão, outras pessoas) precisa de um endereço **https** público. Com HTTPS ganhas também a página do banco a abrir sem rede (o *service worker* só funciona em HTTPS). Escolhe onde a app corre:
+
+### Antes de abrir ao público (qualquer opção)
+
+- **Palavra-passe da base de dados**: põe uma forte em `POSTGRES_PASSWORD` no `.env` antes de criares a base de dados. Se já a tens criada, muda-a assim e só depois atualiza o `.env`: `docker compose exec db psql -U scouting -d scouting -c "ALTER USER scouting PASSWORD 'a-nova-palavra-passe'"` e `docker compose up -d`.
+- **`URL_PUBLICO`**: o endereço https que as pessoas usam. Vai dentro das ligações dos emails.
+- **Emails a sério** (`EMAIL_*`, ver *Email*): sem isso ninguém recebe a ligação para confirmar a conta.
+- **`ADMIN_EMAILS`**: o email da tua conta de admin.
+- **Registo aberto**: qualquer pessoa que chegue ao endereço pode criar uma conta (tem de confirmar o email). Vigia a lista na administração.
+- **Cópias de segurança**: corre `scripts/backup` com regularidade e guarda os ficheiros fora da máquina onde a app corre.
+
+### Opção 1: no teu computador, com o Tailscale Funnel (grátis)
+
+O Funnel dá-te um endereço https fixo (`https://NOME.TAILNET.ts.net`) sem comprares domínio nem abrires portas no router. A app só está online enquanto o computador estiver ligado e o Docker a correr.
+
+1. Cria uma conta em tailscale.com e instala o Tailscale no computador (Windows, macOS ou Linux). Entra com a conta.
+2. Na consola da Tailscale (login.tailscale.com, separador *DNS*), confirma que o MagicDNS está ligado e ativa os **HTTPS Certificates**.
+3. No `.env`, põe `INTERFACE_WEB=127.0.0.1` (só o Funnel chega à app), a palavra-passe da base de dados e os emails. Arranca com `docker compose up -d`.
+4. Numa PowerShell (ou terminal) corre `tailscale funnel --bg 8080`. Na primeira vez abre uma página para aprovares o Funnel. No fim mostra o endereço `https://...ts.net`. Sem `--bg` (versões antigas) a janela tem de ficar aberta. O endereço pode demorar até 10 minutos a funcionar.
+5. Copia esse endereço para `URL_PUBLICO` no `.env` e corre `docker compose up -d` outra vez.
+
+O Funnel está em beta na Tailscale, só usa as portas 443, 8443 e 10000 e tem limites de largura de banda que não se configuram (chega para o banco e os dashboards). Para o desligar, `tailscale funnel --help` mostra como.
+
+### Opção 2: num servidor com Caddy
+
+Para a app estar sempre disponível, usa um servidor Linux pequeno (VPS) com Docker. O Caddy trata do certificado https sozinho.
+
+1. Aponta um domínio ou subdomínio (`scouting.exemplo.pt`) para o IP do servidor.
+2. Copia o projeto para o servidor, cria o `.env` com `INTERFACE_WEB=127.0.0.1`, `URL_PUBLICO=https://scouting.exemplo.pt`, a palavra-passe da base de dados, os emails e `ADMIN_EMAILS`. Arranca com `docker compose up -d`.
+3. Instala o Caddy no servidor (caddyserver.com/docs/install) e põe no `/etc/caddy/Caddyfile`:
+
+   ```
+   scouting.exemplo.pt {
+       reverse_proxy localhost:8080
+   }
+   ```
+
+   Depois `sudo systemctl reload caddy`. Os WebSockets do banco e do dashboard passam sem mais configuração.
+4. Na firewall do servidor deixa abertas só as portas 22, 80 e 443. Com `INTERFACE_WEB=127.0.0.1` a porta 8080 não fica exposta (o Docker ignora a firewall do Ubuntu nas portas que publica, por isso não te fies só nela).
+5. Agenda as cópias: `crontab -e` com `0 3 * * * cd /caminho/da/app && bash scripts/backup.sh`, e copia a pasta `backups/` para outro sítio.
+
+A app atrás de um proxy: o nginx da app mantém o `X-Forwarded-Proto` que o proxy envia, por isso o cookie da sessão sai `Secure`.
+
 ## Preparar o jogo
 
 1. **A tua equipa e os jogadores** (`equipas.html`, botão *Equipas* no topo da lista de jogos): adiciona, edita ou apaga os jogadores da tua equipa (número 1–99, nome e posição). O número livre mais baixo é sugerido. Um jogador que já tem eventos registados não pode ser apagado (os dados do jogo ficariam incoerentes). **Escudo**: no topo do plantel há *Escolher imagem* para pôr o símbolo do clube (PNG, JPEG, WebP ou SVG; o browser reduz-o a 256 px antes de o enviar, por isso nunca falha por ser grande) e *Tirar escudo*. Também se põe o escudo de um adversário: abre-o a partir da convocatória. Aparece no marcador do banco e do dashboard, na lista de jogos, na área de convidado, na convocatória e na lista de equipas; quem não tem escudo fica só com o nome.
@@ -415,7 +460,7 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 ## Limitações atuais
 
 - Sem rede, os eventos ficam na fila do tablet e seguem quando ela voltar, mas **apagar um evento já enviado precisa de rede**, e abrir a página do banco sem rede só funciona em HTTPS (ver [Sem rede no pavilhão](#sem-rede-no-pavilhão)). Se o tablet for limpo (dados do browser apagados) antes de a fila ser enviada, o que estava por enviar perde-se.
-- O registo de contas é aberto (com confirmação do email). Se a app ficar acessível na internet, põe-na atrás de HTTPS (o cookie da sessão passa a `Secure` sozinho quando o proxy envia `X-Forwarded-Proto: https`).
+- O registo de contas é aberto (com confirmação do email). Se a app ficar acessível na internet, põe-na atrás de HTTPS (ver *Pôr na internet*; o cookie da sessão passa a `Secure` sozinho quando o proxy envia `X-Forwarded-Proto: https`).
 - A leitura de fotos é feita por OCR: lê bem texto impresso e capturas de ecrã, mas pode trocar letras, perder acentos ou juntar palavras, e a letra manuscrita raramente se lê. Há sempre uma lista para rever antes de confirmar. Num telemóvel antigo a leitura pode demorar alguns segundos.
 - Quem tem a ligação de partilha de um jogo vê-o em direto até o jogo ser apagado: não há botão para mudar o código.
 - Como o registo é aberto, os jogos de **qualquer conta** aparecem na área de convidado durante 24 horas (mesmo sem eventos, a partir da hora do jogo). Quem não quiser mostrar um jogo desliga *Mostrar na área de convidado* (o jogo continua visível para quem tiver a ligação). Quem tem sessão e abre um jogo de outra conta (aberto a convidados) só o vê, não o pode mexer.
