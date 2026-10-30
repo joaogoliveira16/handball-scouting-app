@@ -97,7 +97,18 @@ Dá-te um endereço https (`https://qualquer-coisa.trycloudflare.com`) sem conta
 
 Sem o script: `cloudflared tunnel --url http://localhost:8080`, e depois copias o endereço para `URL_PUBLICO` e corres `docker compose up -d`.
 
-### Opção 2: no teu computador, com o Tailscale Funnel (grátis, endereço fixo)
+### Opção 2: no teu computador, com um túnel permanente da Cloudflare e um domínio teu
+
+Para um endereço **fixo e com o nome da app** (por exemplo `https://scouting.playbyplay.pt`). O túnel é grátis; só pagas o domínio. A app só está online enquanto o computador estiver ligado e o Docker a correr.
+
+1. Põe o domínio na Cloudflare (conta grátis em cloudflare.com): **Add a domain**, plano **Free**, e no painel do registador do domínio troca os servidores de nomes pelos dois que a Cloudflare indicar. Espera até o domínio ficar **Active** (de minutos a algumas horas).
+2. Na Cloudflare, **Networking > Tunnels > Create Tunnel**. Escolhe o sistema (Windows): o ecrã mostra um comando com um token. Corre-o numa PowerShell **de administrador**: instala o `cloudflared` como serviço, que arranca com o Windows. O token é secreto.
+3. No túnel, **Routes > Add route > Published application**: subdomínio `scouting`, o teu domínio, e *Service URL* `http://localhost:8080`. A Cloudflare cria o registo DNS sozinha.
+4. No `.env`: `URL_PUBLICO=https://scouting.playbyplay.pt` (o teu endereço), e `docker compose up -d`.
+
+Com isto já não precisas do `scripts\internet.ps1` (ele mexe no `URL_PUBLICO`).
+
+### Opção 3: no teu computador, com o Tailscale Funnel (grátis, endereço fixo)
 
 O Funnel dá-te um endereço https fixo (`https://NOME.TAILNET.ts.net`) sem comprares domínio nem abrires portas no router. A app só está online enquanto o computador estiver ligado e o Docker a correr.
 
@@ -109,7 +120,7 @@ O Funnel dá-te um endereço https fixo (`https://NOME.TAILNET.ts.net`) sem comp
 
 O Funnel está em beta na Tailscale, só usa as portas 443, 8443 e 10000 e tem limites de largura de banda que não se configuram (chega para o banco e os dashboards). Para o desligar, `tailscale funnel --help` mostra como.
 
-### Opção 3: num servidor com Caddy
+### Opção 4: num servidor com Caddy
 
 Para a app estar sempre disponível, usa um servidor Linux pequeno (VPS) com Docker. O Caddy trata do certificado https sozinho.
 
