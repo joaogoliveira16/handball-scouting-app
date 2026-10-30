@@ -87,7 +87,17 @@ Por omissão a app só abre no teu computador (`http://localhost:8080`). Para a 
 - **Registo aberto**: qualquer pessoa que chegue ao endereço pode criar uma conta (tem de confirmar o email). Vigia a lista na administração.
 - **Cópias de segurança**: corre `scripts/backup` com regularidade e guarda os ficheiros fora da máquina onde a app corre.
 
-### Opção 1: no teu computador, com o Tailscale Funnel (grátis)
+### Opção 1: no teu computador, com o Cloudflare Quick Tunnel (grátis, o mais simples)
+
+Dá-te um endereço https (`https://qualquer-coisa.trycloudflare.com`) sem conta, sem domínio e sem abrir portas no router. O endereço **muda de cada vez** que abres o túnel, e a própria Cloudflare diz que isto é para testes, sem garantia de disponibilidade. A app só está online enquanto o computador estiver ligado e o Docker a correr.
+
+1. Instala o cloudflared: `winget install --id Cloudflare.cloudflared` (e abre outra PowerShell).
+2. Com a app a correr (`docker compose up -d`), na pasta do projeto: `powershell -ExecutionPolicy Bypass -File scripts\internet.ps1`.
+3. O script abre o túnel, mostra o endereço, põe-no em `URL_PUBLICO` no `.env` (para as ligações dos emails apontarem para ele) e reinicia a API. Deixa a janela aberta. Com `Ctrl+C` o túnel fecha e o `URL_PUBLICO` volta ao que era.
+
+Sem o script: `cloudflared tunnel --url http://localhost:8080`, e depois copias o endereço para `URL_PUBLICO` e corres `docker compose up -d`.
+
+### Opção 2: no teu computador, com o Tailscale Funnel (grátis, endereço fixo)
 
 O Funnel dá-te um endereço https fixo (`https://NOME.TAILNET.ts.net`) sem comprares domínio nem abrires portas no router. A app só está online enquanto o computador estiver ligado e o Docker a correr.
 
@@ -99,7 +109,7 @@ O Funnel dá-te um endereço https fixo (`https://NOME.TAILNET.ts.net`) sem comp
 
 O Funnel está em beta na Tailscale, só usa as portas 443, 8443 e 10000 e tem limites de largura de banda que não se configuram (chega para o banco e os dashboards). Para o desligar, `tailscale funnel --help` mostra como.
 
-### Opção 2: num servidor com Caddy
+### Opção 3: num servidor com Caddy
 
 Para a app estar sempre disponível, usa um servidor Linux pequeno (VPS) com Docker. O Caddy trata do certificado https sozinho.
 
@@ -473,7 +483,7 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
 db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões, escudos, superioridade numérica, fila sem rede, golos na baliza, administração e cópias de segurança (correm por ordem)
 db/tests/              testes SQL
-scripts/               cópia de segurança e restauro da base de dados (`backup` e `restaurar`, em bash e PowerShell)
+scripts/               cópia de segurança e restauro da base de dados (`backup` e `restaurar`, em bash e PowerShell; `internet.ps1` abre a app na internet com a Cloudflare)
 frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard, administração), JS, CSS e fontes; `sw.js` (service worker) e `manifest.webmanifest` para abrir sem rede; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
 tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)
 docker-compose.yml     os 3 contentores (mais o `migrar`, que atualiza a base de dados em cada arranque)
