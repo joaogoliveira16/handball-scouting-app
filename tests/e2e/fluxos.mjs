@@ -186,7 +186,7 @@ async function abrirLinkDoEmail(email, { contexto = ctx, quantas = 1 } = {}) {
 
 await passo('Contas: criar conta, confirmar o email, sair e entrar', async () => {
   // Sem sessão, as páginas levam à entrada e guardam para onde voltar
-  let p = await pagina('/equipas.html', { tolerar: ['401', '403'], rapida: true, relogio: true });   // 401: ainda sem sessão; 403: entrar sem ter confirmado o email
+  let p = await pagina('/equipas.html', { tolerar: ['401', '403', '400'], rapida: true, relogio: true });   // 401: ainda sem sessão; 403: entrar sem ter confirmado o email; 400: palavra-passe comum recusada pela API
   await p.waitForURL(/entrar\.html/);
   ok(new URL(p.url()).searchParams.get('voltar') === 'equipas.html', `sem sessão: /equipas.html leva à entrada e guarda para onde voltar (${caminhoDe(p)})`);
   ok((await p.locator('#form-entrar').isVisible()) && (await p.locator('#form-registo').isHidden()), 'entrar: começa no formulário de entrada');
@@ -207,6 +207,16 @@ await passo('Contas: criar conta, confirmar o email, sair e entrar', async () =>
   await p.fill('#registo-email', emailPrincipal); await p.fill('#registo-senha', 'curta');
   await p.click('#botao-registo');
   ok((await p.locator('#erro-registo').textContent()).includes('pelo menos 8'), 'registo: palavra-passe curta recusada com mensagem');
+  await p.fill('#registo-senha', 'so-com-letras');
+  await p.click('#botao-registo');
+  ok((await p.locator('#erro-registo').textContent()).includes('uma letra e um número'), 'registo: palavra-passe sem número recusada com mensagem');
+  await p.fill('#registo-senha', '12345678');
+  await p.click('#botao-registo');
+  ok((await p.locator('#erro-registo').textContent()).includes('uma letra e um número'), 'registo: palavra-passe sem letra recusada com mensagem');
+  await p.fill('#registo-senha', 'Password123');
+  await p.click('#botao-registo');
+  await p.waitForFunction(() => document.getElementById('erro-registo').textContent.includes('demasiado comum'), null, { timeout: 5000 });
+  ok(true, 'registo: palavra-passe comum recusada pela API com a mensagem dela');
   await p.fill('#registo-senha', SENHA);
   await p.click('.campo-palavra-passe:has(#registo-senha) .ver-senha');
   ok((await p.getAttribute('#registo-senha', 'type')) === 'text', 'registo: "Mostrar" revela a palavra-passe');
@@ -414,6 +424,13 @@ await passo('Recuperar a palavra-passe', async () => {
   await r.fill('#nova-senha', ' '.repeat(10));
   await r.click('#botao-nova');
   ok((await r.locator('#erro-nova').textContent()).includes('só espaços'), 'redefinir: palavra-passe só com espaços recusada');
+  await r.fill('#nova-senha', 'so-com-letras');
+  await r.click('#botao-nova');
+  ok((await r.locator('#erro-nova').textContent()).includes('uma letra e um número'), 'redefinir: palavra-passe sem número recusada');
+  await r.fill('#nova-senha', 'Password123');
+  await r.click('#botao-nova');
+  await r.waitForFunction(() => document.getElementById('erro-nova').textContent.includes('demasiado comum'), null, { timeout: 5000 });
+  ok(true, 'redefinir: palavra-passe comum recusada pela API (o link não se gasta)');
   await r.fill('#nova-senha', NOVA);
   await r.click('#ver-nova');
   ok((await r.getAttribute('#nova-senha', 'type')) === 'text' && (await r.textContent('#ver-nova')) === 'Esconder', 'redefinir: «Mostrar» revela a palavra-passe');

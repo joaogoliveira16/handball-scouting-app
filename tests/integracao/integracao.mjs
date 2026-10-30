@@ -143,6 +143,9 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
     ['palavra-passe curta', { nome: 'Ana', equipa: 'Equipa', email: emailPrincipal, palavraPasse: 'curta' }],
     ['palavra-passe só com espaços', { nome: 'Ana', equipa: 'Equipa', email: emailPrincipal, palavraPasse: ' '.repeat(10) }],
     ['palavra-passe gigante', { nome: 'Ana', equipa: 'Equipa', email: emailPrincipal, palavraPasse: 'x'.repeat(129) }],
+    ['palavra-passe sem número', { nome: 'Ana', equipa: 'Equipa', email: emailPrincipal, palavraPasse: 'so-com-letras' }],
+    ['palavra-passe sem letra', { nome: 'Ana', equipa: 'Equipa', email: emailPrincipal, palavraPasse: '12345678' }],
+    ['palavra-passe comum', { nome: 'Ana', equipa: 'Equipa', email: emailPrincipal, palavraPasse: 'Password123' }],
   ];
   for (const [nome, corpo] of invalidos) {
     const r = await http('POST', '/api/conta/registar', corpo, new Sessao('inválida'));
@@ -335,7 +338,8 @@ await passo('Recuperação da palavra-passe', async () => {
     const r = await http('POST', '/api/conta/redefinir-palavra-passe', corpo, anonima);
     ok(r.status === 400 && r.json?.codigo === 'link_invalido' && r.setCookie.length === 0, `palavra-passe nova com código inválido (${nome}) = 400 link_invalido`, descricao(r));
   }
-  for (const [nome, palavraPasse, parte] of [['curta', 'curta', 'pelo menos 8'], ['só espaços', ' '.repeat(10), 'só espaços'], ['gigante', 'x'.repeat(129), '128'], ['em falta', undefined, 'pelo menos 8']]) {
+  for (const [nome, palavraPasse, parte] of [['curta', 'curta', 'pelo menos 8'], ['só espaços', ' '.repeat(10), 'só espaços'], ['gigante', 'x'.repeat(129), '128'], ['em falta', undefined, 'pelo menos 8'],
+    ['sem número', 'so-com-letras', 'uma letra e um número'], ['sem letra', '12345678', 'uma letra e um número'], ['comum', 'Password123', 'demasiado comum']]) {
     const r = await http('POST', '/api/conta/redefinir-palavra-passe', { token: tokenA, palavraPasse }, anonima);
     ok(r.status === 400 && r.json?.codigo === undefined && r.json?.erro?.includes(parte) && /^[A-ZÁ-Ú]/.test(r.json.erro), `palavra-passe nova ${nome} = 400 com a explicação (e o código não se gasta)`, descricao(r));
   }
