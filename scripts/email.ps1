@@ -51,7 +51,12 @@ try { $senha = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($pontei
 finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ponteiro) }
 $senha = $senha -replace '\s', ''
 if ($senha -cnotmatch '^[a-z]{16}$') {
-    throw 'Isso não parece uma palavra-passe de app: são 16 letras minúsculas (por exemplo abcdefghijklmnop). Não uses a palavra-passe normal da conta. Cria uma em https://myaccount.google.com/apppasswords (precisa da verificação em 2 passos).'
+    # Diz só a forma do que recebeu (nunca o conteúdo), para se perceber o que correu mal
+    $forma = @("$($senha.Length) caracteres")
+    if ($senha -cmatch '[A-Z]') { $forma += 'com maiúsculas' }
+    if ($senha -match '[0-9]') { $forma += 'com números' }
+    if ($senha -match '[^a-zA-Z0-9]') { $forma += 'com símbolos' }
+    throw "Isso não parece uma palavra-passe de app (recebi $($forma -join ', ')). Tem de ter 16 letras minúsculas, por exemplo abcdefghijklmnop. Não uses a palavra-passe normal da conta: cria uma em https://myaccount.google.com/apppasswords (precisa da verificação em 2 passos)."
 }
 
 DefinirNoEnv 'EMAIL_HOST' 'smtp.gmail.com'
