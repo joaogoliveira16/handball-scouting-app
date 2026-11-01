@@ -56,6 +56,8 @@ O registo é aberto a quem conseguir chegar à app (mas só entra quem confirmar
 
 Por omissão o `docker compose` junta uma caixa de correio de teste (**Mailpit**, http://localhost:8025): todos os emails ficam lá e nenhum sai da tua máquina. Para enviar emails a sério, preenche no `.env` as linhas `EMAIL_*` (servidor, porta, utilizador, palavra-passe, remetente) e `URL_PUBLICO` (o endereço da app tal como as pessoas o veem, que vai dentro da ligação). Exemplo com o Gmail (precisa de uma *palavra-passe de app*): `EMAIL_HOST=smtp.gmail.com`, `EMAIL_PORTA=587`, `EMAIL_SSL=true`, `EMAIL_UTILIZADOR` e `EMAIL_DE` com o teu endereço e `EMAIL_SENHA` com a palavra-passe de app. O envio usa SMTP com STARTTLS (porta 587); a porta 465 (TLS direto) não é suportada. Se o email não conseguir seguir, a conta fica criada e a página oferece **Reenviar email**. O email de recuperação da palavra-passe sai pelo mesmo caminho. Quem administra vê no topo da aba **Utilizadores** como estão os emails (*só caixa de teste*, *por configurar* ou *a enviar por* o servidor) e pode carregar em **Enviar email de teste para mim** para confirmar que chega à sua caixa de correio; a faixa avisa também quando as ligações dos emails ainda apontam para `localhost` (define `URL_PUBLICO`). Depois de mudar o `.env`: `docker compose up -d`.
 
+No Windows, o **`scripts\email.ps1`** faz o Gmail por ti: cria a palavra-passe de app em https://myaccount.google.com/apppasswords (precisa da verificação em 2 passos), corre `powershell -ExecutionPolicy Bypass -File scripts\email.ps1` e responde às duas perguntas (o email e a palavra-passe de app, que não aparece enquanto escreves). Grava as linhas `EMAIL_*` no `.env` e reinicia a app. Com `-UrlPublico https://scouting.exemplo.pt` define também o `URL_PUBLICO`.
+
 ## Administração
 
 Quem administra a app tem uma **área à parte** (`/admin.html`, ligação **Administração** no menu da conta, que só aparece a admins), com as suas próprias rotas (`/api/admin/...`) e o seu registo, mas dentro da mesma app e da mesma base de dados. Três separadores:
@@ -494,7 +496,7 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
 db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões, escudos, superioridade numérica, fila sem rede, golos na baliza, administração e cópias de segurança (correm por ordem)
 db/tests/              testes SQL
-scripts/               cópia de segurança e restauro da base de dados (`backup` e `restaurar`, em bash e PowerShell; `internet.ps1` abre a app na internet com a Cloudflare)
+scripts/               cópia de segurança e restauro da base de dados (`backup` e `restaurar`, em bash e PowerShell; `internet.ps1` abre a app na internet com a Cloudflare; `email.ps1` configura o Gmail no `.env`)
 frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard, administração), JS, CSS e fontes; `sw.js` (service worker) e `manifest.webmanifest` para abrir sem rede; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
 tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)
 docker-compose.yml     os 3 contentores (mais o `migrar`, que atualiza a base de dados em cada arranque)
