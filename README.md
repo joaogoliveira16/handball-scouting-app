@@ -37,11 +37,11 @@ Abre **http://localhost:8080** e cria a tua conta (separador *Criar conta*). O e
 - **No tablet**: liga-o à mesma rede do computador e abre `http://<IP-do-computador>:8080`.
 - **Configuração** (porta, palavra-passe, email): copia `.env.example` para `.env`.
 - **Recomeçar do zero**: `docker compose down -v` apaga a base de dados; ao arrancar de novo os scripts de `db/init` voltam a correr.
-- **Já tinhas a app a correr de uma versão anterior?** Basta `git pull` e `docker compose up -d --build`. O serviço `migrar` atualiza sozinho a base de dados em cada arranque (convocatória, local na baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, uma equipa por conta, expulsões, escudos e superioridade numérica; são scripts que se podem repetir sem problema) e **não apaga nada**. As contas que já existiam ficam logo confirmadas. Se ainda não havia nenhuma conta, a primeira que criares e confirmares fica com as equipas e os jogos que já existiam.
+- **Já tinhas a app a correr de uma versão anterior?** Basta `git pull` e `docker compose up -d --build`. O serviço `migrar` atualiza sozinho a base de dados em cada arranque (convocatória, local na baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, uma equipa por conta, expulsões, escudos, superioridade numérica e administração; são scripts que se podem repetir sem problema) e **não apaga nada**. As contas que já existiam ficam logo confirmadas. Se ainda não havia nenhuma conta, a primeira que criares e confirmares fica com as equipas e os jogos que já existiam.
 
 ## Contas e partilha
 
-- **Criar conta**: nome, **nome da tua equipa**, email e palavra-passe (8 a 128 caracteres). A equipa fica atribuída à conta (ver *Uma equipa por conta*). A seguir a app envia um **email com uma ligação de confirmação** (vale 24 horas) e só se entra depois de a abrir. A página explica o que fazer e tem **Reenviar email** (com uma pausa de 30 segundos). **Entrar** e **Sair** estão na página de entrada e no menu do topo. A sessão dura 30 dias.
+- **Criar conta**: nome, **nome da tua equipa**, email e palavra-passe (8 a 128 caracteres, com pelo menos **uma letra e um número**; as mais comuns, como `password123`, são recusadas; as contas que já existem não são afetadas). A equipa fica atribuída à conta (ver *Uma equipa por conta*). A seguir a app envia um **email com uma ligação de confirmação** (vale 24 horas) e só se entra depois de a abrir. A página explica o que fazer e tem **Reenviar email** (com uma pausa de 30 segundos). **Entrar** e **Sair** estão na página de entrada e no menu do topo. A sessão dura 30 dias.
 - **Esqueci-me da palavra-passe**: na página de entrada, *Esqueci-me da palavra-passe* pede o email da conta e envia uma **ligação para escolher outra** (vale 1 hora e só serve uma vez). A resposta é sempre a mesma exista a conta ou não, e pedir muitas vezes é travado como na confirmação (3 em 15 minutos por endereço). Ao escolher a palavra-passe nova **terminam todas as sessões** da conta (em todos os dispositivos), o bloqueio por tentativas falhadas desaparece e o email fica confirmado (a ligação chegou à caixa de correio da pessoa). A seguir entra-se com a palavra-passe nova.
 - **Área de convidado** (`convidado.html`, botão *Entrar como convidado* na página de entrada): para quem só quer ver o dashboard. Em cima aparece a lista **Jogos das últimas 24 horas** (equipas, resultado e há quanto tempo houve o último evento; atualiza sozinha a cada 15 segundos; um ponto verde marca os que tiveram um evento nos últimos 30 minutos): um toque abre o dashboard do jogo, **sem ligação nem conta**. Também se pode colar uma ligação de partilha, e os jogos abertos desse modo ficam numa lista **neste dispositivo** (guardada no browser, com *Tirar* e *Limpar a lista*). Um convidado não consegue registar nem alterar nada, não vê equipas nem jogadores e nunca recebe o código de partilha.
 - **Jogos abertos a convidados (24 horas)**: um jogo aparece na área de convidado, e abre-se sem ligação, durante **24 horas**, contadas a partir do **último evento** registado ou, se ainda não há eventos, da **data e hora do jogo** (aparece nas 24 horas antes de começar e fica 24 horas depois). Passado esse tempo só se abre com a ligação de partilha ou com a conta do dono. Os jogos de **todas as contas** aparecem na lista, a não ser que o dono desligue **Mostrar na área de convidado** na lista de jogos (vem ligado por omissão). Um jogo escondido continua a abrir-se com a ligação de partilha.
@@ -54,7 +54,93 @@ O registo é aberto a quem conseguir chegar à app (mas só entra quem confirmar
 
 ### Email
 
-Por omissão o `docker compose` junta uma caixa de correio de teste (**Mailpit**, http://localhost:8025): todos os emails ficam lá e nenhum sai da tua máquina. Para enviar emails a sério, preenche no `.env` as linhas `EMAIL_*` (servidor, porta, utilizador, palavra-passe, remetente) e `URL_PUBLICO` (o endereço da app tal como as pessoas o veem, que vai dentro da ligação). Exemplo com o Gmail (precisa de uma *palavra-passe de app*): `EMAIL_HOST=smtp.gmail.com`, `EMAIL_PORTA=587`, `EMAIL_SSL=true`, `EMAIL_UTILIZADOR` e `EMAIL_DE` com o teu endereço e `EMAIL_SENHA` com a palavra-passe de app. O envio usa SMTP com STARTTLS (porta 587); a porta 465 (TLS direto) não é suportada. Se o email não conseguir seguir, a conta fica criada e a página oferece **Reenviar email**. O email de recuperação da palavra-passe sai pelo mesmo caminho.
+Por omissão o `docker compose` junta uma caixa de correio de teste (**Mailpit**, http://localhost:8025): todos os emails ficam lá e nenhum sai da tua máquina. Para enviar emails a sério, preenche no `.env` as linhas `EMAIL_*` (servidor, porta, utilizador, palavra-passe, remetente) e `URL_PUBLICO` (o endereço da app tal como as pessoas o veem, que vai dentro da ligação). Exemplo com o Gmail (precisa de uma *palavra-passe de app*): `EMAIL_HOST=smtp.gmail.com`, `EMAIL_PORTA=587`, `EMAIL_SSL=true`, `EMAIL_UTILIZADOR` e `EMAIL_DE` com o teu endereço e `EMAIL_SENHA` com a palavra-passe de app. O envio usa SMTP com STARTTLS (porta 587); a porta 465 (TLS direto) não é suportada. Se o email não conseguir seguir, a conta fica criada e a página oferece **Reenviar email**. O email de recuperação da palavra-passe sai pelo mesmo caminho. Quem administra vê no topo da aba **Utilizadores** como estão os emails (*só caixa de teste*, *por configurar* ou *a enviar por* o servidor) e pode carregar em **Enviar email de teste para mim** para confirmar que chega à sua caixa de correio; a faixa avisa também quando as ligações dos emails ainda apontam para `localhost` (define `URL_PUBLICO`). Depois de mudar o `.env`: `docker compose up -d`.
+
+No Windows, o **`scripts\email.ps1`** faz o Gmail por ti: cria a palavra-passe de app em https://myaccount.google.com/apppasswords (precisa da verificação em 2 passos), corre `powershell -ExecutionPolicy Bypass -File scripts\email.ps1` e responde às duas perguntas (o email e a palavra-passe de app, que não aparece enquanto escreves). Grava as linhas `EMAIL_*` no `.env` e reinicia a app. Com `-UrlPublico https://scouting.exemplo.pt` define também o `URL_PUBLICO`.
+
+## Administração
+
+Quem administra a app tem uma **área à parte** (`/admin.html`, ligação **Administração** no menu da conta, que só aparece a admins), com as suas próprias rotas (`/api/admin/...`) e o seu registo, mas dentro da mesma app e da mesma base de dados. Três separadores:
+
+- **Utilizadores**: todas as contas com equipa, número de jogos, papel (*Normal* ou *Admin*) e estado (*Ativa*, *Por confirmar* ou *Desativada*), com a data do **último acesso** (atualizada no máximo uma vez por hora) e com pesquisa e filtros. Por conta: **Editar** (nome e email: se o email muda, a conta volta a *Por confirmar* e o email novo recebe a ligação de confirmação; as sessões abertas terminam), **Exportar** (descarrega uma cópia de segurança da conta em JSON, ver *Cópias de segurança*), **Repor palavra-passe** (envia à conta o email com a ligação para escolher outra; o admin **nunca vê nem escolhe** a palavra-passe), **Tornar admin** / **Tirar admin**, **Desativar** / **Ativar** e **Eliminar**. Desativar termina logo as sessões da conta e impede-a de entrar (a página de entrada diz que a conta foi desativada); as equipas, os jogos e os eventos ficam como estavam e voltam a funcionar quando a conta é ativada. **Eliminar** apaga a conta e tudo o que é dela (equipas, jogadores, jogos com os eventos e a convocatória, escudos) e **não se desfaz**: a página pede que escrevas o email da conta para confirmar, e o email fica livre para uma conta nova. Antes de eliminar, a página descarrega sozinha a cópia de segurança da conta e, se a cópia falhar, não apaga nada. Uma conta de admin tem de perder primeiro o papel (também para ser editada ou eliminada), e ninguém edita nem elimina a própria conta. Fica no registo quem eliminou e o que saiu com a conta. Ninguém muda o próprio papel nem desativa a própria conta, só uma conta ativa (com o email confirmado) pode passar a admin e a app nunca fica sem um admin ativo.
+- **Jogos**: os jogos de todas as contas (os 500 mais recentes), com a conta dona, o resultado e o número de eventos. *Exportar* descarrega a cópia de segurança do jogo (JSON); *Terminar* / *Reabrir* fecha ou reabre o registo (os bancos e dashboards abertos recebem o novo estado); *Apagar* elimina o jogo com os eventos, depois de descarregar sozinha a cópia. *Eventos* abre a página de eventos do jogo em modo admin (`eventos.html?jogo=ID&admin=1`), onde se **corrige ou apaga** qualquer evento com a mesma janela e as mesmas regras do dono; quem tem o dashboard aberto recebe os números corrigidos em direto. O admin não regista eventos novos nem muda equipas, jogadores ou convocatórias de outras contas. Um jogo sem conta dona (dos dados antigos) só se exporta.
+- **Registo**: uma linha por ação de um admin (quem, quando, o quê e o detalhe: para um evento, o que era e o que mudou, de quê para quê), com filtro *Eventos* / *Contas* / *Jogos* e pesquisa. Fica na tabela `registo_alteracoes`, com o nome de quem agiu copiado, por isso sobrevive a uma conta apagada. A promoção dos emails da configuração fica registada como feita pelo *Sistema*.
+
+**O primeiro admin** nasce na configuração, nunca pelo registo público: no `.env` põe `ADMIN_EMAILS=joaooliveira@playbyplay.pt` (vários, separados por vírgula) e `docker compose up -d`. Cria e confirma a conta com esse email (ou usa uma que já exista): passa a admin ao arrancar a API ou na próxima vez que entrar. Os emails da lista voltam a ser admin sempre que entram, mesmo que outro admin lhes tire o papel; para os deixar de ter, tira-os de `ADMIN_EMAILS`. Os outros admins escolhem-se na página. Sem `ADMIN_EMAILS` e sem nenhum admin, ninguém consegue abrir a administração.
+
+### Cópias de segurança
+
+Há três maneiras de guardar os dados, da mais pequena à maior:
+
+- **Exportar uma conta ou um jogo** (botão *Exportar* na administração): um ficheiro JSON legível com as equipas, jogadores, escudos, jogos, convocatórias, relógios e eventos (a conta vai sem a palavra-passe). O mesmo ficheiro é descarregado sozinho antes de **Eliminar** uma conta e antes de **Apagar** um jogo. Tem dados pessoais: guarda-o com cuidado.
+- **Cópia de toda a base de dados** (`scripts/backup`): grava um ficheiro `.dump` em `backups/` (pasta fora do git) com o nome da data e da hora. No Windows: `powershell -ExecutionPolicy Bypass -File scripts\backup.ps1`; em Linux/macOS: `bash scripts/backup.sh`. Corre com os contentores a funcionar (`docker compose up -d`).
+- **Restaurar** (`scripts/restaurar`): `powershell -ExecutionPolicy Bypass -File scripts\restaurar.ps1 backups\FICHEIRO.dump` (ou `bash scripts/restaurar.sh backups/FICHEIRO.dump`). **Substitui** toda a base de dados atual, por isso pede para escreveres `sim` (ou usa `-Sim` / `--sim`), para a API, restaura e volta a arrancar tudo; o serviço `migrar` aplica depois as migrações que a cópia ainda não tinha.
+
+## Pôr na internet
+
+Por omissão a app só abre no teu computador (`http://localhost:8080`). Para a usares noutros sítios (o tablet no pavilhão, outras pessoas) precisa de um endereço **https** público. Com HTTPS ganhas também a página do banco a abrir sem rede (o *service worker* só funciona em HTTPS). Escolhe onde a app corre:
+
+### Antes de abrir ao público (qualquer opção)
+
+- **Palavra-passe da base de dados**: põe uma forte em `POSTGRES_PASSWORD` no `.env` antes de criares a base de dados. Se já a tens criada, muda-a assim e só depois atualiza o `.env`: `docker compose exec db psql -U scouting -d scouting -c "ALTER USER scouting PASSWORD 'a-nova-palavra-passe'"` e `docker compose up -d`.
+- **`URL_PUBLICO`**: o endereço https que as pessoas usam. Vai dentro das ligações dos emails.
+- **Emails a sério** (`EMAIL_*`, ver *Email*): sem isso ninguém recebe a ligação para confirmar a conta.
+- **`ADMIN_EMAILS`**: o email da tua conta de admin.
+- **Registo aberto**: qualquer pessoa que chegue ao endereço pode criar uma conta (tem de confirmar o email). Vigia a lista na administração.
+- **Cópias de segurança**: corre `scripts/backup` com regularidade e guarda os ficheiros fora da máquina onde a app corre.
+
+### Opção 1: no teu computador, com o Cloudflare Quick Tunnel (grátis, o mais simples)
+
+Dá-te um endereço https (`https://qualquer-coisa.trycloudflare.com`) sem conta, sem domínio e sem abrir portas no router. O endereço **muda de cada vez** que abres o túnel, e a própria Cloudflare diz que isto é para testes, sem garantia de disponibilidade. A app só está online enquanto o computador estiver ligado e o Docker a correr.
+
+1. Instala o cloudflared: `winget install --id Cloudflare.cloudflared` (e abre outra PowerShell).
+2. Com a app a correr (`docker compose up -d`), na pasta do projeto: `powershell -ExecutionPolicy Bypass -File scripts\internet.ps1`.
+3. O script abre o túnel, mostra o endereço, põe-no em `URL_PUBLICO` no `.env` (para as ligações dos emails apontarem para ele) e reinicia a API. Deixa a janela aberta. Com `Ctrl+C` o túnel fecha e o `URL_PUBLICO` volta ao que era.
+
+Sem o script: `cloudflared tunnel --url http://localhost:8080`, e depois copias o endereço para `URL_PUBLICO` e corres `docker compose up -d`.
+
+### Opção 2: no teu computador, com um túnel permanente da Cloudflare e um domínio teu
+
+Para um endereço **fixo e com o nome da app** (por exemplo `https://scouting.playbyplay.pt`). O túnel é grátis; só pagas o domínio. A app só está online enquanto o computador estiver ligado e o Docker a correr.
+
+1. Põe o domínio na Cloudflare (conta grátis em cloudflare.com): **Add a domain**, plano **Free**, e no painel do registador do domínio troca os servidores de nomes pelos dois que a Cloudflare indicar. Espera até o domínio ficar **Active** (de minutos a algumas horas).
+2. Na Cloudflare, **Networking > Tunnels > Create Tunnel**. Escolhe o sistema (Windows): o ecrã mostra um comando com um token. Corre-o numa PowerShell **de administrador**: instala o `cloudflared` como serviço, que arranca com o Windows. O token é secreto.
+3. No túnel, **Routes > Add route > Published application**: subdomínio `scouting`, o teu domínio, e *Service URL* `http://localhost:8080`. A Cloudflare cria o registo DNS sozinha.
+4. No `.env`: `URL_PUBLICO=https://scouting.playbyplay.pt` (o teu endereço), e `docker compose up -d`.
+
+Com isto já não precisas do `scripts\internet.ps1` (ele mexe no `URL_PUBLICO`).
+
+### Opção 3: no teu computador, com o Tailscale Funnel (grátis, endereço fixo)
+
+O Funnel dá-te um endereço https fixo (`https://NOME.TAILNET.ts.net`) sem comprares domínio nem abrires portas no router. A app só está online enquanto o computador estiver ligado e o Docker a correr.
+
+1. Cria uma conta em tailscale.com e instala o Tailscale no computador (Windows, macOS ou Linux). Entra com a conta.
+2. Na consola da Tailscale (login.tailscale.com, separador *DNS*), confirma que o MagicDNS está ligado e ativa os **HTTPS Certificates**.
+3. No `.env`, põe `INTERFACE_WEB=127.0.0.1` (só o Funnel chega à app), a palavra-passe da base de dados e os emails. Arranca com `docker compose up -d`.
+4. Numa PowerShell (ou terminal) corre `tailscale funnel --bg 8080`. Na primeira vez abre uma página para aprovares o Funnel. No fim mostra o endereço `https://...ts.net`. Sem `--bg` (versões antigas) a janela tem de ficar aberta. O endereço pode demorar até 10 minutos a funcionar.
+5. Copia esse endereço para `URL_PUBLICO` no `.env` e corre `docker compose up -d` outra vez.
+
+O Funnel está em beta na Tailscale, só usa as portas 443, 8443 e 10000 e tem limites de largura de banda que não se configuram (chega para o banco e os dashboards). Para o desligar, `tailscale funnel --help` mostra como.
+
+### Opção 4: num servidor com Caddy
+
+Para a app estar sempre disponível, usa um servidor Linux pequeno (VPS) com Docker. O Caddy trata do certificado https sozinho.
+
+1. Aponta um domínio ou subdomínio (`scouting.exemplo.pt`) para o IP do servidor.
+2. Copia o projeto para o servidor, cria o `.env` com `INTERFACE_WEB=127.0.0.1`, `URL_PUBLICO=https://scouting.exemplo.pt`, a palavra-passe da base de dados, os emails e `ADMIN_EMAILS`. Arranca com `docker compose up -d`.
+3. Instala o Caddy no servidor (caddyserver.com/docs/install) e põe no `/etc/caddy/Caddyfile`:
+
+   ```
+   scouting.exemplo.pt {
+       reverse_proxy localhost:8080
+   }
+   ```
+
+   Depois `sudo systemctl reload caddy`. Os WebSockets do banco e do dashboard passam sem mais configuração.
+4. Na firewall do servidor deixa abertas só as portas 22, 80 e 443. Com `INTERFACE_WEB=127.0.0.1` a porta 8080 não fica exposta (o Docker ignora a firewall do Ubuntu nas portas que publica, por isso não te fies só nela).
+5. Agenda as cópias: `crontab -e` com `0 3 * * * cd /caminho/da/app && bash scripts/backup.sh`, e copia a pasta `backups/` para outro sítio.
+
+A app atrás de um proxy: o nginx da app mantém o `X-Forwarded-Proto` que o proxy envia, por isso o cookie da sessão sai `Secure`.
 
 ## Preparar o jogo
 
@@ -246,7 +332,7 @@ docker compose exec db psql -U scouting -d scouting
 
 ## API
 
-As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas as outras precisam de sessão (sem ela, 401). As de leitura aceitam a sessão da conta dona **ou** o código da ligação de partilha (`?c=CÓDIGO`); para qualquer outra pessoa o jogo "não existe" (404).
+As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas as outras precisam de sessão (sem ela, 401). As rotas `/api/admin` são só para admins: sem sessão 401, com uma conta normal 403. As de leitura aceitam a sessão da conta dona **ou** o código da ligação de partilha (`?c=CÓDIGO`); para qualquer outra pessoa o jogo "não existe" (404).
 
 | Método | Rota | Para quê |
 |--------|------|----------|
@@ -255,9 +341,9 @@ As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas
 | POST | `/api/conta/reenviar-confirmacao` | Envia outro email de confirmação: `{ "email" }` (204 sempre que o pedido é válido, exista a conta ou não; 429 se pediu muitos; 503 se o email não seguiu) |
 | POST | `/api/conta/esqueci-palavra-passe` | Envia a ligação para escolher outra palavra-passe: `{ "email" }` (204 sempre que o pedido é válido, exista a conta ou não; 429 se pediu muitos; 503 se o email não seguiu) |
 | POST | `/api/conta/redefinir-palavra-passe` | Escolhe a palavra-passe nova com o código da ligação: `{ "token", "palavraPasse" }` (204; 400 se a palavra-passe é inválida ou, com `"codigo": "link_invalido"`, se a ligação é inválida, expirou ou já foi usada). Termina todas as sessões da conta |
-| POST | `/api/conta/entrar` | Inicia sessão: `{ "email", "palavraPasse" }` (401 se errado, 403 com `"codigo": "email_por_confirmar"` se falta confirmar o email, 429 depois de 5 falhas seguidas) |
+| POST | `/api/conta/entrar` | Inicia sessão: `{ "email", "palavraPasse" }` → `{ id, nome, email, admin }` (401 se errado, 403 com `"codigo": "email_por_confirmar"` se falta confirmar o email ou com `"codigo": "conta_desativada"` se um admin desativou a conta (só depois de a palavra-passe estar certa), 429 depois de 5 falhas seguidas) |
 | POST | `/api/conta/sair` | Termina a sessão |
-| GET | `/api/conta` | A conta da sessão (401 sem sessão) |
+| GET | `/api/conta` | A conta da sessão: `{ id, nome, email, admin }` (401 sem sessão) |
 | GET | `/api/jogos/{id}` | Jogo e jogadores das duas equipas (com `convocado`); o `codigo` da ligação de partilha só vem para o dono, para os outros é `null` *(dono, `?c=` ou jogo aberto a convidados)* |
 | GET | `/api/jogos/{id}/estatisticas` | Estado completo (o mesmo que o dashboard e o relatório do intervalo recebem; cada item de `remates` traz `parte`, `corredor`, `distancia` e `guardaRedesId`, e `outrosEventosPorParte` conta os eventos que não são remates por equipa e parte) *(dono, `?c=` ou jogo aberto a convidados)* |
 | GET | `/api/jogos/{id}/estatisticas/eficacia` | Eficácia com filtros *(dono, `?c=` ou jogo aberto a convidados)* |
@@ -290,6 +376,24 @@ As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas
 | PUT | `/api/jogos/{id}/eventos/{eventoId}` | Corrige um evento: o mesmo corpo e as mesmas regras do registo (400 com a razão se algo estiver mal; 404 se o jogo ou o evento não são da conta). 204; fica o identificador do tablet e a hora de registo, e os dashboards recebem o estado novo. O guarda-redes tem de ser da equipa que defende neste jogo |
 | DELETE | `/api/jogos/{id}/eventos/{eventoId}` | Apaga um evento |
 | PUT | `/api/jogos/{id}/relogio` | O banco diz em que segundo está o relógio: `{ "segundo": 0 a 7200, "aCorrer": true/false }` (204; 400 se faltar algum; 404 se o jogo não é da conta) |
+| GET | `/api/admin/utilizadores` | Todas as contas: `{ id, nome, email, papel, estado, equipa, jogos, criadoEm, ultimoAcessoEm }` (`estado`: `ativo`, `por_confirmar` ou `desativado`; nunca traz palavras-passe nem códigos) *(só admins)* |
+| PUT | `/api/admin/utilizadores/{id}/papel` | Muda o papel: `{ "papel": "admin" }` ou `"normal"` (204; 400 papel inválido ou a própria conta; 404; 409 se já tem esse papel, se a conta não está ativa ou se deixava a app sem admin) *(só admins)* |
+| PUT | `/api/admin/utilizadores/{id}/ativa` | Desativa ou ativa a conta: `{ "ativa": false }` (204; 400 sem valor ou a própria conta; 404; 409 se já estava assim). Desativar termina as sessões da conta *(só admins)* |
+| POST | `/api/admin/utilizadores/{id}/repor-palavra-passe` | Envia à conta o email com a ligação para escolher outra palavra-passe (204; 404; 409 se a conta está desativada; 503 se o email não seguiu) *(só admins)* |
+| GET | `/api/admin/email` | Como estão configurados os emails (`modo`: `nao_configurado`, `teste` ou `real`; servidor, remetente, endereço público; nunca a senha) *(só admins)* |
+| POST | `/api/admin/email/testar` | Envia um email de teste ao próprio admin (204; 409 se não há servidor configurado; 429 se pede muitos seguidos; 503 com o motivo se o servidor recusou) *(só admins)* |
+| PUT | `/api/admin/utilizadores/{id}` | Edita o nome e o email da conta: `{ "nome", "email" }` (200 com `{ emailMudou, emailEnviado }`; 400 se algo está inválido, se não mudou nada ou é a própria conta; 404; 409 se a conta é de admin ou o email já existe). Se o email muda, a conta fica por confirmar e o email novo recebe a ligação *(só admins)* |
+| GET | `/api/admin/utilizadores/{id}/exportar` | Cópia de segurança da conta, em JSON, para descarregar (404 se não existe) *(só admins)* |
+| POST | `/api/admin/utilizadores/{id}/eliminar` | Elimina a conta e tudo o que é dela (equipas, jogadores, jogos com os eventos): `{ "email" }` com o email da conta, escrito por quem elimina (204; 400 se falta ou não coincide, ou se é a própria conta; 404; 409 se a conta é de admin) *(só admins)* |
+| GET | `/api/admin/jogos` | Os jogos de todas as contas, do mais recente para o mais antigo (máx. 500): `{ id, dataHora, local, terminadoEm, donoId, donoNome, casaNome, foraNome, golosCasa, golosFora, eventos }` *(só admins)* |
+| GET | `/api/admin/jogos/{id}` | O jogo como `GET /api/jogos/{id}` (com `codigo`), mais `donoNome` (404 se não existe) *(só admins)* |
+| GET | `/api/admin/jogos/{id}/exportar` | Cópia de segurança do jogo (equipas, convocados, relógios e eventos), em JSON (404 se não existe) *(só admins)* |
+| PUT | `/api/admin/jogos/{id}/terminado` | Termina ou reabre o jogo de outra conta: `{ "terminado": true }` (204; 400 sem valor; 404; 409 se já estava assim) *(só admins)* |
+| DELETE | `/api/admin/jogos/{id}` | Apaga o jogo de outra conta com os eventos (204; 404; fica no registo) *(só admins)* |
+| GET | `/api/admin/jogos/{id}/eventos` | Os eventos do jogo, como os vê o dono (404 se o jogo não existe) *(só admins)* |
+| PUT | `/api/admin/jogos/{id}/eventos/{eventoId}` | Corrige um evento de qualquer conta: o mesmo corpo e as mesmas regras de `PUT /api/jogos/{id}/eventos/{eventoId}`. Fica no registo e os dashboards recebem o estado novo *(só admins)* |
+| DELETE | `/api/admin/jogos/{id}/eventos/{eventoId}` | Apaga um evento de qualquer conta (fica no registo) *(só admins)* |
+| GET | `/api/admin/registo` | As últimas 200 alterações dos admins, a mais recente primeiro: `{ id, quando, autorNome, tipo, acao, detalhe, jogoId }`; `?tipo=conta`, `evento` ou `jogo` filtra (400 outro valor) *(só admins)* |
 | GET | `/api/tipos-evento` | Tipos de evento disponíveis (aberta) |
 | GET | `/api/saude` | Estado da API (aberta) |
 
@@ -354,29 +458,32 @@ psql -v ON_ERROR_STOP=1 -f db/tests/escudos.sql        # escudos das equipas (ve
 psql -v ON_ERROR_STOP=1 -f db/tests/sistema_defensivo.sql # defesa do adversário (6:0, 5:1... só em ataque posicional, só em remates)
 psql -v ON_ERROR_STOP=1 -f db/tests/superioridade.sql  # tipos do 7×6 e relógio do jogo guardado no servidor
 psql -v ON_ERROR_STOP=1 -f db/tests/fila_offline.sql  # eventos enviados mais de uma vez (clienteId único por jogo, hora do tablet)
+psql -v ON_ERROR_STOP=1 -f db/tests/administracao.sql  # papéis, contas desativadas, registo de alterações e as consultas da administração
+bash db/tests/copia_de_seguranca.sh                    # pg_dump e pg_restore de uma base de dados com dados (usa duas bases temporárias)
 python3 db/tests/validar_consultas.py                  # todas as consultas contra o esquema
 
-# Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR, a contagem dos 2 minutos, a fila de eventos sem rede, o service worker, os relatórios do intervalo e do adversário e as estatísticas dos jogadores
+# Frontend (Node 22, sem instalar nada): a leitura das listas de jogadores a partir do texto do OCR, a contagem dos 2 minutos, a fila de eventos sem rede, o service worker, os relatórios do intervalo e do adversário e as estatísticas dos jogadores e as contas da página de administração
 (cd tests && npm run unidade)
 ```
 
 Há ainda testes que usam a **API verdadeira** e um browser (pasta `tests/`, ver `tests/README.md`):
 
-- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação e de recuperação da palavra-passe lidos na caixa de teste, sessões, a equipa da conta (pedida no registo, `propria` na lista de equipas), isolamento entre contas, ligação de partilha, jogos abertos a convidados durante 24 horas (lista aberta sem sessão, jogos sem eventos pela hora marcada, acesso sem ligação, código escondido, jogo escondido pelo dono), estatísticas, equipas, jogadores, jogos, convocatória, corrigir, terminar e apagar um jogo, eventos, corrigir e listar eventos (o que a API recusa, o dashboard a receber a correção), local das defesas e dos golos na baliza, sanções e expulsões (3.º 2 minutos, vermelho direto, apagar para corrigir), superioridade numérica (relógio do banco no servidor, sanções, 7×6, eficácia e tempo por situação), treinador-assistente (sugestões, time-outs e direitos por parte), eventos reenviados sem rede (`clienteId`: o reenvio e os envios simultâneos não duplicam, hora do tablet limitada), escudos (permissões, formatos, limite de 200 KB, cache, versão nas listas), atualizações em tempo real e descarga do Excel);
+- `tests/integracao/integracao.mjs`: percorre a API por HTTP e SignalR (contas, emails de confirmação e de recuperação da palavra-passe lidos na caixa de teste, sessões, a equipa da conta (pedida no registo, `propria` na lista de equipas), isolamento entre contas, ligação de partilha, jogos abertos a convidados durante 24 horas (lista aberta sem sessão, jogos sem eventos pela hora marcada, acesso sem ligação, código escondido, jogo escondido pelo dono), estatísticas, equipas, jogadores, jogos, convocatória, corrigir, terminar e apagar um jogo, eventos, corrigir e listar eventos (o que a API recusa, o dashboard a receber a correção), local das defesas e dos golos na baliza, sanções e expulsões (3.º 2 minutos, vermelho direto, apagar para corrigir), superioridade numérica (relógio do banco no servidor, sanções, 7×6, eficácia e tempo por situação), treinador-assistente (sugestões, time-outs e direitos por parte), eventos reenviados sem rede (`clienteId`: o reenvio e os envios simultâneos não duplicam, hora do tablet limitada), escudos (permissões, formatos, limite de 200 KB, cache, versão nas listas), administração (acesso só de admins, o primeiro admin vindo da configuração, papéis, desativar e ativar contas com as sessões a terminar, repor a palavra-passe, jogos de todas as contas, corrigir e apagar eventos de outra conta e o registo de alterações), atualizações em tempo real e descarga do Excel);
+- (a integração e o browser precisam de a API arrancar com `Administracao__Emails=admin-teste@exemplo.pt`, que `tests/api.sh` já faz: é o email da conta de admin que os testes registam)
 - `tests/integracao/verificar_excel.py`: abre os `.xlsx` descarregados e confere os números com os dados de exemplo;
-- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pela ligação, reenviar o email, recuperar a palavra-passe pela ligação, a página que só mostra a equipa da conta, corrigir eventos (filtrar a lista, mudar o resultado, o jogador, o sítio no mapa e na baliza, a equipa, o tipo e o minuto; apagar), criar um jogo escrevendo o adversário, corrigi-lo (trocar casa e fora, mudar de adversário só sem eventos), terminá-lo (o banco fecha o registo) e apagá-lo, a área de convidado e a lista de jogos das últimas 24 horas (incluindo esconder um jogo), sair e entrar, uma segunda conta que não vê os dados da primeira, a ligação de partilha aberto sem conta, juntar jogadores à equipa, convocatória (incluindo ler a lista de uma foto com o leitor verdadeiro), registar remates no banco, expulsar jogadores (3.º 2 minutos e vermelho direto) e ver o quadro de sanções, contar os 2 minutos com o relógio a andar (faixa 6×5, 7×6, relógio no dashboard) e ver a eficácia por situação, pedir um time-out (o relógio de jogo pára e o minuto desconta até retomar o jogo), ver as sugestões do treinador-assistente (só o dono) e gastar time-outs no banco, registar sem rede (a fila, o indicador «por enviar», recarregar a página sem rede pelo service worker, a lista de jogos a enviar o que ficou, nada a dobrar), carregar, trocar e tirar o escudo da equipa (a imagem é reduzida no browser) e vê-lo no marcador, nas listas e na área de convidado, marcar na baliza onde o guarda-redes defendeu ou onde entrou o golo e vê-los chegar ao dashboard por WebSocket, descarregar o Excel).
+- `tests/e2e/fluxos.mjs`: abre as páginas num Chromium e usa-as como um utilizador (criar conta, confirmar o email pela ligação, reenviar o email, recuperar a palavra-passe pela ligação, a página que só mostra a equipa da conta, corrigir eventos (filtrar a lista, mudar o resultado, o jogador, o sítio no mapa e na baliza, a equipa, o tipo e o minuto; apagar), criar um jogo escrevendo o adversário, corrigi-lo (trocar casa e fora, mudar de adversário só sem eventos), terminá-lo (o banco fecha o registo) e apagá-lo, a área de convidado e a lista de jogos das últimas 24 horas (incluindo esconder um jogo), sair e entrar, uma segunda conta que não vê os dados da primeira, a ligação de partilha aberto sem conta, juntar jogadores à equipa, convocatória (incluindo ler a lista de uma foto com o leitor verdadeiro), registar remates no banco, expulsar jogadores (3.º 2 minutos e vermelho direto) e ver o quadro de sanções, contar os 2 minutos com o relógio a andar (faixa 6×5, 7×6, relógio no dashboard) e ver a eficácia por situação, pedir um time-out (o relógio de jogo pára e o minuto desconta até retomar o jogo), ver as sugestões do treinador-assistente (só o dono) e gastar time-outs no banco, registar sem rede (a fila, o indicador «por enviar», recarregar a página sem rede pelo service worker, a lista de jogos a enviar o que ficou, nada a dobrar), carregar, trocar e tirar o escudo da equipa (a imagem é reduzida no browser) e vê-lo no marcador, nas listas e na área de convidado, marcar na baliza onde o guarda-redes defendeu ou onde entrou o golo e vê-los chegar ao dashboard por WebSocket, descarregar o Excel, a página de administração: desativar e ativar uma conta, mudar papéis, repor a palavra-passe, corrigir e apagar eventos de outra conta e ler o registo).
 
 O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada pull request:
 
 1. **API**: restaura, compila e corre os testes .NET.
-2. **Base de dados**: cria o esquema num PostgreSQL temporário, carrega os dados, corre `db/tests` e valida as consultas.
+2. **Base de dados**: cria o esquema num PostgreSQL temporário, carrega os dados, corre `db/tests` (incluindo o ciclo de cópia de segurança e restauro) e valida as consultas.
 3. **Integração**: corre os testes unitários do frontend, publica e arranca a API contra um PostgreSQL temporário e uma caixa de correio de teste (Mailpit) e corre os testes de `tests/` (API, Excel e browser). As capturas de ecrã e os `.xlsx` gerados ficam disponíveis como artefacto da execução (`resultados-integracao`).
 4. **Docker**: valida o `docker-compose.yml` e compila as imagens da API e do frontend. Em `main`, publica-as no GitHub Container Registry (`ghcr.io/<utilizador>/<repositório>/api` e `/frontend`).
 
 ## Limitações atuais
 
 - Sem rede, os eventos ficam na fila do tablet e seguem quando ela voltar, mas **apagar um evento já enviado precisa de rede**, e abrir a página do banco sem rede só funciona em HTTPS (ver [Sem rede no pavilhão](#sem-rede-no-pavilhão)). Se o tablet for limpo (dados do browser apagados) antes de a fila ser enviada, o que estava por enviar perde-se.
-- O registo de contas é aberto (com confirmação do email). Se a app ficar acessível na internet, põe-na atrás de HTTPS (o cookie da sessão passa a `Secure` sozinho quando o proxy envia `X-Forwarded-Proto: https`).
+- O registo de contas é aberto (com confirmação do email). Se a app ficar acessível na internet, põe-na atrás de HTTPS (ver *Pôr na internet*; o cookie da sessão passa a `Secure` sozinho quando o proxy envia `X-Forwarded-Proto: https`).
 - A leitura de fotos é feita por OCR: lê bem texto impresso e capturas de ecrã, mas pode trocar letras, perder acentos ou juntar palavras, e a letra manuscrita raramente se lê. Há sempre uma lista para rever antes de confirmar. Num telemóvel antigo a leitura pode demorar alguns segundos.
 - Quem tem a ligação de partilha de um jogo vê-o em direto até o jogo ser apagado: não há botão para mudar o código.
 - Como o registo é aberto, os jogos de **qualquer conta** aparecem na área de convidado durante 24 horas (mesmo sem eventos, a partir da hora do jogo). Quem não quiser mostrar um jogo desliga *Mostrar na área de convidado* (o jogo continua visível para quem tiver a ligação). Quem tem sessão e abre um jogo de outra conta (aberto a convidados) só o vê, não o pode mexer.
@@ -387,9 +494,10 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 
 ```
 api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
-db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões, escudos, superioridade numérica, fila sem rede e golos na baliza (correm por ordem)
+db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões, escudos, superioridade numérica, fila sem rede, golos na baliza, administração e cópias de segurança (correm por ordem)
 db/tests/              testes SQL
-frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard), JS, CSS e fontes; `sw.js` (service worker) e `manifest.webmanifest` para abrir sem rede; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
+scripts/               cópia de segurança e restauro da base de dados (`backup` e `restaurar`, em bash e PowerShell; `internet.ps1` abre a app na internet com a Cloudflare; `email.ps1` configura o Gmail no `.env`)
+frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard, administração), JS, CSS e fontes; `sw.js` (service worker) e `manifest.webmanifest` para abrir sem rede; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
 tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)
 docker-compose.yml     os 3 contentores (mais o `migrar`, que atualiza a base de dados em cada arranque)
 .github/workflows/     CI

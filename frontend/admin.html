@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="robots" content="noindex">
+  <title>Administração · Scouting de Andebol</title>
+  <link rel="stylesheet" href="css/estilo.css">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+</head>
+<body>
+  <header class="topo">
+    <a class="marca" href="./"><span class="marca-icone" aria-hidden="true"></span><span>Scouting <b>Andebol</b></span></a>
+    <nav class="menu" aria-label="Administração" id="abas">
+      <a href="#utilizadores" data-aba="utilizadores">Utilizadores</a>
+      <a href="#jogos" data-aba="jogos">Jogos</a>
+      <a href="#registo" data-aba="registo">Registo</a>
+    </nav>
+    <div class="conta-menu" id="conta-menu"></div>
+  </header>
+
+  <main class="pagina pagina-larga">
+    <h1>Administração</h1>
+    <p class="sub" id="sub">A carregar…</p>
+    <div id="conteudo" class="admin"></div>
+  </main>
+
+  <div id="aviso" class="aviso" role="status"></div>
+  <script type="module" src="js/admin.js"></script>
+</body>
+</html>

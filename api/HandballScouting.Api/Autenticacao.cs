@@ -52,6 +52,23 @@ public static class Autenticacao
         });
 
     /// <summary>
+    /// Só deixa passar admins: sem sessão 401, com sessão de uma conta normal 403. As respostas da administração nunca
+    /// ficam em cache (têm dados de todas as contas).
+    /// </summary>
+    public static TBuilder ExigirAdmin<TBuilder>(this TBuilder construtor) where TBuilder : IEndpointConventionBuilder =>
+        construtor.AddEndpointFilter(async (contexto, seguinte) =>
+        {
+            var http = contexto.HttpContext;
+            http.Response.Headers.CacheControl = "no-store";
+            var conta = await ObterContaAsync(http, http.RequestAborted);
+            if (conta is null)
+                return Results.Json(new { erro = "Inicia sessão para continuar." }, statusCode: StatusCodes.Status401Unauthorized);
+            if (!conta.Admin)
+                return Results.Json(new { erro = "Só quem administra a app pode fazer isto." }, statusCode: StatusCodes.Status403Forbidden);
+            return await seguinte(contexto);
+        });
+
+    /// <summary>
     /// Rotas /jogos/{id}/...: deixa passar o dono do jogo (sessão) ou quem trouxer o código do link de partilha (?c=...).
     /// Para todos os outros o jogo "não existe" (404), para não revelar que existe.
     /// </summary>
