@@ -58,6 +58,8 @@ Por omissão o `docker compose` junta uma caixa de correio de teste (**Mailpit**
 
 No Windows, o **`scripts\email.ps1`** faz o Gmail por ti: cria a palavra-passe de app em https://myaccount.google.com/apppasswords (precisa da verificação em 2 passos), corre `powershell -ExecutionPolicy Bypass -File scripts\email.ps1` e responde às duas perguntas (o email e a palavra-passe de app, que não aparece enquanto escreves). Grava as linhas `EMAIL_*` no `.env` e reinicia a app. Com `-UrlPublico https://scouting.exemplo.pt` define também o `URL_PUBLICO`.
 
+**Alternativa à Gmail: a Brevo** (plano grátis, 300 emails por dia, envia com o teu domínio, por exemplo `scouting@playbyplay.pt`). Cria a conta em brevo.com; em *Senders, domains & dedicated IPs > Domains* adiciona o teu domínio e cria na Cloudflare (DNS) os registos que ela mostrar (código de verificação, DKIM e DMARC, com a nuvem em *DNS only*) até aparecer como autenticado; em *Senders* acrescenta o remetente (`scouting@o-teu-dominio.pt`); em *SMTP & API > SMTP* gera uma **chave SMTP** e vê o **Login**. Depois: `powershell -ExecutionPolicy Bypass -File scripts\email.ps1 -Servidor smtp-relay.brevo.com -De scouting@o-teu-dominio.pt`, e responde com o Login e a chave SMTP. Serve qualquer servidor SMTP com STARTTLS na porta 587.
+
 ## Administração
 
 Quem administra a app tem uma **área à parte** (`/admin.html`, ligação **Administração** no menu da conta, que só aparece a admins), com as suas próprias rotas (`/api/admin/...`) e o seu registo, mas dentro da mesma app e da mesma base de dados. Três separadores:
