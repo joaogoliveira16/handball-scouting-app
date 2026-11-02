@@ -5,7 +5,7 @@ namespace HandballScouting.Tests;
 public class ContaValidadorTests
 {
     private static RegistoRequest Pedido(
-        string? nome = "Ana Silva", string? email = "ana@exemplo.pt", string? palavraPasse = "palavra-passe-boa", string? equipa = "Águias do Norte") =>
+        string? nome = "Ana Silva", string? email = "ana@exemplo.pt", string? palavraPasse = "palavra-passe-boa-1", string? equipa = "Águias do Norte") =>
         new(nome, email, palavraPasse, equipa);
 
     [Fact]
@@ -80,7 +80,15 @@ public class ContaValidadorTests
     {
         Assert.Contains(ContaValidador.ValidarRegisto(Pedido(palavraPasse: "1234567")), e => e.Contains("8"));
         Assert.Contains(ContaValidador.ValidarRegisto(Pedido(palavraPasse: null)), e => e.Contains("8"));
-        Assert.Empty(ContaValidador.ValidarRegisto(Pedido(palavraPasse: "12345678")));
+        Assert.Empty(ContaValidador.ValidarRegisto(Pedido(palavraPasse: "1234567a")));
+    }
+
+    [Fact]
+    public void Palavra_passe_sem_letra_ou_sem_numero_ou_comum_e_recusada()
+    {
+        Assert.Contains(ContaValidador.ValidarRegisto(Pedido(palavraPasse: "12345678")), e => e.Contains("letra e um número"));
+        Assert.Contains(ContaValidador.ValidarRegisto(Pedido(palavraPasse: "so-letras-aqui")), e => e.Contains("letra e um número"));
+        Assert.Contains(ContaValidador.ValidarRegisto(Pedido(palavraPasse: "Password123")), e => e.Contains("comum"));
     }
 
     [Fact]
@@ -88,7 +96,7 @@ public class ContaValidadorTests
     {
         Assert.Contains(ContaValidador.ValidarRegisto(Pedido(palavraPasse: new string('a', 129))), e => e.Contains("128"));
         Assert.Contains(ContaValidador.ValidarRegisto(Pedido(palavraPasse: "          ")), e => e.Contains("espaços"));
-        Assert.Empty(ContaValidador.ValidarRegisto(Pedido(palavraPasse: new string('a', 128))));
+        Assert.Empty(ContaValidador.ValidarRegisto(Pedido(palavraPasse: new string('a', 127) + "1")));
     }
 
     [Fact]
@@ -112,8 +120,11 @@ public class ContaValidadorTests
     }
 
     [Theory]
-    [InlineData("12345678")]
-    [InlineData("uma palavra-passe com espaços")]
+    [InlineData("1234567a")]
+    [InlineData("uma palavra-passe com 2 espaços")]
+    [InlineData("palavra-passe-123")]
+    [InlineData("çãõéíóú1")]
+    [InlineData("Ábaco٣٤٥٦٧٨")]   // letra e dígito de outros alfabetos também contam
     public void Palavra_passe_boa_nao_tem_erro(string palavraPasse)
     {
         Assert.Null(ContaValidador.ErroPalavraPasse(palavraPasse));
@@ -124,6 +135,13 @@ public class ContaValidadorTests
     [InlineData("curta", "pelo menos 8")]
     [InlineData("1234567", "pelo menos 8")]
     [InlineData("        ", "só espaços")]
+    [InlineData("12345678", "uma letra e um número")]
+    [InlineData("abcdefghij", "uma letra e um número")]
+    [InlineData("com espaços e sem número", "uma letra e um número")]
+    [InlineData("!!!!????....", "uma letra e um número")]
+    [InlineData("password123", "demasiado comum")]
+    [InlineData("Password123", "demasiado comum")]
+    [InlineData("BENFICA123", "demasiado comum")]
     public void Palavra_passe_ma_diz_o_que_falta(string? palavraPasse, string parte)
     {
         Assert.Contains(parte, ContaValidador.ErroPalavraPasse(palavraPasse));
@@ -132,7 +150,50 @@ public class ContaValidadorTests
     [Fact]
     public void Palavra_passe_com_mais_de_128_caracteres_e_recusada()
     {
-        Assert.Null(ContaValidador.ErroPalavraPasse(new string('a', 128)));
-        Assert.Contains("128", ContaValidador.ErroPalavraPasse(new string('a', 129)));
+        Assert.Null(ContaValidador.ErroPalavraPasse(new string('a', 127) + "1"));
+        Assert.Contains("128", ContaValidador.ErroPalavraPasse(new string('a', 128) + "1"));
+    }
+
+    [Theory]
+    [InlineData("Ana")]
+    [InlineData("  Ana Maria  ")]
+    public void Nome_bom_nao_tem_erro(string nome)
+    {
+        Assert.Null(ContaValidador.ErroNome(nome));
+    }
+
+    [Theory]
+    [InlineData(null, "obrigatório")]
+    [InlineData("", "obrigatório")]
+    [InlineData("   ", "obrigatório")]
+    public void Nome_vazio_diz_que_e_obrigatorio(string? nome, string parte)
+    {
+        Assert.Contains(parte, ContaValidador.ErroNome(nome));
+    }
+
+    [Fact]
+    public void Nome_com_mais_de_80_caracteres_e_recusado()
+    {
+        Assert.Null(ContaValidador.ErroNome(" " + new string('a', 80) + " "));
+        Assert.Contains("80", ContaValidador.ErroNome(new string('a', 81)));
+    }
+
+    [Theory]
+    [InlineData("ana@exemplo.pt")]
+    [InlineData("  ANA@Exemplo.PT ")]
+    public void Email_bom_nao_tem_erro(string email)
+    {
+        Assert.Null(ContaValidador.ErroEmail(email));
+    }
+
+    [Theory]
+    [InlineData(null, "obrigatório")]
+    [InlineData("  ", "obrigatório")]
+    [InlineData("ana", "não é válido")]
+    [InlineData("ana@exemplo", "não é válido")]
+    [InlineData("ana @exemplo.pt", "não é válido")]
+    public void Email_mau_diz_o_que_esta_mal(string? email, string parte)
+    {
+        Assert.Contains(parte, ContaValidador.ErroEmail(email));
     }
 }

@@ -19,18 +19,32 @@ builder.Services.AddSingleton(new LimiteTentativas(TimeProvider.System));
 builder.Services.AddSingleton(new LimiteEnvios(TimeProvider.System));
 // Envio dos emails de confirmação (SMTP). Sem Email__Host o registo funciona, mas o email não segue.
 builder.Services.AddSingleton(OpcoesEmail.Ler(builder.Configuration));
+// Quem é admin por configuração (Administracao__Emails): é assim que nasce o primeiro admin
+builder.Services.AddSingleton(OpcoesAdmin.Ler(builder.Configuration));
 builder.Services.AddSingleton<IEnviadorEmail, EnviadorSmtp>();
 builder.Services.AddScoped<EstatisticasService>();
 builder.Services.AddScoped<EventosService>();
 builder.Services.AddScoped<CadastroService>();
 builder.Services.AddScoped<ContaService>();
 builder.Services.AddScoped<AcessoService>();
+builder.Services.AddScoped<AdminService>();
 builder.Services.AddSignalR();
 
 var app = builder.Build();
 
 if (!app.Services.GetRequiredService<OpcoesEmail>().Configurado)
     app.Logger.LogWarning("Envio de emails não configurado (falta Email__Host): as contas novas não recebem o email de confirmação.");
+
+// As contas cujo email está em Administracao__Emails passam a admin (a base de dados pode ainda estar a arrancar)
+try
+{
+    using var escopo = app.Services.CreateScope();
+    await escopo.ServiceProvider.GetRequiredService<ContaService>().PromoverAdminsConfiguradosAsync();
+}
+catch (Exception e) when (e is not OperationCanceledException)
+{
+    app.Logger.LogWarning(e, "Não foi possível dar o papel de admin às contas de Administracao__Emails ao arrancar; acontece quando entrarem.");
+}
 
 // Fuso horário das datas no Excel (Exportacao__FusoHorario); UTC se o sistema não o conhecer
 var fusoExportacao = ExportadorExcel.ObterFuso(app.Configuration["Exportacao:FusoHorario"]);
@@ -85,7 +99,7 @@ conta.MapGet("", async (HttpContext http, CancellationToken ct) =>
 {
     http.Response.Headers.CacheControl = "no-store";
     return await Autenticacao.ObterContaAsync(http, ct) is { } c
-        ? Results.Ok(new { c.Id, c.Nome, c.Email })
+        ? Results.Ok(new { c.Id, c.Nome, c.Email, c.Admin })
         : Results.Json(new { erro = "Sem sessão iniciada." }, statusCode: 401);
 });
 
@@ -131,7 +145,7 @@ conta.MapPost("/entrar", async (EntrarRequest pedido, HttpContext http, ContaSer
     var r = await contas.EntrarAsync(pedido, ct);
     if (!r.Ok) return Falha(r);
     Autenticacao.DefinirCookie(http, r.Token!);
-    return Results.Ok(new { r.Utilizador!.Id, r.Utilizador.Nome, r.Utilizador.Email });
+    return Results.Ok(new { r.Utilizador!.Id, r.Utilizador.Nome, r.Utilizador.Email, r.Utilizador.Admin });
 });
 
 conta.MapPost("/sair", async (HttpContext http, ContaService contas, CancellationToken ct) =>
@@ -404,6 +418,129 @@ protegido.MapPut("/jogos/{id:int}/convocados", async (int id, ConvocatoriaReques
     var r = await cadastro.DefinirConvocadosAsync(http.ContaAtual().Id, id, pedido, ct);
     return r.Ok ? Results.NoContent() : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
 });
+
+// ------------------------- Administração: só para admins -------------------------
+// Contas e jogos de todas as contas, e a correção de eventos de qualquer jogo. Cada alteração fica no registo.
+
+var admin = api.MapGroup("/admin").ExigirAdmin();
+
+static IResult FalhaAdmin(ResultadoAdmin r) => Results.Json(new { erro = r.Erro }, statusCode: r.Status);
+
+static IResult FicheiroJson(Exportacao copia, HttpContext http)
+{
+    http.Response.Headers.CacheControl = "no-store";
+    return Results.File(System.Text.Encoding.UTF8.GetBytes(copia.Json), "application/json", copia.Ficheiro);
+}
+
+admin.MapGet("/utilizadores", async (AdminService servico, CancellationToken ct) =>
+    Results.Ok(await servico.UtilizadoresAsync(ct)));
+
+admin.MapPut("/utilizadores/{id:int}/papel", async (int id, PapelRequest pedido, HttpContext http, AdminService servico, CancellationToken ct) =>
+{
+    var r = await servico.DefinirPapelAsync(http.ContaAtual(), id, pedido.Papel, ct);
+    return r.Ok ? Results.NoContent() : FalhaAdmin(r);
+});
+
+admin.MapPut("/utilizadores/{id:int}/ativa", async (int id, AtivaRequest pedido, HttpContext http, AdminService servico, CancellationToken ct) =>
+{
+    var r = await servico.DefinirAtivaAsync(http.ContaAtual(), id, pedido.Ativa, ct);
+    return r.Ok ? Results.NoContent() : FalhaAdmin(r);
+});
+
+// Muda o nome e o email de uma conta (se o email muda, a conta volta a ficar por confirmar e o email novo recebe o link)
+admin.MapPut("/utilizadores/{id:int}", async (int id, EditarContaRequest pedido, HttpContext http, AdminService servico, CancellationToken ct) =>
+{
+    var r = await servico.EditarContaAsync(http.ContaAtual(), id, pedido, ct);
+    return r.Ok ? Results.Ok(new { emailMudou = r.EmailMudou, emailEnviado = r.EmailEnviado }) : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
+});
+
+// Cópia de segurança de uma conta, em JSON, para o browser guardar (tem dados pessoais: nunca fica em cache)
+admin.MapGet("/utilizadores/{id:int}/exportar", async (int id, HttpContext http, AdminService servico, CancellationToken ct) =>
+    await servico.ExportarContaAsync(id, ct) is { } copia ? FicheiroJson(copia, http) : Results.NotFound(new { erro = "Conta não encontrada." }));
+
+// Elimina a conta e tudo o que é dela: o corpo leva o email da conta, escrito por quem elimina, como segunda confirmação
+admin.MapPost("/utilizadores/{id:int}/eliminar", async (int id, EliminarRequest pedido, HttpContext http, AdminService servico, CancellationToken ct) =>
+{
+    var r = await servico.EliminarContaAsync(http.ContaAtual(), id, pedido.Email, ct);
+    return r.Ok ? Results.NoContent() : FalhaAdmin(r);
+});
+
+// Envia à conta o link para escolher outra palavra-passe (o admin nunca a vê)
+admin.MapPost("/utilizadores/{id:int}/repor-palavra-passe", async (int id, HttpContext http, AdminService servico, CancellationToken ct) =>
+{
+    var r = await servico.ReporPalavraPasseAsync(http.ContaAtual(), id, ct);
+    return r.Ok ? Results.NoContent() : FalhaAdmin(r);
+});
+
+// Como estão os emails (sem segredos) e um email de teste para o próprio admin
+admin.MapGet("/email", (AdminService servico) => Results.Ok(servico.EstadoDoEmail()));
+
+admin.MapPost("/email/testar", async (HttpContext http, AdminService servico, CancellationToken ct) =>
+{
+    var r = await servico.TestarEmailAsync(http.ContaAtual(), ct);
+    return r.Ok ? Results.NoContent() : FalhaAdmin(r);
+});
+
+admin.MapGet("/jogos", async (AdminService servico, CancellationToken ct) =>
+    Results.Ok(await servico.JogosAsync(ct)));
+
+admin.MapGet("/jogos/{id:int}", async (int id, AdminService servico, CancellationToken ct) =>
+    await servico.JogoAsync(id, ct) is { } jogo ? Results.Ok(jogo) : Results.NotFound(new { erro = "Jogo não encontrado." }));
+
+// Cópia de segurança de um jogo, em JSON
+admin.MapGet("/jogos/{id:int}/exportar", async (int id, HttpContext http, AdminService servico, CancellationToken ct) =>
+    await servico.ExportarJogoAsync(id, ct) is { } copia ? FicheiroJson(copia, http) : Results.NotFound(new { erro = "Jogo não encontrado." }));
+
+// Terminar ou reabrir o jogo de outra conta; os bancos e dashboards abertos passam a mostrar o novo estado
+admin.MapPut("/jogos/{id:int}/terminado", async (
+    int id, TerminadoRequest pedido, HttpContext http,
+    AdminService servico, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+{
+    var r = await servico.DefinirTerminadoAsync(http.ContaAtual(), id, pedido.Terminado, ct);
+    if (!r.Ok) return FalhaAdmin(r);
+
+    await EmitirEstadoAsync(id, est, hub);
+    return Results.NoContent();
+});
+
+// Apaga o jogo de outra conta (com os eventos): não se desfaz, por isso a página tira antes uma cópia de segurança
+admin.MapDelete("/jogos/{id:int}", async (int id, HttpContext http, AdminService servico, CancellationToken ct) =>
+{
+    var r = await servico.ApagarJogoAsync(http.ContaAtual(), id, ct);
+    return r.Ok ? Results.NoContent() : FalhaAdmin(r);
+});
+
+admin.MapGet("/jogos/{id:int}/eventos", async (int id, AdminService servico, CancellationToken ct) =>
+    await servico.EventosAsync(id, ct) is { } lista ? Results.Ok(lista) : Results.NotFound(new { erro = "Jogo não encontrado." }));
+
+admin.MapPut("/jogos/{id:int}/eventos/{eventoId:long}", async (
+    int id, long eventoId, NovoEventoRequest pedido, HttpContext http,
+    AdminService servico, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+{
+    var resultado = await servico.CorrigirEventoAsync(http.ContaAtual(), id, eventoId, pedido, ct);
+    if (!resultado.Ok)
+        return Results.Json(new { erro = resultado.Erro }, statusCode: resultado.Status);
+
+    await EmitirEstadoAsync(id, est, hub);   // os dashboards abertos passam a mostrar os números corrigidos
+    return Results.NoContent();
+});
+
+admin.MapDelete("/jogos/{id:int}/eventos/{eventoId:long}", async (
+    int id, long eventoId, HttpContext http,
+    AdminService servico, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+{
+    var r = await servico.ApagarEventoAsync(http.ContaAtual(), id, eventoId, ct);
+    if (!r.Ok) return FalhaAdmin(r);
+
+    await EmitirEstadoAsync(id, est, hub);
+    return Results.NoContent();
+});
+
+// tipo = conta | evento | jogo (sem tipo: tudo)
+admin.MapGet("/registo", async (string? tipo, AdminService servico, CancellationToken ct) =>
+    await servico.RegistoAsync(tipo, ct) is { } linhas
+        ? Results.Ok(linhas)
+        : Results.BadRequest(new { erro = "tipo tem de ser «conta», «evento» ou «jogo»." }));
 
 app.MapHub<JogoHub>("/hub/jogo");
 

@@ -13,10 +13,20 @@ import {
   mudarResultado, mudarSituacao, mudou, textoMinuto, valoresDoEvento,
 } from './eventos-jogo.js';
 
-const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
+const parametros = new URLSearchParams(location.search);
+const jogoId = Number(parametros.get('jogo'));
 if (!jogoId) location.replace('./');
 
-await exigirConta();
+const conta = await exigirConta();
+
+// ?admin=1: um admin a corrigir o jogo de qualquer conta (as rotas /api/admin fazem as mesmas contas que o dono, e
+// cada alteração fica no registo). Quem não é admin volta à sua lista de jogos.
+const modoAdmin = parametros.get('admin') === '1';
+if (modoAdmin && conta && !conta.admin) {
+  location.replace('./');
+  await new Promise(() => {});   // a página vai ser substituída
+}
+const API_JOGOS = modoAdmin ? '/api/admin/jogos' : '/api/jogos';
 
 const conteudo = document.getElementById('conteudo');
 const janela = document.getElementById('janela-evento');
@@ -59,7 +69,7 @@ function descricaoCurta(e) {
 async function apagarEvento(e) {
   if (!confirm(`Apagar este evento (${descricaoCurta(e)})? Não dá para desfazer.`)) return;
   try {
-    await enviar('DELETE', `/api/jogos/${jogoId}/eventos/${e.id}`);
+    await enviar('DELETE', `${API_JOGOS}/${jogoId}/eventos/${e.id}`);
     await carregarEventos();
     avisar('Evento apagado.');
   } catch (erro) {
@@ -120,11 +130,14 @@ function cabecalho() {
       h('span', { class: 'resultado', id: 'resultado-eventos' }, `${golosDe(j.casaId)} – ${golosDe(j.foraId)}`),
       h('span', { class: 'equipa-nome' }, escudo(j.foraId, j.foraEscudo), j.foraNome)),
     h('p', { class: 'meta' }, [data, j.local].filter(Boolean).join(' · '), j.terminadoEm ? h('span', { class: 'etiqueta terminado' }, 'Terminado') : null),
+    modoAdmin ? h('p', { class: 'aviso-inline', id: 'nota-admin' }, `Estás a ver este jogo como admin. Pertence à conta de ${j.donoNome}; o que corrigires ou apagares fica no registo de alterações.`) : null,
     h('div', { class: 'acoes-jogo' },
-      h('a', { class: 'botao-link primario pequeno', href: `banco.html?jogo=${j.id}` }, 'Banco'),
-      j.codigo ? h('a', { class: 'botao-link pequeno', href: `dashboard.html?jogo=${j.id}&c=${encodeURIComponent(j.codigo)}` }, 'Dashboard') : null,
-      h('a', { class: 'botao-link suave pequeno', href: urlExcel(j.id), download: '' }, '⬇ Excel'),
-      h('a', { class: 'botao-link suave pequeno', href: './' }, '← Jogos')));
+      modoAdmin ? null : h('a', { class: 'botao-link primario pequeno', href: `banco.html?jogo=${j.id}` }, 'Banco'),
+      j.codigo ? h('a', { class: modoAdmin ? 'botao-link primario pequeno' : 'botao-link pequeno', href: `dashboard.html?jogo=${j.id}&c=${encodeURIComponent(j.codigo)}` }, 'Dashboard') : null,
+      modoAdmin ? null : h('a', { class: 'botao-link suave pequeno', href: urlExcel(j.id), download: '' }, '⬇ Excel'),
+      modoAdmin
+        ? h('a', { class: 'botao-link suave pequeno', id: 'voltar-admin', href: 'admin.html#jogos' }, '← Administração')
+        : h('a', { class: 'botao-link suave pequeno', href: './' }, '← Jogos')));
 }
 
 function desenhar() {
@@ -150,7 +163,7 @@ function desenhar() {
 }
 
 async function carregarEventos() {
-  estado.eventos = await obter(`/api/jogos/${jogoId}/eventos`);
+  estado.eventos = await obter(`${API_JOGOS}/${jogoId}/eventos`);
   // um filtro por um jogador que já não tem eventos deixaria a lista vazia sem saída
   if (estado.filtro.jogadorId != null && !estado.eventos.some((e) => e.jogadorId === estado.filtro.jogadorId)) estado.filtro.jogadorId = null;
   desenhar();
@@ -303,7 +316,7 @@ function abrirEdicao(evento) {
   guardar.addEventListener('click', async () => {
     guardar.disabled = true;
     try {
-      await enviar('PUT', `/api/jogos/${jogoId}/eventos/${evento.id}`, corpoDoEvento(v));
+      await enviar('PUT', `${API_JOGOS}/${jogoId}/eventos/${evento.id}`, corpoDoEvento(v));
       fecharJanela();
       await carregarEventos();
       avisar('Evento corrigido.');
@@ -329,11 +342,16 @@ function abrirEdicao(evento) {
 // ---------------------------------------------------------------------
 // Arranque
 // ---------------------------------------------------------------------
+if (modoAdmin) {
+  // as páginas do menu normal (Jogos, Equipas...) são da conta do admin, não deste jogo: fica só o caminho para a administração
+  document.querySelector('.menu')?.replaceChildren(h('a', { href: 'admin.html#jogos', 'aria-current': 'page' }, 'Administração'));
+}
+
 try {
   [estado.jogo, estado.tipos, estado.eventos] = await Promise.all([
-    obter(`/api/jogos/${jogoId}`),
+    obter(`${API_JOGOS}/${jogoId}`),
     obter('/api/tipos-evento'),
-    obter(`/api/jogos/${jogoId}/eventos`),
+    obter(`${API_JOGOS}/${jogoId}/eventos`),
   ]);
   document.title = `Eventos · ${estado.jogo.casaNome} vs ${estado.jogo.foraNome} · Scouting de Andebol`;
   desenhar();

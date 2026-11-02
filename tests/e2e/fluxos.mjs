@@ -73,7 +73,8 @@ async function pagina(caminho, { contexto = ctx, tolerar = [], rapida = false, r
   page.on('websocket', (w) => historico.push(`WS ${w.url().replace(servidor.url, '')}`));
   page.on('pageerror', (e) => errosPaginas.push(`${caminho}: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !esperados.some((e) => m.text().includes(e))) errosPaginas.push(`${caminho}: ${m.text()}`); });
-  page.on('dialog', (d) => d.accept());
+  // Um prompt aceita-se com page.respostaAoPrompt (por defeito vazio); com null cancela-se
+  page.on('dialog', (d) => (d.type() === 'prompt' && page.respostaAoPrompt === null ? d.dismiss() : d.accept(d.type() === 'prompt' ? (page.respostaAoPrompt ?? '') : undefined)));
   await page.goto(servidor.url + caminho, { waitUntil: 'domcontentloaded' });
   if (!rapida) {
     try {
@@ -185,7 +186,7 @@ async function abrirLinkDoEmail(email, { contexto = ctx, quantas = 1 } = {}) {
 
 await passo('Contas: criar conta, confirmar o email, sair e entrar', async () => {
   // Sem sessão, as páginas levam à entrada e guardam para onde voltar
-  let p = await pagina('/equipas.html', { tolerar: ['401', '403'], rapida: true, relogio: true });   // 401: ainda sem sessão; 403: entrar sem ter confirmado o email
+  let p = await pagina('/equipas.html', { tolerar: ['401', '403', '400'], rapida: true, relogio: true });   // 401: ainda sem sessão; 403: entrar sem ter confirmado o email; 400: palavra-passe comum recusada pela API
   await p.waitForURL(/entrar\.html/);
   ok(new URL(p.url()).searchParams.get('voltar') === 'equipas.html', `sem sessão: /equipas.html leva à entrada e guarda para onde voltar (${caminhoDe(p)})`);
   ok((await p.locator('#form-entrar').isVisible()) && (await p.locator('#form-registo').isHidden()), 'entrar: começa no formulário de entrada');
@@ -206,6 +207,16 @@ await passo('Contas: criar conta, confirmar o email, sair e entrar', async () =>
   await p.fill('#registo-email', emailPrincipal); await p.fill('#registo-senha', 'curta');
   await p.click('#botao-registo');
   ok((await p.locator('#erro-registo').textContent()).includes('pelo menos 8'), 'registo: palavra-passe curta recusada com mensagem');
+  await p.fill('#registo-senha', 'so-com-letras');
+  await p.click('#botao-registo');
+  ok((await p.locator('#erro-registo').textContent()).includes('uma letra e um número'), 'registo: palavra-passe sem número recusada com mensagem');
+  await p.fill('#registo-senha', '12345678');
+  await p.click('#botao-registo');
+  ok((await p.locator('#erro-registo').textContent()).includes('uma letra e um número'), 'registo: palavra-passe sem letra recusada com mensagem');
+  await p.fill('#registo-senha', 'Password123');
+  await p.click('#botao-registo');
+  await p.waitForFunction(() => document.getElementById('erro-registo').textContent.includes('demasiado comum'), null, { timeout: 5000 });
+  ok(true, 'registo: palavra-passe comum recusada pela API com a mensagem dela');
   await p.fill('#registo-senha', SENHA);
   await p.click('.campo-palavra-passe:has(#registo-senha) .ver-senha');
   ok((await p.getAttribute('#registo-senha', 'type')) === 'text', 'registo: "Mostrar" revela a palavra-passe');
@@ -413,6 +424,13 @@ await passo('Recuperar a palavra-passe', async () => {
   await r.fill('#nova-senha', ' '.repeat(10));
   await r.click('#botao-nova');
   ok((await r.locator('#erro-nova').textContent()).includes('só espaços'), 'redefinir: palavra-passe só com espaços recusada');
+  await r.fill('#nova-senha', 'so-com-letras');
+  await r.click('#botao-nova');
+  ok((await r.locator('#erro-nova').textContent()).includes('uma letra e um número'), 'redefinir: palavra-passe sem número recusada');
+  await r.fill('#nova-senha', 'Password123');
+  await r.click('#botao-nova');
+  await r.waitForFunction(() => document.getElementById('erro-nova').textContent.includes('demasiado comum'), null, { timeout: 5000 });
+  ok(true, 'redefinir: palavra-passe comum recusada pela API (o link não se gasta)');
   await r.fill('#nova-senha', NOVA);
   await r.click('#ver-nova');
   ok((await r.getAttribute('#nova-senha', 'type')) === 'text' && (await r.textContent('#ver-nova')) === 'Esconder', 'redefinir: «Mostrar» revela a palavra-passe');
@@ -1059,7 +1077,10 @@ await passo('Superioridade: o banco conta os 2 minutos, marca o 7×6 e o dashboa
     'superioridade: o «2 minutos» ficou registado ao minuto 10');
   await empurrar(banco, jogoId);
   ok(await esperarPor(async () => await faixaBanco.isVisible()), 'superioridade: com um jogador a menos aparece a faixa no banco');
-  ok((await texto(faixaBanco.locator('.rotulo-numerica'))) === '6×5', 'superioridade: a casa joga com 5 e o adversário com 6 (6×5)');
+  // A faixa aparece antes de o rótulo estar certo (o SignalR real entrega o estado por partes): espera por ele
+  const rotuloBanco = async () => (await faixaBanco.locator('.rotulo-numerica').count()) ? await texto(faixaBanco.locator('.rotulo-numerica')) : '';
+  await esperarPor(async () => (await rotuloBanco()) === '6×5');
+  ok((await rotuloBanco()) === '6×5', `superioridade: a casa joga com 5 e o adversário com 6 (6×5) (rótulo: «${await rotuloBanco()}»)`);
   ok(((await faixaBanco.textContent()) ?? '').includes('Superioridade · Leões do Sul'), 'superioridade: a faixa diz quem está em superioridade');
   const inicio = await restanteDe(faixaBanco);
   ok(inicio >= 115 && inicio <= 120, `superioridade: a contagem começa nos 2 minutos (${inicio} s)`);
@@ -1069,7 +1090,10 @@ await passo('Superioridade: o banco conta os 2 minutos, marca o 7×6 e o dashboa
   // O dashboard (outro ecrã) vê o relógio a andar e a mesma contagem
   await empurrar(dash, jogoId);
   ok(await esperarPor(async () => await dash.locator('#relogio-dash').isVisible()), 'superioridade: o dashboard mostra o relógio do jogo');
-  ok(/^10:[0-3]\d$/.test((await texto(dash.locator('#relogio-dash'))) ?? ''), `superioridade: o relógio do dashboard está nos 10 minutos (${await texto(dash.locator('#relogio-dash'))})`);
+  // O relógio aparece antes de ter o segundo certo (começa em 00:00): espera por ele
+  const relogioDash = async () => (await texto(dash.locator('#relogio-dash'))) ?? '';
+  await esperarPor(async () => /^10:[0-3]\d$/.test(await relogioDash()));
+  ok(/^10:[0-3]\d$/.test(await relogioDash()), `superioridade: o relógio do dashboard está nos 10 minutos (${await relogioDash()})`);
   ok((await dash.locator('#relogio-dash.parado').count()) === 0, 'superioridade: com o relógio a andar não aparece como parado');
   ok(await esperarPor(async () => await faixaDash.isVisible()) && (await texto(faixaDash.locator('.rotulo-numerica'))) === '6×5', 'superioridade: o dashboard mostra a faixa 6×5');
   const noDash = await restanteDe(faixaDash);
@@ -1188,8 +1212,11 @@ await passo('Time-out: o relógio de jogo pára e o minuto do time-out desconta 
   // Enganou-se no time-out: apagar o evento cancela o minuto (e o relógio fica parado)
   await pedirTimeout();
   ok(await esperarPor(async () => await faixa.isVisible() && (await nTimeouts()) === 3), 'time-out: terceiro time-out registado');
+  // O servidor grava o evento antes de responder: espera pela resposta (a fila vazia) e só então pede as estatísticas,
+  // senão o «desfazer» apanharia o evento ainda como «por enviar» e só o tiraria da fila do tablet
+  await esperarPor(async () => await banco.locator('#pendentes').isHidden());
   await empurrar(banco, jogoId);
-  await esperarPor(async () => (await banco.locator('#ultimos li:not(.pendente)').count()) >= 1);
+  await esperarPor(async () => (await banco.locator('#ultimos li:first-child:not(.pendente)').count()) === 1);
   await banco.click('#btn-desfazer');
   ok(await esperarPor(async () => (await nTimeouts()) === 2), 'time-out: apagar o evento tira-o da base de dados');
   ok(await esperarPor(async () => await faixa.isHidden()), 'time-out: apagar o time-out cancela o minuto');
@@ -1746,7 +1773,8 @@ await passo('Escudos: carregar, trocar e tirar o escudo da equipa', async () => 
   const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [propriaId, aguias.id, donoId]);
   const escudoDe = async () => (await q('SELECT tipo, dados, escudo_versao(equipa_id) AS versao FROM escudos WHERE equipa_id = $1', [propriaId]))[0];
   const srcDoEscudo = (page) => page.locator('#bloco-escudo img.escudo-grande').getAttribute('src');
-  const carregou = (locator) => locator.evaluate((img) => img.complete && img.naturalWidth > 0);
+  // A imagem pode ainda estar a descarregar quando aparece na página: espera um pouco antes de dar como falhada
+  const carregou = (locator) => esperarPor(() => locator.evaluate((img) => img.complete && img.naturalWidth > 0), 5000);
 
   const p = await pagina('/equipas.html');
   await p.waitForSelector('#bloco-escudo');
@@ -2911,6 +2939,389 @@ await passo('Segunda conta: começa vazia e não vê os dados da primeira', asyn
   ok(!(await ctxB.cookies()).some((c) => c.name === 'sessao') && (await q('SELECT 1 FROM sessoes WHERE utilizador_id = $1', [donoId])).length >= 1, 'segunda conta: sair só termina a sua sessão');
   await sair.close();
   await ctxB.close();
+});
+
+// ======================= Administração =======================
+// O primeiro admin vem da configuração da API (Administracao__Emails=admin-teste@exemplo.pt, ver tests/api.sh): a conta
+// cria-se pela página como as outras e passa a admin quando entra.
+await passo('Administração: contas, jogos, correção de eventos e registo de alterações', async () => {
+  const emailAdmin = process.env.ADMIN_EMAIL ?? 'admin-teste@exemplo.pt';
+  const emailB = `bruno-${sufixo}@exemplo.pt`;
+  const nomeB = 'Bruno';
+  const [bruno] = await q('SELECT id, equipa_id FROM utilizadores WHERE email = $1', [emailB]);
+  if (!bruno) return ok(false, 'administração: falta a conta do passo anterior');
+
+  // Um jogo da conta do Bruno, com dois eventos, para o admin corrigir
+  const localAdmin = `Pavilhão Admin ${sufixo}`;
+  const [adversaria] = await q('INSERT INTO equipas (nome, dono_id) VALUES ($1, $2) RETURNING id', [`Adversária Admin ${sufixo}`, bruno.id]);
+  const [lateral1] = await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1, 71, 'Rui Admin', 'LE') RETURNING id", [bruno.equipa_id]);
+  const [lateral2] = await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1, 72, 'Tiago Admin', 'LE') RETURNING id", [bruno.equipa_id]);
+  const [guardaRedes] = await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1, 1, 'Gil Admin', 'GR') RETURNING id", [adversaria.id]);
+  const [lateralAdv] = await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1, 5, 'Nuno Admin', 'LE') RETURNING id", [adversaria.id]);
+  const [jogo] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, local, data_hora) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+    [bruno.equipa_id, adversaria.id, bruno.id, localAdmin, '2026-10-20T18:00:00Z']);
+  const novo = async (equipa, tipo, jogador, { resultado = null, parte = 1, segundo = 0, x = null, y = null, guardaRedesId = null } = {}) => (await q(
+    `INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, guarda_redes_id, resultado, x, y, parte, segundo_jogo)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`, [jogo.id, equipa, tipo, jogador, guardaRedesId, resultado, x, y, parte, segundo]))[0].id;
+  const remateFora = await novo(bruno.equipa_id, 'REMATE', lateral1.id, { resultado: 'FORA', x: 50, y: 40, segundo: 120, guardaRedesId: guardaRedes.id });
+  const doisMin = await novo(adversaria.id, 'DOIS_MINUTOS', lateralAdv.id, { parte: 2, segundo: 2100 });
+
+  // Quem não é admin não vê a ligação, e a página diz que é só para quem administra
+  const normal = await pagina('/');
+  await normal.waitForSelector('#conta-menu .quem');
+  ok((await normal.locator('#ligacao-admin').count()) === 0, 'administração: uma conta normal não tem a ligação «Administração» no menu');
+  await normal.close();
+  const recusada = await pagina('/admin.html', { tolerar: ['403'] });
+  await recusada.waitForSelector('#sem-acesso');
+  ok((await recusada.locator('#tabela-contas').count()) === 0 && (await recusada.locator('#abas a:visible').count()) === 0, 'administração: uma conta normal só vê «Voltar aos jogos», sem listas');
+  ok((await recusada.evaluate(async () => (await fetch('/api/admin/utilizadores')).status)) === 403, 'administração: e a API recusa-lhe a lista de contas (403)');
+  const semAcessoEventos = await pagina(`/eventos.html?jogo=2&admin=1`, { tolerar: ['403', '404'], rapida: true });
+  await semAcessoEventos.waitForURL((u) => u.pathname === '/');
+  ok(caminhoDe(semAcessoEventos) === '/', 'administração: o modo admin da página de eventos leva uma conta normal de volta aos jogos');
+  await semAcessoEventos.close();
+  await recusada.close();
+
+  // O admin cria a conta pela página (o email está em Administracao__Emails) e entra
+  const ctxAdmin = await novoContexto();
+  // O 500 é o que os testes de «a cópia de segurança falhou» simulam com page.route (a consola regista-o)
+  let p = await pagina('/', { contexto: ctxAdmin, tolerar: ['401', '500'], rapida: true });
+  await p.waitForURL(/entrar\.html/);
+  await registarPelaPagina(p, { nome: 'Admin Teste', equipa: `Admin FC ${sufixo}`, email: emailAdmin, senha: SENHA });
+  await p.waitForSelector('#painel-confirmar:not([hidden])');
+  const { v: linkAdmin } = await abrirLinkDoEmail(emailAdmin, { contexto: ctxAdmin });
+  await linkAdmin.close();
+  await p.click('#ja-confirmei');
+  await p.fill('#entrar-senha', SENHA);
+  await p.click('#botao-entrar');
+  await p.waitForURL((u) => u.pathname === '/');
+  await p.waitForSelector('#ligacao-admin');
+  ok((await q('SELECT papel FROM utilizadores WHERE email = $1', [emailAdmin]))[0]?.papel === 'admin', 'administração: o email da configuração passou a admin ao entrar');
+  ok((await texto(p.locator('#ligacao-admin'))) === 'Administração', 'administração: o menu da conta tem a ligação «Administração»');
+  await p.close();
+
+  // Utilizadores
+  p = await pagina('/', { contexto: ctxAdmin, tolerar: ['500'] });
+  await Promise.all([p.waitForURL(/admin\.html/), p.click('#ligacao-admin')]);
+  await p.waitForSelector('#tabela-contas');
+  const [{ n }] = await q('SELECT COUNT(*)::int AS n FROM utilizadores');
+  ok((await texto(p.locator('#n-total'))) === `${n}contas`, `administração: o topo conta as contas (${n})`);
+  ok((await p.locator('#tabela-contas tbody tr').count()) === n, 'administração: a tabela tem uma linha por conta');
+  // Emails: a faixa diz que só há a caixa de teste e o botão manda um email de teste ao próprio admin
+  const faixaEmail = p.locator('#faixa-email');
+  ok((await faixaEmail.getAttribute('data-modo')) === 'teste' && /não chegam a ninguém/.test(await faixaEmail.textContent()) && /localhost:8025/.test(await faixaEmail.textContent()), 'administração: a faixa diz que os emails só vão para a caixa de teste');
+  const emailsAntes = (await mensagensPara(emailAdmin)).length;
+  await p.click('#testar-email');
+  await p.waitForFunction(() => document.getElementById('aviso')?.textContent.includes('email de teste'));
+  ok(/caixa de teste/.test(await p.locator('#aviso').textContent()), 'administração: «Enviar email de teste» avisa onde o ir ver');
+  ok(await esperarPor(async () => (await mensagensPara(emailAdmin)).length === emailsAntes + 1), 'administração: o email de teste chega ao admin');
+  const linhaB = p.locator(`#tabela-contas tr[data-email="${emailB}"]`);
+  ok((await texto(linhaB)).includes(nomeB) && (await texto(linhaB.locator('[data-estado]'))) === 'Ativa' && (await texto(linhaB.locator('[data-papel]'))) === 'Normal', 'administração: a conta do Bruno aparece ativa e normal');
+  const linhaAdmin = p.locator(`#tabela-contas tr[data-email="${emailAdmin}"]`);
+  ok((await texto(linhaAdmin)).includes('Atuaconta') && (await linhaAdmin.locator('button').count()) === 0, 'administração: na própria conta não há botões (ninguém mexe na sua conta)');
+  await captura(p, 'admin-utilizadores');
+  await p.fill('input[data-pesquisa="utilizadores"]', 'bruno');
+  ok((await p.locator('#tabela-contas tbody tr').count()) === 1, 'administração: procurar «bruno» deixa só a conta dele');
+  await p.fill('input[data-pesquisa="utilizadores"]', '');
+  await p.click('[data-filtro="admins"]');
+  ok((await p.locator('#tabela-contas tbody tr').count()) === 1 && (await p.locator(`#tabela-contas tr[data-email="${emailAdmin}"]`).count()) === 1, 'administração: o filtro «Admins» mostra só o admin');
+  await p.click('[data-filtro="todas"]');
+
+  // Desativar: a conta deixa de entrar; ativar: volta a entrar
+  await linhaB.locator('[data-acao="desativar"]').click();
+  await linhaB.locator('[data-estado="desativado"]').waitFor();
+  ok((await q('SELECT desativado_em FROM utilizadores WHERE id = $1', [bruno.id]))[0].desativado_em !== null, 'administração: desativar guarda a data na base de dados');
+  ok((await linhaB.locator('[data-acao="repor"]').count()) === 0 && (await linhaB.locator('[data-acao="ativar"]').count()) === 1, 'administração: uma conta desativada só se pode voltar a ativar');
+  ok((await texto(p.locator('#n-desativadas'))) === '1desativadas', 'administração: o topo conta as desativadas');
+  const ctxB2 = await novoContexto();
+  const entradaB = await pagina('/entrar.html', { contexto: ctxB2, tolerar: ['401', '403'] });
+  await entradaB.fill('#entrar-email', emailB);
+  await entradaB.fill('#entrar-senha', 'outra-palavra-1');
+  await entradaB.click('#botao-entrar');
+  await entradaB.waitForFunction(() => document.getElementById('erro-entrar')?.textContent.includes('desativada'));
+  ok(entradaB.url().includes('entrar.html') && !(await ctxB2.cookies()).some((c) => c.name === 'sessao'), 'administração: a conta desativada não entra e a página diz porquê');
+  await linhaB.locator('[data-acao="ativar"]').click();
+  await linhaB.locator('[data-estado="ativo"]').waitFor();
+  await entradaB.click('#botao-entrar');
+  await entradaB.waitForURL((u) => u.pathname === '/');
+  ok((await ctxB2.cookies()).some((c) => c.name === 'sessao'), 'administração: depois de ativada, a conta volta a entrar');
+  await entradaB.close();
+  await ctxB2.close();
+
+  // Papel
+  await linhaB.locator('[data-acao="admin"]').click();
+  await linhaB.locator('[data-papel="admin"]').waitFor();
+  ok((await q('SELECT papel FROM utilizadores WHERE id = $1', [bruno.id]))[0].papel === 'admin' && (await texto(p.locator('#n-admins'))) === '2admins', 'administração: «Tornar admin» muda o papel e o topo conta 2 admins');
+  await linhaB.locator('[data-acao="normal"]').click();
+  await linhaB.locator('[data-papel="normal"]').waitFor();
+  ok((await q('SELECT papel FROM utilizadores WHERE id = $1', [bruno.id]))[0].papel === 'normal', 'administração: «Tirar admin» volta ao papel normal');
+
+  // Repor a palavra-passe: chega à conta um email com a ligação (o admin não vê nem escolhe a palavra-passe)
+  await linhaB.locator('[data-acao="repor"]').click();
+  await p.waitForFunction(() => document.getElementById('aviso')?.textContent.includes('Enviámos a ligação'));
+  const tokenRepor = await ultimoToken(emailB, 2, 'redefinir');
+  ok(!!tokenRepor && (await mensagensPara(emailB)).length === 2, 'administração: «Repor palavra-passe» envia à conta o email com a ligação');
+  ok(!(await p.content()).includes(tokenRepor), 'administração: e a página do admin não mostra o código da ligação');
+
+  // Eliminar uma conta: a página pede o email dela, e só com ele certo apaga a conta e tudo o que é dela
+  const emailE = `eduardo-${sufixo}@exemplo.pt`;
+  const [{ id: idE }] = await q("SELECT registar_utilizador($1, 'Eduardo', 'hash-e', $2) AS id", [emailE, `Eduardo FC ${sufixo}`]);
+  await q('UPDATE utilizadores SET email_verificado_em = now() WHERE id = $1', [idE]);
+  const [{ equipa_id: equipaE }] = await q('SELECT equipa_id FROM utilizadores WHERE id = $1', [idE]);
+  const [advE] = await q('INSERT INTO equipas (nome, dono_id) VALUES ($1, $2) RETURNING id', [`Adversária Eduardo ${sufixo}`, idE]);
+  await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) VALUES ($1, 8, 'Jogador Oito', 'LE')", [equipaE]);
+  const [jogoE] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, data_hora) VALUES ($1,$2,$3,now()) RETURNING id', [equipaE, advE.id, idE]);
+  const contaE = async () => (await q('SELECT (SELECT COUNT(*)::int FROM utilizadores WHERE id = $1) AS contas, (SELECT COUNT(*)::int FROM equipas WHERE dono_id = $1) AS equipas, (SELECT COUNT(*)::int FROM jogos WHERE dono_id = $1) AS jogos', [idE]))[0];
+  const linhaE = p.locator(`#tabela-contas tr[data-email="${emailE}"]`);
+  const abrirUtilizadores = async () => { await p.reload(); await p.waitForSelector('#tabela-contas'); };
+
+  await q("UPDATE utilizadores SET papel = 'admin' WHERE id = $1", [idE]);
+  await abrirUtilizadores();
+  ok((await linhaE.locator('[data-acao="eliminar"]').count()) === 0 && (await linhaE.locator('[data-acao="normal"]').count()) === 1, 'administração: uma conta de admin não tem «Eliminar» (perde primeiro o papel)');
+  await q("UPDATE utilizadores SET papel = 'normal' WHERE id = $1", [idE]);
+  await abrirUtilizadores();
+  ok((await linhaAdmin.locator('[data-acao="eliminar"]').count()) === 0 && (await linhaE.locator('[data-acao="eliminar"]').count()) === 1, 'administração: ninguém se elimina a si próprio, as outras contas têm «Eliminar»');
+  const antesE = await contaE();
+  ok(antesE.contas === 1 && antesE.equipas === 2 && antesE.jogos === 1, 'administração: a conta do Eduardo tem 2 equipas e 1 jogo', JSON.stringify(antesE));
+
+  // Último acesso, editar nome e email, exportar e a cópia de segurança antes de eliminar (numa conta à parte, a Filipa)
+  const emailF = `filipa-${sufixo}@exemplo.pt`;
+  const emailF2 = `filipa.nova-${sufixo}@exemplo.pt`;
+  const [{ id: idF }] = await q("SELECT registar_utilizador($1, 'Filipa', 'hash-f-secreto', $2) AS id", [emailF, `Filipa FC ${sufixo}`]);
+  await q('UPDATE utilizadores SET email_verificado_em = now() WHERE id = $1', [idF]);
+  await q("INSERT INTO jogadores (equipa_id, numero, nome, posicao_codigo) SELECT equipa_id, 9, 'Jogadora Nove', 'LE' FROM utilizadores WHERE id = $1", [idF]);
+  await abrirUtilizadores();
+  const linhaF = p.locator(`#tabela-contas tr[data-email="${emailF}"]`);
+  const linhaF2 = p.locator(`#tabela-contas tr[data-email="${emailF2}"]`);
+  const dadosF = async () => (await q('SELECT nome, email, email_verificado_em FROM utilizadores WHERE id = $1', [idF]))[0];
+  const aviso = (parte) => p.waitForFunction((t) => document.getElementById('aviso')?.textContent.includes(t), parte);
+  const lerDescarga = async (descarga) => fs.readFileSync(await descarga.path(), 'utf8');
+
+  ok((await texto(p.locator('#tabela-contas thead th', { hasText: 'Último acesso' }))) === 'Últimoacesso', 'administração: a tabela tem a coluna «Último acesso»');
+  ok((await texto(linhaF.locator('td.acesso'))) === '–', 'administração: uma conta que nunca entrou mostra «–» no último acesso');
+  ok((await texto(linhaAdmin.locator('td.acesso'))) === 'naúltimahora', 'administração: a conta que acabou de entrar mostra «na última hora»');
+  ok((await linhaAdmin.locator('[data-acao="editar"], [data-acao="exportar"]').count()) === 0, 'administração: na própria conta também não há «Editar» nem «Exportar»');
+
+  // Editar: o formulário traz o que está guardado e recusa o que não presta, sem gravar nada
+  await linhaF.locator('[data-acao="editar"]').click();
+  await p.waitForSelector('#edicao-nome');
+  ok((await p.inputValue('#edicao-nome')) === 'Filipa' && (await p.inputValue('#edicao-email')) === emailF, 'administração: «Editar» abre o formulário com o nome e o email atuais');
+  await p.click('#edicao-guardar');
+  await p.waitForSelector('#erro-edicao');
+  ok(/Não mudaste nada/.test(await p.locator('#erro-edicao').textContent()), 'administração: guardar sem mudar nada diz que não mudaste nada');
+  await p.fill('#edicao-email', 'sem-arroba');
+  await p.click('#edicao-guardar');
+  await p.waitForFunction(() => /email não é válido/.test(document.getElementById('erro-edicao')?.textContent ?? ''));
+  ok((await p.inputValue('#edicao-email')) === 'sem-arroba', 'administração: um email inválido é recusado e o formulário guarda o que escreveste');
+  await p.fill('#edicao-email', emailB);
+  await p.click('#edicao-guardar');
+  await p.waitForFunction(() => /Já existe uma conta com este email/.test(document.getElementById('erro-edicao')?.textContent ?? ''));
+  await p.click('#edicao-cancelar');
+  await linhaF.locator('[data-acao="editar"]').waitFor();
+  ok((await p.locator('tr.linha-edicao').count()) === 0 && (await dadosF()).email === emailF, 'administração: o email de outra conta é recusado e cancelar deixa a conta como estava');
+
+  // Só o nome: a conta continua confirmada e não sai email nenhum
+  await linhaF.locator('[data-acao="editar"]').click();
+  await p.fill('#edicao-nome', 'Filipa Costa');
+  await p.click('#edicao-guardar');
+  await aviso('atualizada');
+  const aposNome = await dadosF();
+  ok(aposNome.nome === 'Filipa Costa' && aposNome.email === emailF && aposNome.email_verificado_em !== null && (await mensagensPara(emailF)).length === 0,
+    'administração: mudar só o nome guarda-o, a conta continua confirmada e não sai email');
+  ok((await texto(linhaF)).includes('FilipaCosta') && (await texto(linhaF.locator('[data-estado]'))) === 'Ativa', 'administração: a linha mostra o nome novo');
+
+  // O email (em maiúsculas, para ver que se normaliza): a conta fica por confirmar e o email novo recebe a ligação
+  await linhaF.locator('[data-acao="editar"]').click();
+  await p.fill('#edicao-email', emailF2.toUpperCase());
+  await p.click('#edicao-guardar');
+  await aviso('por confirmar');
+  await linhaF2.waitFor();
+  const aposEmail = await dadosF();
+  ok(aposEmail.email === emailF2 && aposEmail.email_verificado_em === null, 'administração: mudar o email guarda-o em minúsculas e a conta volta a ficar por confirmar', JSON.stringify(aposEmail));
+  ok((await linhaF2.locator('[data-estado]').getAttribute('data-estado')) === 'por_confirmar', 'administração: a linha passa a «Por confirmar»');
+  ok(await esperarPor(async () => (await mensagensPara(emailF2)).length === 1) && !!(await ultimoToken(emailF2, 1, 'verificar')) && (await mensagensPara(emailF)).length === 0,
+    'administração: o email novo recebe a ligação de confirmação e o antigo não recebe nada');
+  ok((await q("SELECT 1 FROM registo_alteracoes WHERE acao = 'Conta editada' AND detalhe LIKE $1", [`%${emailF2}%`])).length === 1, 'administração: a edição fica no registo, com o email novo');
+
+  // Exportar: descarrega a cópia de segurança em JSON, sem palavra-passe
+  const [copiaF] = await Promise.all([p.waitForEvent('download'), linhaF2.locator('[data-acao="exportar"]').click()]);
+  const jsonF = await lerDescarga(copiaF);
+  const exportadaF = JSON.parse(jsonF);
+  ok(/^conta-\d+-filipa-nova-.*\.json$/.test(copiaF.suggestedFilename()) && exportadaF.tipo === 'conta' && exportadaF.conta?.email === emailF2,
+    `administração: «Exportar» descarrega o JSON da conta (${copiaF.suggestedFilename()})`, jsonF.slice(0, 200));
+  ok(exportadaF.equipas?.length === 1 && exportadaF.jogadores?.some((j) => j.nome === 'Jogadora Nove') && !jsonF.includes('hash-f-secreto') && !jsonF.includes('palavra_passe_hash'),
+    'administração: a cópia traz a equipa e os jogadores e nunca a palavra-passe');
+  await aviso('Cópia de segurança guardada');
+
+  // Eliminar: se a cópia falhar nada é apagado; com a cópia a conta sai e o ficheiro fica descarregado
+  await p.route('**/api/admin/utilizadores/*/exportar', (rota) => rota.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ erro: 'falha de teste' }) }));
+  p.respostaAoPrompt = emailF2;
+  await linhaF2.locator('[data-acao="eliminar"]').click();
+  await aviso('a cópia de segurança falhou');
+  ok((await dadosF())?.email === emailF2 && (await linhaF2.count()) === 1, 'administração: se a cópia de segurança falha, a conta não é eliminada');
+  await p.unroute('**/api/admin/utilizadores/*/exportar');
+  const [copiaAntes] = await Promise.all([p.waitForEvent('download'), linhaF2.locator('[data-acao="eliminar"]').click()]);
+  await linhaF2.waitFor({ state: 'detached' });
+  const copiada = JSON.parse(await lerDescarga(copiaAntes));
+  ok(copiada.tipo === 'conta' && copiada.conta?.email === emailF2 && copiada.jogadores?.some((j) => j.nome === 'Jogadora Nove'), 'administração: antes de eliminar o browser descarrega a cópia de segurança da conta');
+  ok((await q('SELECT 1 FROM utilizadores WHERE id = $1', [idF])).length === 0, 'administração: e depois a conta sai da base de dados');
+  await aviso(copiaAntes.suggestedFilename());
+
+  let pedido = null;
+  p.on('dialog', (d) => { if (d.type() === 'prompt') pedido = d.message(); });
+  p.respostaAoPrompt = null;   // cancelar
+  await linhaE.locator('[data-acao="eliminar"]').click();
+  await esperarPor(async () => pedido !== null);
+  ok(pedido.includes('Eduardo') && pedido.includes(emailE) && /não se pode desfazer/.test(pedido) && /escreve o email/.test(pedido), 'administração: «Eliminar» avisa que não se desfaz e pede o email da conta', pedido);
+  ok(JSON.stringify(await contaE()) === JSON.stringify(antesE) && (await linhaE.count()) === 1, 'administração: cancelar não apaga nada');
+  p.respostaAoPrompt = `outra-${emailE}`;
+  await linhaE.locator('[data-acao="eliminar"]').click();
+  await p.waitForFunction(() => document.getElementById('aviso')?.textContent.includes('não é o da conta'));
+  ok(JSON.stringify(await contaE()) === JSON.stringify(antesE) && (await linhaE.count()) === 1, 'administração: com outro email a conta não é eliminada');
+  p.respostaAoPrompt = emailE.toUpperCase();
+  await linhaE.locator('[data-acao="eliminar"]').click();
+  await linhaE.waitFor({ state: 'detached' });
+  const depoisE = await contaE();
+  ok(depoisE.contas === 0 && depoisE.equipas === 0 && depoisE.jogos === 0, 'administração: com o email certo a conta sai, com as equipas e os jogos', JSON.stringify(depoisE));
+  ok((await q('SELECT COUNT(*)::int AS n FROM jogadores WHERE nome = $1', ['Jogador Oito']))[0].n === 0 && (await q('SELECT COUNT(*)::int AS n FROM jogos WHERE id = $1', [jogoE.id]))[0].n === 0, 'administração: e os jogadores e o jogo também');
+  ok((await texto(p.locator('#n-total'))) === `${n}contas`, 'administração: o topo volta a contar as contas que sobram');
+  await p.click('#abas a[data-aba="registo"]');
+  await p.waitForSelector('#registo');
+  await p.fill('input[data-pesquisa="registo"]', emailE);
+  ok((await texto(p.locator('#registo [data-registo-id]'))).includes('Contaeliminada') && (await texto(p.locator('#registo [data-registo-id]'))).includes('2equipas,1jogadore1jogoeliminados'),
+    'administração: a conta eliminada fica no registo, com o que saiu com ela');
+  await p.fill('input[data-pesquisa="registo"]', '');
+
+  // Jogos de todas as contas, e corrigir os eventos de um
+  await p.click('#abas a[data-aba="jogos"]');
+  await p.waitForSelector('#tabela-jogos');
+  await p.fill('input[data-pesquisa="jogos"]', localAdmin);
+  const linhaJogo = p.locator(`#tabela-jogos tr[data-jogo-id="${jogo.id}"]`);
+  ok((await p.locator('#tabela-jogos tbody tr').count()) === 1 && (await texto(linhaJogo.locator('td.dono'))) === nomeB && (await texto(linhaJogo)).includes('0–0'), 'administração: o jogo do Bruno aparece com a conta dona e o resultado');
+  await p.fill('input[data-pesquisa="jogos"]', '');
+  ok((await p.locator('#tabela-jogos tbody tr').count()) > 5, 'administração: a lista tem os jogos de todas as contas');
+  await captura(p, 'admin-jogos');
+  await p.fill('input[data-pesquisa="jogos"]', localAdmin);
+  await Promise.all([p.waitForURL(new RegExp(`eventos\\.html\\?jogo=${jogo.id}&admin=1`)), linhaJogo.locator('a[data-acao="eventos"]').click()]);
+  await p.waitForSelector('#tabela-eventos');
+  ok((await texto(p.locator('#nota-admin'))).includes(nomeB), 'eventos (admin): a página avisa que se vê como admin o jogo da conta do Bruno');
+  ok((await p.locator('a[href^="banco.html"]').count()) === 0 && (await p.locator('a[href*="exportar.xlsx"]').count()) === 0, 'eventos (admin): sem Banco nem Excel (são do dono)');
+  ok((await texto(p.locator('.menu'))) === 'Administração' && (await p.locator('#voltar-admin').count()) === 1, 'eventos (admin): o menu só leva à administração');
+  ok((await p.locator('#tabela-eventos tbody tr').count()) === 2, 'eventos (admin): vê os 2 eventos do jogo de outra conta');
+  await captura(p, 'admin-eventos');
+
+  // Corrigir o remate fora: é golo, aos 3:05
+  await p.locator(`#tabela-eventos tr[data-evento-id="${remateFora}"] button[data-acao="corrigir"]`).click();
+  const janela = p.locator('#janela-evento .janela-evento');
+  await janela.waitFor();
+  const campo = (nome) => janela.locator(`[data-campo="${nome}"]`);
+  await janela.locator('button[data-resultado="GOLO"]').click();
+  await janela.locator('.evento-baliza').waitFor({ state: 'visible' });
+  await janela.locator('svg.baliza').click({ position: { x: 300, y: 40 } });
+  await campo('jogador').selectOption(String(lateral2.id));
+  await campo('minuto').fill('3:05');
+  await campo('guardar').click();
+  await janela.waitFor({ state: 'detached' });
+  await p.waitForFunction(() => document.getElementById('resultado-eventos')?.textContent.replace(/\s/g, '') === '1–0');
+  const [corrigido] = await q('SELECT resultado, jogador_id, segundo_jogo FROM eventos WHERE id = $1', [remateFora]);
+  ok(corrigido.resultado === 'GOLO' && corrigido.jogador_id === lateral2.id && corrigido.segundo_jogo === 185, `eventos (admin): o remate de outra conta ficou golo de outro jogador aos 3:05 (${JSON.stringify(corrigido)})`);
+
+  // Apagar os 2 minutos
+  await p.locator(`#tabela-eventos tr[data-evento-id="${doisMin}"] button[data-acao="apagar"]`).click();
+  await p.waitForFunction(() => document.querySelectorAll('#tabela-eventos tbody tr').length === 1);
+  ok((await q('SELECT 1 FROM eventos WHERE id = $1', [doisMin])).length === 0, 'eventos (admin): apagar tira o evento da base de dados');
+
+  // O registo de alterações diz quem fez o quê
+  await Promise.all([p.waitForURL(/admin\.html#jogos/), p.click('#voltar-admin')]);
+  await p.click('#abas a[data-aba="registo"]');
+  await p.waitForSelector('#registo');
+  const registo = await q('SELECT autor_nome, tipo, acao, detalhe, jogo_id FROM registo_alteracoes ORDER BY id');
+  const tem = (acao, parte = '') => registo.some((l) => l.acao === acao && l.detalhe.includes(parte));
+  ok(tem('Conta desativada', emailB) && tem('Conta ativada', emailB) && tem('Papel alterado', `${emailB}: Normal passou a Admin`) && tem('Papel alterado', `${emailB}: Admin passou a Normal`)
+    && tem('Ligação para repor a palavra-passe enviada', emailB) && tem('Papel alterado', `${emailAdmin}: Normal passou a Admin (configuração)`), 'registo: contas desativadas e ativadas, papéis e ligações, na base de dados');
+  ok(tem('Evento corrigido', 'resultado de Fora para Golo') && tem('Evento apagado', '2 minutos') && registo.filter((l) => l.tipo === 'evento').every((l) => l.jogo_id === jogo.id && l.autor_nome === 'Admin Teste'),
+    'registo: o evento corrigido e o apagado, com o jogo e o autor');
+  const texto2 = (await p.locator('#registo').textContent()).replace(/\s+/g, ' ');
+  ok(['Conta desativada', 'Conta ativada', 'Papel alterado', 'Evento corrigido', 'Evento apagado', 'Ligação para repor a palavra-passe enviada', 'por Admin Teste', 'por Sistema', emailB]
+    .every((t) => texto2.includes(t)), 'registo: a página mostra as ações, quem as fez e o detalhe');
+  await captura(p, 'admin-registo');
+  await p.click('[data-filtro="evento"]');
+  await p.waitForFunction(() => document.querySelectorAll('#registo [data-registo-id]').length === 2);
+  ok((await p.locator('#registo [data-tipo="conta"]').count()) === 0, 'registo: o filtro «Eventos» mostra só as 2 linhas dos eventos');
+  await p.click('[data-filtro="conta"]');
+  await p.waitForFunction(() => document.querySelectorAll('#registo [data-registo-id]').length > 2 && !document.querySelector('#registo [data-tipo="evento"]'));
+  await p.fill('input[data-pesquisa="registo"]', 'sistema');
+  ok((await p.locator('#registo [data-registo-id]').count()) === 1, 'registo: procurar «sistema» deixa só a promoção feita pela configuração');
+  ok((await p.locator('a.registo-ligacao').count()) === 0, 'registo: as linhas de contas não têm ligação para jogos');
+  await p.click('[data-filtro="tudo"]');
+  await p.fill('input[data-pesquisa="registo"]', '');
+  await p.locator('a.registo-ligacao').first().waitFor();
+  ok((await p.locator('a.registo-ligacao').first().getAttribute('href')) === `eventos.html?jogo=${jogo.id}&admin=1`, 'registo: as linhas dos eventos abrem o jogo no modo de administração');
+
+  // Jogos de outras contas: exportar, terminar, reabrir e apagar (a cópia de segurança sai antes de apagar)
+  const localJogo2 = `Pavilhão Cópia ${sufixo}`;
+  const [jogo2] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id, local, data_hora) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+    [bruno.equipa_id, adversaria.id, bruno.id, localJogo2, '2026-10-21T18:00:00Z']);
+  await q(`INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, guarda_redes_id, resultado, x, y, parte, segundo_jogo)
+           VALUES ($1,$2,'REMATE',$3,$4,'FORA',50,40,1,300)`, [jogo2.id, bruno.equipa_id, lateral1.id, guardaRedes.id]);
+  const nomeLivre = `Antiga ${sufixo}`;
+  const [livre1] = await q('INSERT INTO equipas (nome) VALUES ($1) RETURNING id', [`${nomeLivre} A`]);
+  const [livre2] = await q('INSERT INTO equipas (nome) VALUES ($1) RETURNING id', [`${nomeLivre} B`]);
+  const [jogoLivre] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, local, data_hora) VALUES ($1,$2,$3,$4) RETURNING id', [livre1.id, livre2.id, `Pavilhão ${nomeLivre}`, '2026-10-19T18:00:00Z']);
+  await p.click('#abas a[data-aba="jogos"]');
+  await p.waitForSelector('#tabela-jogos');
+  await p.fill('input[data-pesquisa="jogos"]', localJogo2);
+  const linhaJ2 = p.locator(`#tabela-jogos tr[data-jogo-id="${jogo2.id}"]`);
+  const acoesJ2 = async () => (await linhaJ2.locator('[data-acao]').evaluateAll((els) => els.map((e) => e.dataset.acao))).join(',');
+  ok((await acoesJ2()) === 'eventos,exportar,terminar,apagar', 'administração: o jogo da conta tem Eventos, Exportar, Terminar e Apagar', await acoesJ2());
+
+  const [copiaJ] = await Promise.all([p.waitForEvent('download'), linhaJ2.locator('[data-acao="exportar"]').click()]);
+  const jsonJ = await lerDescarga(copiaJ);
+  const exportadoJ = JSON.parse(jsonJ);
+  ok(/^jogo-\d+-.*-vs-.*\.json$/.test(copiaJ.suggestedFilename()) && exportadoJ.tipo === 'jogo' && exportadoJ.eventos?.length === 1 && !jsonJ.includes('palavra_passe_hash'),
+    `administração: «Exportar» no jogo descarrega o JSON com os eventos (${copiaJ.suggestedFilename()})`, jsonJ.slice(0, 200));
+
+  await linhaJ2.locator('[data-acao="terminar"]').click();
+  await linhaJ2.locator('.etiqueta.terminado').waitFor();
+  ok((await q('SELECT terminado_em FROM jogos WHERE id = $1', [jogo2.id]))[0].terminado_em !== null && (await acoesJ2()) === 'eventos,exportar,reabrir,apagar', 'administração: «Terminar» fecha o jogo e o botão passa a «Reabrir»', await acoesJ2());
+  await linhaJ2.locator('[data-acao="reabrir"]').click();
+  await linhaJ2.locator('.etiqueta.terminado').waitFor({ state: 'detached' });
+  ok((await q('SELECT terminado_em FROM jogos WHERE id = $1', [jogo2.id]))[0].terminado_em === null && (await acoesJ2()) === 'eventos,exportar,terminar,apagar', 'administração: «Reabrir» volta a abrir o registo');
+
+  // Um jogo antigo, sem conta dona, só se exporta
+  await p.fill('input[data-pesquisa="jogos"]', nomeLivre);
+  const linhaLivre = p.locator(`#tabela-jogos tr[data-jogo-id="${jogoLivre.id}"]`);
+  ok((await linhaLivre.locator('[data-acao]').evaluateAll((els) => els.map((e) => e.dataset.acao))).join(',') === 'eventos,exportar' && (await texto(linhaLivre.locator('td.dono'))) === 'Semconta',
+    'administração: um jogo sem conta dona só tem Eventos e Exportar');
+  const [copiaLivre] = await Promise.all([p.waitForEvent('download'), linhaLivre.locator('[data-acao="exportar"]').click()]);
+  ok(JSON.parse(await lerDescarga(copiaLivre)).eventos?.length === 0, 'administração: e esse jogo exporta-se na mesma');
+
+  // Apagar: sem cópia de segurança não apaga; com ela, o jogo sai e o ficheiro fica descarregado
+  await p.fill('input[data-pesquisa="jogos"]', localJogo2);
+  await p.route('**/api/admin/jogos/*/exportar', (rota) => rota.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ erro: 'falha de teste' }) }));
+  await linhaJ2.locator('[data-acao="apagar"]').click();
+  await aviso('a cópia de segurança falhou');
+  ok((await q('SELECT 1 FROM jogos WHERE id = $1', [jogo2.id])).length === 1 && (await linhaJ2.count()) === 1, 'administração: se a cópia de segurança do jogo falha, o jogo não é apagado');
+  await p.unroute('**/api/admin/jogos/*/exportar');
+  const [copiaApagar] = await Promise.all([p.waitForEvent('download'), linhaJ2.locator('[data-acao="apagar"]').click()]);
+  await linhaJ2.waitFor({ state: 'detached' });
+  ok(JSON.parse(await lerDescarga(copiaApagar)).eventos?.length === 1, 'administração: antes de apagar o jogo o browser descarrega a cópia com o evento');
+  ok((await q('SELECT (SELECT COUNT(*)::int FROM jogos WHERE id = $1) AS jogos, (SELECT COUNT(*)::int FROM eventos WHERE jogo_id = $1) AS eventos', [jogo2.id]))[0].jogos === 0
+    && (await q('SELECT COUNT(*)::int AS n FROM eventos WHERE jogo_id = $1', [jogo2.id]))[0].n === 0, 'administração: e o jogo sai da base de dados, com os eventos');
+  await aviso(copiaApagar.suggestedFilename());
+  await captura(p, 'admin-jogos-acoes');
+
+  // O registo ganhou o filtro «Jogos»
+  await p.click('#abas a[data-aba="registo"]');
+  await p.waitForSelector('#registo');
+  await p.click('[data-filtro="jogo"]');
+  await p.waitForFunction(() => document.querySelectorAll('#registo [data-registo-id]').length === 3 && document.querySelectorAll('#registo [data-tipo="jogo"]').length === 3);
+  const acoesDoRegisto = (await p.locator('#registo [data-tipo="jogo"] .etiqueta').allTextContents()).sort();
+  ok(JSON.stringify(acoesDoRegisto) === JSON.stringify(['Jogo apagado', 'Jogo reaberto', 'Jogo terminado']), 'registo: o filtro «Jogos» mostra o jogo terminado, reaberto e apagado', JSON.stringify(acoesDoRegisto));
+  ok((await p.locator('#registo [data-tipo="jogo"]', { hasText: 'Admin Teste' }).count()) === 3, 'registo: e diz que foi o admin');
+  await p.click('[data-filtro="tudo"]');
+
+  await p.close();
+  await ctxAdmin.close();
 });
 
 // ======================= Resultado =======================

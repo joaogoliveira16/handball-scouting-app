@@ -23,6 +23,8 @@ case "${1:-}" in
     export Email__Porta="${EMAIL_PORTA:-1025}"
     export Email__De="scouting@exemplo.pt"
     export App__UrlPublico="${URL_PUBLICO:-http://localhost:8080}"
+    # O email da conta que o teste de integração regista como admin (é assim que nasce o primeiro admin)
+    export Administracao__Emails="${ADMIN_EMAIL:-admin-teste@exemplo.pt}"
     nohup dotnet "$PASTA/HandballScouting.Api.dll" >> "$RESULTADOS/api.log" 2>&1 &
     echo $! > "$PID"
     for _ in $(seq 1 60); do

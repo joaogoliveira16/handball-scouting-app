@@ -44,6 +44,7 @@ document.getElementById('form-nova').addEventListener('submit', async (evento) =
   erro.textContent = '';
   if (senha.length < 8) { erro.textContent = 'A palavra-passe tem de ter pelo menos 8 caracteres.'; return; }
   if (!senha.trim()) { erro.textContent = 'A palavra-passe não pode ter só espaços.'; return; }
+  if (!/\p{L}/u.test(senha) || !/\p{Nd}/u.test(senha)) { erro.textContent = 'A palavra-passe tem de ter pelo menos uma letra e um número.'; return; }
 
   botao.disabled = true;
   try {

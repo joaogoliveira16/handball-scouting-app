@@ -26,14 +26,18 @@ export function irParaEntrar() {
   return new Promise(() => {});
 }
 
-/** Menu da conta no cabeçalho: inicial, nome e botão Sair. */
+/** Menu da conta no cabeçalho: inicial, nome e botão Sair (e, para quem administra a app, a ligação para a administração). */
 export function mostrarMenu(conta) {
   const sitio = document.getElementById('conta-menu');
   if (!sitio || !conta) return;
+  const naAdministracao = location.pathname.endsWith('/admin.html');
   sitio.replaceChildren(
     h('span', { class: 'quem', title: conta.email },
       h('span', { class: 'avatar', 'aria-hidden': 'true' }, (conta.nome || conta.email || '?').trim().charAt(0).toUpperCase()),
       h('span', {}, conta.nome)),
+    conta.admin
+      ? h('a', { class: 'botao-link suave pequeno', id: 'ligacao-admin', href: naAdministracao ? './' : 'admin.html' }, naAdministracao ? 'Voltar à app' : 'Administração')
+      : null,
     h('button', { type: 'button', class: 'botao suave pequeno', onclick: sair }, 'Sair'));
 }
 
