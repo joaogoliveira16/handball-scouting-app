@@ -144,6 +144,19 @@ Para a app estar sempre disponível, usa um servidor Linux pequeno (VPS) com Doc
 
 A app atrás de um proxy: o nginx da app mantém o `X-Forwarded-Proto` que o proxy envia, por isso o cookie da sessão sai `Secure`.
 
+### Opção 5: num servidor Ubuntu (por exemplo o grátis da Oracle) com o túnel da Cloudflare
+
+Para a app ficar no ar sem o teu computador ligado, mantendo o endereço e o túnel da Cloudflare da opção 2. Não precisas de abrir portas nem de Caddy: o `cloudflared` do servidor liga à Cloudflare e só a SSH fica aberta. Serve a Oracle Cloud *Always Free* (uma máquina Ampere A1 com 2 OCPU e 12 GB, Ubuntu 24.04) ou qualquer VPS Ubuntu. A Oracle pede cartão no registo, já cortou a oferta uma vez e pode recuperar máquinas grátis que estejam paradas: confirma os limites no site e guarda sempre cópias fora do servidor.
+
+1. **Servidor.** Cria a máquina (com IP público e uma chave SSH), e liga-te: `ssh -i chave.key ubuntu@IP`. No Windows, se o SSH recusar a chave por ter permissões a mais: `icacls chave.key /inheritance:r` e `icacls chave.key /grant:r "%USERNAME%:R"`.
+2. **Instalar** (no servidor): `curl -fsSL https://raw.githubusercontent.com/joaogoliveira16/handball-scouting-app/administracao/scripts/servidor.sh -o servidor.sh && bash servidor.sh preparar`. Instala o Docker, o git e o cloudflared e descarrega o projeto para `~/handball-scouting-app`. Sai e entra outra vez por SSH.
+3. **Levar os dados** (no PC): para a app com `docker compose stop api` e faz a cópia com `scripts\backup.ps1`. Copia o `.env` e a cópia para o servidor: `ssh -i chave.key ubuntu@IP "mkdir -p handball-scouting-app/backups"`, `scp -i chave.key .env ubuntu@IP:handball-scouting-app/.env` e `scp -i chave.key backups\FICHEIRO.dump ubuntu@IP:handball-scouting-app/backups/`.
+4. **Restaurar e arrancar** (no servidor, dentro da pasta do projeto): `bash scripts/restaurar.sh backups/FICHEIRO.dump --sim` e `bash scripts/servidor.sh iniciar`. O `iniciar` põe `INTERFACE_WEB=127.0.0.1` no `.env` e arranca tudo.
+5. **Mudar o túnel**: no PC, para o túnel (PowerShell de administrador: `cloudflared service uninstall`). No servidor: `bash scripts/servidor.sh tunel` e cola o token do mesmo túnel (Cloudflare > Networking > Tunnels). O túnel deve aparecer como *Healthy* e o endereço abre a partir do servidor. Só depois paras a app no PC (`docker compose down`, sem `-v`, para guardares os dados do PC como cópia).
+6. **Cópias**: agenda no servidor `crontab -e` com `0 3 * * * cd ~/handball-scouting-app && bash scripts/backup.sh`, e copia a pasta `backups/` para outro sítio com regularidade (um servidor grátis pode desaparecer).
+
+`bash scripts/servidor.sh estado` mostra o que está a correr.
+
 ## Preparar o jogo
 
 1. **A tua equipa e os jogadores** (`equipas.html`, botão *Equipas* no topo da lista de jogos): adiciona, edita ou apaga os jogadores da tua equipa (número 1–99, nome e posição). O número livre mais baixo é sugerido. Um jogador que já tem eventos registados não pode ser apagado (os dados do jogo ficariam incoerentes). **Escudo**: no topo do plantel há *Escolher imagem* para pôr o símbolo do clube (PNG, JPEG, WebP ou SVG; o browser reduz-o a 256 px antes de o enviar, por isso nunca falha por ser grande) e *Tirar escudo*. Também se põe o escudo de um adversário: abre-o a partir da convocatória. Aparece no marcador do banco e do dashboard, na lista de jogos, na área de convidado, na convocatória e na lista de equipas; quem não tem escudo fica só com o nome.
@@ -498,7 +511,7 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
 db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões, escudos, superioridade numérica, fila sem rede, golos na baliza, administração e cópias de segurança (correm por ordem)
 db/tests/              testes SQL
-scripts/               cópia de segurança e restauro da base de dados (`backup` e `restaurar`, em bash e PowerShell; `internet.ps1` abre a app na internet com a Cloudflare; `email.ps1` configura o Gmail no `.env`)
+scripts/               cópia de segurança e restauro da base de dados (`backup` e `restaurar`, em bash e PowerShell; `internet.ps1` abre a app na internet com a Cloudflare; `email.ps1` configura o Gmail no `.env`; `servidor.sh` prepara um servidor Ubuntu)
 frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard, administração), JS, CSS e fontes; `sw.js` (service worker) e `manifest.webmanifest` para abrir sem rede; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
 tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)
 docker-compose.yml     os 3 contentores (mais o `migrar`, que atualiza a base de dados em cada arranque)
