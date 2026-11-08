@@ -1491,6 +1491,104 @@ await passo('Relatório do intervalo: os pontos a corrigir e a manter na 2.ª pa
   await vazio.close();
 });
 
+// ======================= Marcos do relógio: intervalo (30:00) e fim do jogo (60:00) =======================
+await passo('Marcos do relógio: aos 30:00 é intervalo e aos 60:00 é o fim do jogo, cada um com o seu relatório', async () => {
+  const NOME_AGUIAS = 'Águias do Norte';
+  const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
+  const [jogA] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [aguias.id]);
+  const [jogF] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [leoes.id]);
+  let segundo = 0;
+  const golo = (equipa, jogador, parte) => q(
+    `INSERT INTO eventos (jogo_id, equipa_id, tipo_evento_codigo, jogador_id, resultado, situacao, x, y, parte, segundo_jogo)
+     VALUES ($1, $2, 'REMATE', $3, 'GOLO', 'POSICIONAL', 50, 40, $4, $5)`, [jogoId, equipa, jogador, parte, (segundo += 20)]);
+  // 1.ª parte: Águias 3–2 Leões. 2.ª parte: 1–1. No fim: 4–3
+  for (let i = 0; i < 3; i++) await golo(aguias.id, jogA.id, 1);
+  for (let i = 0; i < 2; i++) await golo(leoes.id, jogF.id, 1);
+  await golo(aguias.id, jogA.id, 2);
+  await golo(leoes.id, jogF.id, 2);
+
+  const ctxBanco = await novoContexto();
+  await ctxBanco.addCookies(await ctx.cookies());
+  const banco = await pagina(`/banco.html?jogo=${jogoId}`, { contexto: ctxBanco, relogio: true, tolerar: ['Server timeout elapsed'] });
+  await banco.waitForSelector('.botao-jogador');
+  ok(await esperarPor(async () => (await banco.locator('#ligacao').getAttribute('class'))?.includes('ok')), 'marcos: banco ligado ao hub');
+  const faixa = banco.locator('#faixa-marco');
+  const tempo = () => texto(banco.locator('#tempo'));
+  const botaoRelogio = () => texto(banco.locator('#btn-relogio'));
+  const relogioBd = async () => (await q('SELECT segundo, a_correr FROM relogios_jogo WHERE jogo_id = $1', [jogoId]))[0];
+  // Acerta o relógio para 3 segundos antes do marco e põe-no a andar até o passar
+  const ate = async (minutos) => {
+    banco.respostaAoPrompt = String(minutos);
+    await banco.click('#btn-ajustar');
+    if ((await botaoRelogio()) === '▶') await banco.click('#btn-relogio');
+    await banco.clock.fastForward('00:05');
+  };
+
+  ok(await faixa.isHidden(), 'marcos: no início não há aviso');
+
+  // 30:00 da 1.ª parte: o relógio pára e o banco diz que é intervalo
+  await ate(29.95);
+  ok(await esperarPor(async () => await faixa.isVisible()), 'marcos: aos 30:00 aparece o aviso');
+  ok(await esperarPor(async () => (await tempo()) === '30:00' && (await botaoRelogio()) === '▶'), `marcos: o relógio pára nos 30:00 (${await tempo()})`);
+  ok((await texto(banco.locator('#marco-titulo'))) === 'Intervalo', 'marcos: o aviso diz «Intervalo»');
+  ok((await texto(banco.locator('#marco-acao'))) === 'Passarà2.ªparte', 'marcos: a ação é passar à 2.ª parte');
+  ok((await banco.locator('#marco-relatorio').getAttribute('href')) === `intervalo.html?jogo=${jogoId}&parte=1`, 'marcos: a ligação leva ao relatório da 1.ª parte');
+  ok(await esperarPor(async () => { const r = await relogioBd(); return r?.a_correr === false && r.segundo === 1800; }), 'marcos: o servidor fica com o relógio parado nos 1800 s');
+
+  // O relatório abre noutro separador (o banco fica como estava) e é o dos primeiros 30 minutos
+  const [relatorio] = await Promise.all([ctxBanco.waitForEvent('page'), banco.locator('#marco-relatorio').click()]);
+  await relatorio.waitForSelector('.folha');
+  ok(((await relatorio.locator('.folha-sub').textContent()) ?? '') === `Intervalo · relatório da 1.ª parte para ${NOME_AGUIAS}`, 'marcos: o relatório do intervalo é o da 1.ª parte');
+  ok((await relatorio.locator('.folha-placar strong').allTextContents()).join('-') === '3-2', 'marcos: o resultado do relatório é o da 1.ª parte (3–2)');
+  await relatorio.close();
+  ok(await faixa.isVisible(), 'marcos: o banco continua com o aviso depois de abrir o relatório');
+
+  // «Fechar» esconde o aviso e o marco não volta a disparar quando o relógio retoma
+  await banco.click('#marco-fechar');
+  ok(await faixa.isHidden(), 'marcos: «Fechar» esconde o aviso');
+  await banco.click('#btn-relogio');
+  await banco.clock.fastForward('00:05');
+  ok(await esperarPor(async () => /^30:0[1-9]$/.test((await tempo()) ?? '')), `marcos: depois de fechar o relógio continua a andar (${await tempo()})`);
+  ok(await faixa.isHidden(), 'marcos: o intervalo só avisa uma vez');
+  await banco.click('#btn-relogio');   // pára
+
+  // Outra vez perto dos 30:00: agora a ação do aviso passa à 2.ª parte (e o relógio fica parado até alguém o pôr a andar)
+  await ate(29.95);
+  ok(await esperarPor(async () => await faixa.isVisible() && (await tempo()) === '30:00'), 'marcos: acertando o relógio para antes dos 30:00 o intervalo volta a avisar');
+  await banco.click('#marco-acao');
+  ok(await faixa.isHidden() && (await texto(banco.locator('#btn-parte'))) === '2.ªparte', 'marcos: «Passar à 2.ª parte» esconde o aviso e muda de parte');
+  ok((await tempo()) === '30:00' && (await botaoRelogio()) === '▶', 'marcos: a 2.ª parte começa com o relógio parado nos 30:00');
+
+  // Na 2.ª parte os 30:00 já não são marco; o fim é aos 60:00
+  await banco.click('#btn-relogio');
+  await banco.clock.fastForward('00:05');
+  ok(await faixa.isHidden(), 'marcos: na 2.ª parte os 30:00 não avisam');
+  await ate(59.95);
+  ok(await esperarPor(async () => await faixa.isVisible() && (await tempo()) === '60:00'), `marcos: aos 60:00 aparece o aviso e o relógio pára (${await tempo()})`);
+  ok((await texto(banco.locator('#marco-titulo'))) === 'Fimdojogo' && (await texto(banco.locator('#marco-acao'))) === 'Terminarjogo', 'marcos: o aviso diz «Fim do jogo» e propõe terminar o jogo');
+  ok((await banco.locator('#marco-relatorio').getAttribute('href')) === `intervalo.html?jogo=${jogoId}&parte=jogo`, 'marcos: a ligação leva ao relatório do jogo todo');
+  await captura(banco, 'banco-fim-do-jogo');
+
+  // O relatório do fim do jogo soma as duas partes
+  const todo = await pagina(`/intervalo.html?jogo=${jogoId}&parte=jogo`);
+  await todo.waitForSelector('.folha');
+  ok(((await todo.locator('.folha-sub').textContent()) ?? '') === `Fim do jogo · relatório do jogo todo para ${NOME_AGUIAS}`, 'marcos: o relatório do fim do jogo diz que é o do jogo todo');
+  ok((await todo.locator('.folha-placar strong').allTextContents()).join('-') === '4-3', 'marcos: o resultado do relatório do jogo todo soma as duas partes (4–3)');
+  ok(await todo.locator('.titulo-topo').textContent() === 'Relatório do jogo' && (await todo.title()).startsWith('Fim do jogo 4–3'), 'marcos: o título da página é o do relatório do jogo');
+  ok(await todo.locator('.separador-abas button.ativo', { hasText: 'Jogo todo' }).count() === 1, 'marcos: o separador «Jogo todo» está escolhido');
+  ok(((await todo.locator('.folha-bloco h2').first().textContent()) ?? '') === 'A corrigir no próximo jogo', 'marcos: os pontos são para o próximo jogo');
+  await todo.locator('.separador-abas button', { hasText: '1.ª parte' }).click();
+  ok((await todo.locator('.folha-placar strong').allTextContents()).join('-') === '3-2', 'marcos: dá para voltar ao relatório da 1.ª parte');
+  await todo.close();
+
+  // «Terminar jogo» fecha o jogo e o aviso desaparece
+  await banco.click('#marco-acao');
+  ok(await esperarPor(async () => (await q('SELECT terminado_em FROM jogos WHERE id = $1', [jogoId]))[0].terminado_em !== null), 'marcos: «Terminar jogo» termina o jogo na base de dados');
+  ok(await esperarPor(async () => await banco.locator('#faixa-terminado').isVisible() && await faixa.isHidden()), 'marcos: com o jogo terminado o aviso do marco sai');
+  await banco.close();
+  await ctxBanco.close();
+});
+
 await passo('Superioridade: a eficácia por situação (igualdade, superioridade, inferioridade, 7×6) no dashboard', async () => {
   const [{ id: jogoId }] = await q('INSERT INTO jogos (equipa_casa_id, equipa_fora_id, dono_id) VALUES ($1,$2,$3) RETURNING id', [aguias.id, leoes.id, donoId]);
   const [{ id: jogCasa }] = await q("SELECT id FROM jogadores WHERE equipa_id = $1 AND posicao_codigo <> 'GR' ORDER BY numero LIMIT 1", [aguias.id]);

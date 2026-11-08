@@ -12,6 +12,7 @@ import { escudo } from './escudo.js';
 import { desenharFaixa } from './faixa-numerica.js';
 import { formatarRestante } from './numerica.js';
 import { novoTimeout, estadoTimeout } from './timeout.js';
+import { marcoAtingido, marcosPassados, SEGUNDO_DO_MARCO, TEXTO_MARCO, ligacaoRelatorio } from './marcos-jogo.js';
 import { criarFila, criarEnvio } from './fila.js';
 import { aplicarPendentes, resumoParaGuardar } from './otimista.js';
 import { registarOffline, chaveCacheBanco } from './offline.js';
@@ -61,9 +62,13 @@ const relogio = lerRelogio();
 function lerRelogio() {
   try {
     const guardado = JSON.parse(localStorage.getItem(CHAVE_RELOGIO));
-    if (guardado) return { timeout: null, ...guardado };
+    if (guardado) {
+      // Um relógio guardado antes dos marcos (ou já para lá deles) não os dispara: só avisa o que ainda vem a caminho
+      const segundos = Math.floor((guardado.acumuladoMs + (guardado.iniciadoEm ? Date.now() - guardado.iniciadoEm : 0)) / 1000);
+      return { timeout: null, marco: null, avisados: marcosPassados(guardado.parte, segundos), ...guardado };
+    }
   } catch { /* sem armazenamento */ }
-  return { acumuladoMs: 0, iniciadoEm: null, parte: 1, timeout: null };
+  return { acumuladoMs: 0, iniciadoEm: null, parte: 1, timeout: null, marco: null, avisados: { intervalo: false, fim: false } };
 }
 function guardarRelogio() {
   try { localStorage.setItem(CHAVE_RELOGIO, JSON.stringify(relogio)); } catch { /* ignora */ }
@@ -95,6 +100,8 @@ function alternarParte() {
   } else {
     relogio.parte = 1;
   }
+  relogio.marco = null;
+  relogio.avisados = marcosPassados(relogio.parte, segundosDeJogo());
   guardarRelogio();
   desenharRelogio();
   sincronizarRelogio();
@@ -107,16 +114,66 @@ function ajustarRelogio() {
   const estavaAMarchar = Boolean(relogio.iniciadoEm);
   relogio.acumuladoMs = Math.round(minutos * 60000);
   relogio.iniciadoEm = estavaAMarchar ? Date.now() : null;
+  relogio.marco = null;
+  relogio.avisados = marcosPassados(relogio.parte, segundosDeJogo());   // acertar o relógio não dispara marcos
   guardarRelogio();
   desenharRelogio();
   sincronizarRelogio();
 }
 function desenharRelogio() {
+  verificarMarcos();
   document.getElementById('tempo').textContent = formatarTempo(segundosDeJogo());
   document.getElementById('btn-relogio').textContent = relogio.iniciadoEm ? '⏸' : '▶';
   document.getElementById('btn-parte').textContent = `${relogio.parte}.ª parte`;
   desenharTimeout();
   desenharNumerica();
+  desenharMarco();
+}
+
+// ---------------------------------------------------------------------
+// Intervalo (30:00 da 1.ª parte) e fim do jogo (60:00 da 2.ª): o relógio pára e o banco oferece o relatório
+// ---------------------------------------------------------------------
+/** Com o relógio a andar, ao chegar a um marco pára exatamente nesse segundo (e só uma vez por marco). */
+function verificarMarcos() {
+  if (!relogio.iniciadoEm || jogoTerminado()) return;
+  const marco = marcoAtingido(relogio.parte, segundosDeJogo(), relogio.avisados);
+  if (!marco) return;
+  relogio.acumuladoMs = SEGUNDO_DO_MARCO[marco] * 1000;
+  relogio.iniciadoEm = null;
+  relogio.timeout = null;
+  relogio.avisados = { ...relogio.avisados, [marco]: true };
+  relogio.marco = marco;
+  guardarRelogio();
+  sincronizarRelogio();
+  navigator.vibrate?.([300, 150, 300]);
+}
+
+/** A faixa do marco aparece com o relógio parado e some ao retomar, ao passar de parte, ao fechar ou ao terminar o jogo. */
+function desenharMarco() {
+  const faixa = document.getElementById('faixa-marco');
+  const marco = relogio.marco && !relogio.iniciadoEm && !jogoTerminado() ? relogio.marco : null;
+  faixa.hidden = !marco;
+  if (!marco) { delete faixa.dataset.marco; return; }
+  if (faixa.dataset.marco === marco) return;   // já está desenhada (o relógio redesenha-se a cada meio segundo)
+  const texto = TEXTO_MARCO[marco];
+  faixa.dataset.marco = marco;
+  document.getElementById('marco-titulo').textContent = texto.titulo;
+  document.getElementById('marco-nota').textContent = texto.nota;
+  const relatorio = document.getElementById('marco-relatorio');
+  relatorio.textContent = texto.relatorio.rotulo;
+  relatorio.href = ligacaoRelatorio(marco, jogoId);
+  document.getElementById('marco-acao').textContent = texto.acao;
+}
+
+function acaoDoMarco() {
+  if (relogio.marco === 'intervalo') alternarParte();
+  else if (relogio.marco === 'fim') terminarOuReabrir(true);
+}
+
+function fecharMarco() {
+  relogio.marco = null;
+  guardarRelogio();
+  desenharMarco();
 }
 
 // ---------------------------------------------------------------------
@@ -236,7 +293,7 @@ async function terminarOuReabrir(terminado) {
     const quando = terminado ? new Date().toISOString() : null;
     estado.jogo.terminadoEm = quando;
     if (estado.estatisticasServidor) estado.estatisticasServidor.terminadoEm = quando;
-    if (terminado) { pausarRelogio(); relogio.timeout = null; guardarRelogio(); desenharRelogio(); sincronizarRelogio(); }
+    if (terminado) { pausarRelogio(); relogio.timeout = null; relogio.marco = null; guardarRelogio(); desenharRelogio(); sincronizarRelogio(); }
     guardarCache();
     desenharTerminado();
     avisar(terminado ? 'Jogo terminado.' : 'Jogo reaberto.');
@@ -711,6 +768,8 @@ document.getElementById('btn-relogio').addEventListener('click', alternarRelogio
 document.getElementById('btn-fim-timeout').addEventListener('click', () => terminarTimeout({ retomar: true }));
 document.getElementById('btn-parte').addEventListener('click', alternarParte);
 document.getElementById('btn-ajustar').addEventListener('click', ajustarRelogio);
+document.getElementById('marco-acao').addEventListener('click', acaoDoMarco);
+document.getElementById('marco-fechar').addEventListener('click', fecharMarco);
 document.getElementById('btn-terminar').addEventListener('click', () => terminarOuReabrir(true));
 document.getElementById('btn-reabrir').addEventListener('click', () => terminarOuReabrir(false));
 document.getElementById('btn-desfazer').addEventListener('click', () => {

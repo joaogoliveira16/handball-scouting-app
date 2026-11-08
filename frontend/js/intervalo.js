@@ -5,7 +5,7 @@ import { obter } from './api.js';
 import { ligar, TEXTO_ESTADO } from './tempo-real.js';
 import { obterConta } from './conta.js';
 import { escudo } from './escudo.js';
-import { relatorioIntervalo, textoRelatorio, avisoPoucosDados, semPontosACorrigir } from './relatorio-intervalo.js';
+import { relatorioIntervalo, textoRelatorio, avisoPoucosDados, semPontosACorrigir, palavrasDaParte, JOGO_TODO } from './relatorio-intervalo.js';
 
 const parametros = new URLSearchParams(location.search);
 const jogoId = Number(parametros.get('jogo'));
@@ -13,10 +13,13 @@ const codigo = parametros.get('c');   // código do link de partilha (quem não 
 const equipaPedida = Number(parametros.get('equipa')) || null;   // a equipa que se via no dashboard
 if (!jogoId) location.replace('./');
 
+// A parte pedida no endereço: 1, 2... ou «jogo» para o relatório do jogo todo (o que o banco abre ao fim do jogo)
+const partePedida = parametros.get('parte') === 'jogo' ? JOGO_TODO : (Math.floor(Number(parametros.get('parte'))) || 1);
+
 const estado = {
   dados: null,
   equipaId: equipaPedida,   // a equipa do relatório («nós»)
-  parte: 1,
+  parte: partePedida,
   equipaDaConta: null,      // a equipa da conta, para abrir o relatório já do lado certo
   relatorio: null,
 };
@@ -25,7 +28,6 @@ const raiz = document.getElementById('intervalo');
 const botaoCopiar = document.getElementById('copiar');
 const botaoImprimir = document.getElementById('imprimir');
 
-const ordinal = (parte) => `${parte}.ª parte`;
 const ladoDe = (equipa) => (equipa.eCasa ? 'casa' : 'fora');
 const pontoEquipa = (equipa) => h('span', { class: `ponto-equipa ${ladoDe(equipa)}` });
 
@@ -41,13 +43,14 @@ function cabecalho(rel, casa, fora) {
   const golosDe = (equipa) => (equipa.equipaId === rel.nos.equipaId ? rel.golos.nos : rel.golos.eles);
   return h('header', { class: 'folha-cabeca' },
     h('div', { class: 'folha-placar' }, lado(casa, golosDe(casa)), h('span', { class: 'folha-traco' }, '–'), lado(fora, golosDe(fora)).reverse()),
-    h('p', { class: 'folha-sub' }, `${rel.parte === 1 ? 'Intervalo · relatório' : 'Relatório'} da ${ordinal(rel.parte)} para ${rel.nos.nome}`));
+    h('p', { class: 'folha-sub' }, rel.parte === JOGO_TODO
+      ? `Fim do jogo · relatório do jogo todo para ${rel.nos.nome}`
+      : `${rel.parte === 1 ? 'Intervalo · relatório' : 'Relatório'} da ${palavrasDaParte(rel.parte).rotulo} para ${rel.nos.nome}`));
 }
 
 function blocoCorrigir(rel) {
-  const proxima = rel.parte === 1 ? 'na 2.ª parte' : 'daqui para a frente';
   return h('section', { class: 'folha-bloco' },
-    h('h2', {}, `A corrigir ${proxima}`),
+    h('h2', {}, `A corrigir ${palavrasDaParte(rel.parte).proxima}`),
     rel.corrigir.length
       ? h('ol', { class: 'pontos corrigir' }, rel.corrigir.map(ponto))
       : h('p', { class: 'vazio' }, semPontosACorrigir(rel)));
@@ -67,7 +70,7 @@ function blocoNumeros(rel, equipas) {
   const eles = equipas.find((e) => e.equipaId === rel.eles.equipaId);
   const celula = (n, quem) => h('td', { class: `num${n.vantagem === quem ? ' vantagem' : ''}` }, n[quem]);
   return h('section', { class: 'folha-bloco' },
-    h('h2', {}, `${ordinal(rel.parte)} em números`),
+    h('h2', {}, palavrasDaParte(rel.parte).numeros),
     h('table', { class: 'tabela numeros-intervalo' },
       h('thead', {}, h('tr', {},
         h('th', {}, ''),
@@ -101,15 +104,17 @@ function partesDoJogo(dados) {
 
 function escolhas(dados) {
   const partes = partesDoJogo(dados);
+  // As partes e, a seguir, o jogo todo: só aparecem quando há mais do que a 1.ª parte (ou se abriram o jogo todo)
+  const opcoes = partes.length > 1 || estado.parte === JOGO_TODO ? [...partes, JOGO_TODO] : [];
   return h('div', { class: 'separador-abas sem-impressao' },
     dados.equipas.map((e) => h('button', {
       type: 'button', class: e.equipaId === estado.equipaId ? 'ativo' : '',
       onclick: () => { estado.equipaId = e.equipaId; desenhar(); },
     }, `Para: ${e.nome}`)),
-    partes.length > 1 && partes.map((p) => h('button', {
+    opcoes.map((p) => h('button', {
       type: 'button', class: p === estado.parte ? 'ativo' : '',
       onclick: () => { estado.parte = p; desenhar(); },
-    }, ordinal(p))));
+    }, palavrasDaParte(p).rotulo)));
 }
 
 function desenhar() {
@@ -119,14 +124,15 @@ function desenhar() {
   // Equipa do relatório: a pedida, senão a da conta, senão a da casa
   const ids = dados.equipas.map((e) => e.equipaId);
   if (!ids.includes(estado.equipaId)) estado.equipaId = ids.includes(estado.equipaDaConta) ? estado.equipaDaConta : ids[0];
-  if (!partesDoJogo(dados).includes(estado.parte)) estado.parte = 1;
+  if (estado.parte !== JOGO_TODO && !partesDoJogo(dados).includes(estado.parte)) estado.parte = 1;
 
   const rel = relatorioIntervalo(dados, estado.equipaId, estado.parte);
   estado.relatorio = rel;
   const casa = dados.equipas.find((e) => e.eCasa) ?? dados.equipas[0];
   const fora = dados.equipas.find((e) => e.equipaId !== casa.equipaId);
 
-  document.title = `Intervalo ${rel.golos.nos}–${rel.golos.eles} · ${rel.nos.nome} vs ${rel.eles.nome}`;
+  document.title = `${palavrasDaParte(rel.parte).tituloCurto} ${rel.golos.nos}–${rel.golos.eles} · ${rel.nos.nome} vs ${rel.eles.nome}`;
+  document.querySelector('.titulo-topo').textContent = palavrasDaParte(rel.parte).tituloTopo;
   substituir(raiz,
     escolhas(dados),
     h('article', { class: 'folha' },

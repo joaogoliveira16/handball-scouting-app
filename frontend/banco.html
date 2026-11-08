@@ -44,6 +44,15 @@
     <button id="btn-fim-timeout" type="button" title="Acabar o time-out e pôr o relógio de jogo a andar">Retomar o jogo</button>
   </div>
 
+  <!-- Aparece aos 30:00 da 1.ª parte (intervalo) e aos 60:00 da 2.ª (fim do jogo): o relógio pára e o relatório está pronto -->
+  <div class="faixa-marco" id="faixa-marco" role="status" hidden>
+    <b id="marco-titulo"></b>
+    <span class="marco-nota" id="marco-nota"></span>
+    <a class="botao-faixa" id="marco-relatorio" href="#" target="_blank" rel="noopener">Ver relatório</a>
+    <button id="marco-acao" type="button"></button>
+    <button id="marco-fechar" type="button" class="suave" title="Fechar este aviso">Fechar</button>
+  </div>
+
   <!-- Aparece quando o jogo foi terminado: o registo fica fechado até o reabrirem -->
   <div class="faixa-terminado" id="faixa-terminado" role="status" hidden>
     <b>Jogo terminado</b>

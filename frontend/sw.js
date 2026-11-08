@@ -36,6 +36,7 @@ const PRECACHE = [
   'js/faixa-numerica.js',
   'js/fila.js',
   'js/index.js',
+  'js/marcos-jogo.js',
   'js/numerica.js',
   'js/offline.js',
   'js/otimista.js',
