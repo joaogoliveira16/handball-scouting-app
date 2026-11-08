@@ -9,10 +9,12 @@ on:
 permissions:
   contents: read
 
+# Os jobs usam o Ubuntu 24.04 e não o «ubuntu-latest»: passou a ser o 26.04, onde o Playwright 1.56 não instala o Chromium
+# e o pg_dump já é mais novo do que o PostgreSQL 16 dos testes (o restauro falha em «transaction_timeout»).
 jobs:
   api:
     name: API (.NET) - compilar e testar
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -24,7 +26,7 @@ jobs:
 
   base-de-dados:
     name: Base de dados - esquema, dados e consultas
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -69,7 +71,7 @@ jobs:
 
   integracao:
     name: Integração - API real, Excel e browser
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
       postgres:
@@ -178,7 +180,7 @@ jobs:
 
   docker:
     name: Imagens Docker
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [api, base-de-dados, integracao]
     permissions:
       contents: read
