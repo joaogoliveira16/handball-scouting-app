@@ -236,8 +236,19 @@ h3 { font: 600 1.05rem/1.2 var(--fonte); }
 .cartao > h2:first-child { margin-top: 0; }
 
 /* ---------- Banco (adjunto) ---------- */
-.banco { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(320px, 1fr); gap: 20px; padding: 18px 20px 90px; align-items: start; }
-@media (max-width: 760px) { .banco { grid-template-columns: minmax(0, 1fr); } }
+/* Duas colunas: à esquerda o mapa e, por baixo, os últimos eventos; à direita o que se toca (jogador, resultado, outros eventos).
+   Assim o tablet na vertical não deixa um buraco por baixo do mapa e o que se toca cabe todo no ecrã. */
+.banco {
+  display: grid; grid-template-columns: minmax(300px, 1fr) minmax(320px, 1fr); grid-template-rows: auto 1fr; gap: 0 20px;
+  grid-template-areas: "mapa controlos" "eventos controlos"; padding: 18px 20px 90px; align-items: start;
+}
+.banco-mapa { grid-area: mapa; }
+.banco-controlos { grid-area: controlos; }
+.banco-eventos { grid-area: eventos; }
+/* telemóvel: um só bloco por ordem de uso (mapa, o que se toca, últimos eventos) */
+@media (max-width: 760px) {
+  .banco { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; grid-template-areas: "mapa" "controlos" "eventos"; }
+}
 
 .a-atacar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
 .a-atacar button {
@@ -409,6 +420,17 @@ h3 { font: 600 1.05rem/1.2 var(--fonte); }
 .jogo-linha .meta { color: var(--suave); font-size: 0.95rem; margin-top: 2px; }
 .jogo-linha .acoes-jogo { grid-column: 1 / -1; }
 .acoes-jogo { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+/* «Mais»: as ações menos usadas de um jogo. Em ecrã largo ficam todas à vista, como se «Mais» não existisse */
+.mais-acoes summary { list-style: none; cursor: pointer; user-select: none; }
+.mais-acoes summary::-webkit-details-marker { display: none; }
+.mais-acoes summary::after { content: "▾"; margin-left: 6px; }
+.mais-acoes[open] summary::after { content: "▴"; }
+.mais-lista { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.mais-acoes[open] { flex-basis: 100%; }
+@media (min-width: 900px) {
+  .mais-acoes, .mais-lista { display: contents; }
+  .mais-acoes summary { display: none; }
+}
 
 /* primeiros passos (quando a conta ainda está vazia) */
 .estado-vazio { background: var(--superficie); border: 1px solid var(--linha); border-radius: var(--raio); padding: 26px; }
@@ -865,6 +887,7 @@ table.tabela th[aria-sort="descending"], table.tabela th[aria-sort="ascending"] 
   .placar .eq { max-width: 11ch; font-size: 1rem; }
   .slot-escudo .escudo { width: 34px; height: 34px; }
   .pagina, .dash, .banco { padding-left: 12px; padding-right: 12px; }
+  .barra { min-width: 44px; }
   .dash { grid-template-columns: minmax(0, 1fr); }
   .cartoes-equipa { grid-template-columns: minmax(0, 1fr); }
   .barra-acoes { gap: 8px; }

@@ -51,9 +51,10 @@ function numero(valor, rotulo) {
 }
 
 function tabela(cabecalho, linhas) {
-  return h('table', { class: 'tabela' },
+  // Dentro de .tabela-rolagem: se uma tabela não couber no telemóvel, rola ela e não a página inteira
+  return h('div', { class: 'tabela-rolagem' }, h('table', { class: 'tabela' },
     h('thead', {}, h('tr', {}, cabecalho.map(([texto, numerica]) => h('th', { class: numerica ? 'num' : '' }, texto)))),
-    h('tbody', {}, linhas));
+    h('tbody', {}, linhas)));
 }
 
 // ---------------------------------------------------------------------

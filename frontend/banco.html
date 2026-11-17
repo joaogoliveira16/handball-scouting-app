@@ -64,13 +64,13 @@
   </div>
 
   <main class="banco">
-    <section>
+    <section class="banco-mapa">
       <div class="a-atacar" id="seletor-equipa"></div>
       <svg id="campo" class="campo"></svg>
       <div class="dica" id="dica"></div>
     </section>
 
-    <section>
+    <section class="banco-controlos">
       <h2 style="margin-top:0">1 · Jogador que rematou</h2>
       <p class="nota-convocatoria" id="nota-convocatoria" hidden></p>
       <div class="grelha-jogadores" id="jogadores"></div>
@@ -90,7 +90,9 @@
 
       <h2>Outros eventos</h2>
       <div class="outros" id="outros"></div>
+    </section>
 
+    <section class="banco-eventos">
       <h2 class="titulo-com-acao">
         <span>Últimos eventos</span>
         <button type="button" id="btn-desfazer">↶ Desfazer último</button>

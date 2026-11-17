@@ -161,6 +161,33 @@ function formularioEdicao(jogo) {
       h('button', { class: 'botao suave pequeno', type: 'button', onclick: () => { aEditar.delete(jogo.id); desenharJogos(); } }, 'Cancelar')));
 }
 
+
+// Ecrã largo (tablet na horizontal, computador): todas as ações à vista. Ecrã estreito (telemóvel, tablet na vertical):
+// só «Banco» e «Dashboard», e as outras atrás de «Mais». O que o ecrã permite decide se «Mais» começa aberto.
+const ecraLargo = window.matchMedia('(min-width: 900px)');
+ecraLargo.addEventListener('change', () => {
+  for (const d of document.querySelectorAll('details.mais-acoes')) d.open = ecraLargo.matches;
+});
+
+function maisAcoes(jogo) {
+  const detalhes = h('details', { class: 'mais-acoes' },
+    h('summary', { class: 'botao suave pequeno' }, 'Mais'),
+    h('div', { class: 'mais-lista' },
+      h('button', {
+        type: 'button', class: 'botao pequeno', title: 'Copiar a ligação do dashboard em direto, para quem não tem conta',
+        onclick: () => partilhar(jogo),
+      }, 'Copiar ligação'),
+      h('a', { class: 'botao-link suave pequeno', href: `convocatoria.html?jogo=${jogo.id}` }, 'Convocatória'),
+      h('a', { class: 'botao-link suave pequeno', href: urlExcel(jogo.id), download: '' }, '⬇ Excel'),
+      h('a', { class: 'botao-link suave pequeno', 'data-acao': 'eventos', href: `eventos.html?jogo=${jogo.id}`, title: 'Ver todos os eventos e corrigir os que ficaram mal' }, 'Eventos'),
+      h('button', { type: 'button', class: 'botao suave pequeno', 'data-acao': 'editar', onclick: () => { aEditar.add(jogo.id); desenharJogos(); } }, 'Editar'),
+      jogo.terminadoEm
+        ? h('button', { type: 'button', class: 'botao suave pequeno', 'data-acao': 'reabrir', title: 'Voltar a deixar o banco registar', onclick: () => terminarJogo(jogo, false) }, 'Reabrir')
+        : h('button', { type: 'button', class: 'botao suave pequeno', 'data-acao': 'terminar', title: 'Marcar o fim do jogo: o banco deixa de registar', onclick: () => terminarJogo(jogo, true) }, 'Terminar jogo'),
+      h('button', { type: 'button', class: 'botao perigo pequeno', 'data-acao': 'apagar', onclick: () => apagarJogo(jogo) }, 'Apagar')));
+  detalhes.open = ecraLargo.matches;
+  return detalhes;
+}
 function linhaJogo(jogo) {
   const caixaVisivel = h('input', { type: 'checkbox', checked: jogo.visivelConvidados !== false });
   caixaVisivel.addEventListener('change', () => mudarVisibilidade(jogo, caixaVisivel));
@@ -177,18 +204,7 @@ function linhaJogo(jogo) {
     h('div', { class: 'acoes-jogo' },
       h('a', { class: 'botao-link primario pequeno', href: `banco.html?jogo=${jogo.id}` }, 'Banco'),
       h('a', { class: 'botao-link pequeno', href: `dashboard.html?jogo=${jogo.id}&c=${encodeURIComponent(jogo.codigo)}` }, 'Dashboard'),
-      h('button', {
-        type: 'button', class: 'botao pequeno', title: 'Copiar a ligação do dashboard em direto, para quem não tem conta',
-        onclick: () => partilhar(jogo),
-      }, 'Copiar ligação'),
-      h('a', { class: 'botao-link suave pequeno', href: `convocatoria.html?jogo=${jogo.id}` }, 'Convocatória'),
-      h('a', { class: 'botao-link suave pequeno', href: urlExcel(jogo.id), download: '' }, '⬇ Excel'),
-      h('a', { class: 'botao-link suave pequeno', 'data-acao': 'eventos', href: `eventos.html?jogo=${jogo.id}`, title: 'Ver todos os eventos e corrigir os que ficaram mal' }, 'Eventos'),
-      h('button', { type: 'button', class: 'botao suave pequeno', 'data-acao': 'editar', onclick: () => { aEditar.add(jogo.id); desenharJogos(); } }, 'Editar'),
-      jogo.terminadoEm
-        ? h('button', { type: 'button', class: 'botao suave pequeno', 'data-acao': 'reabrir', title: 'Voltar a deixar o banco registar', onclick: () => terminarJogo(jogo, false) }, 'Reabrir')
-        : h('button', { type: 'button', class: 'botao suave pequeno', 'data-acao': 'terminar', title: 'Marcar o fim do jogo: o banco deixa de registar', onclick: () => terminarJogo(jogo, true) }, 'Terminar jogo'),
-      h('button', { type: 'button', class: 'botao perigo pequeno', 'data-acao': 'apagar', onclick: () => apagarJogo(jogo) }, 'Apagar')),
+      maisAcoes(jogo)),
     aEditar.has(jogo.id) && formularioEdicao(jogo),
     h('label', {
       class: 'opcao-jogo',
