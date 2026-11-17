@@ -76,21 +76,41 @@ function falhas(lista) {
   return partes.map(([n, singular, pl]) => (singular === pl ? `${n} ${singular}` : plural(n, singular, pl))).join(', ');
 }
 
+/** `parte` do relatório do jogo todo (os remates e eventos das duas partes somados). */
+export const JOGO_TODO = 0;
+
+/** As palavras do relatório de uma parte (1, 2...) ou do jogo todo, que a página e o texto para copiar partilham. */
+export function palavrasDaParte(parte) {
+  if (parte === JOGO_TODO) {
+    return {
+      rotulo: 'Jogo todo', cabecalho: 'Fim do jogo', tituloCurto: 'Fim do jogo', tituloTopo: 'Relatório do jogo',
+      relatorio: 'Relatório do jogo todo', proxima: 'no próximo jogo', numeros: 'O jogo em números', nesta: 'neste jogo',
+    };
+  }
+  return {
+    rotulo: `${parte}.ª parte`, cabecalho: parte === 1 ? 'Intervalo' : `${parte}.ª parte`, tituloCurto: 'Intervalo',
+    tituloTopo: 'Relatório do intervalo', relatorio: `Relatório da ${parte}.ª parte`,
+    proxima: parte === 1 ? 'na 2.ª parte' : 'daqui para a frente', numeros: `${parte}.ª parte em números`, nesta: 'nesta parte',
+  };
+}
+
 /**
  * Os números e os pontos de uma parte do jogo, do ponto de vista da equipa `equipaId` («nós») contra a outra («eles»).
  * `estado` é o estado das estatísticas (equipas, remates com a parte, outrosEventosPorParte, jogadores, guardaRedes, sancoes).
  * `limites` diz quantos pontos de cada tipo ficam (por omissão 3 a corrigir e 2 a manter).
  */
 export function relatorioIntervalo(estado, equipaId, parte = 1, limites = {}) {
+  // `parte` é 1, 2... ou JOGO_TODO (0) para somar o jogo inteiro (o relatório do fim do jogo)
+  const daParte = (x) => parte === JOGO_TODO || x.parte === parte;
   const { corrigir: maxCorrigir = PONTOS_A_CORRIGIR, manter: maxManter = PONTOS_A_MANTER } = limites;
   const nos = estado.equipas.find((e) => e.equipaId === equipaId);
   const eles = estado.equipas.find((e) => e.equipaId !== equipaId);
   if (!nos || !eles) throw new Error('equipa desconhecida');
 
-  const remates = (estado.remates ?? []).filter((r) => r.parte === parte);
+  const remates = (estado.remates ?? []).filter(daParte);
   const nossos = remates.filter((r) => r.equipaId === nos.equipaId);
   const deles = remates.filter((r) => r.equipaId === eles.equipaId);
-  const outros = (estado.outrosEventosPorParte ?? []).filter((o) => o.parte === parte);
+  const outros = (estado.outrosEventosPorParte ?? []).filter(daParte);
   const eventos = (equipa, tipo) => outros.filter((o) => o.equipaId === equipa.equipaId && o.tipo === tipo).reduce((s, o) => s + o.total, 0);
 
   const golosNossos = golosDe(nossos);
@@ -408,9 +428,10 @@ export function relatorioIntervalo(estado, equipaId, parte = 1, limites = {}) {
 export function avisoPoucosDados(relatorio) {
   if (!relatorio.poucosDados) return null;
   const n = relatorio.remates;
+  const nesta = palavrasDaParte(relatorio.parte).nesta;
   return n === 0
-    ? 'Ainda sem remates registados nesta parte.'
-    : `Só ${plural(n, 'remate registado', 'remates registados')} nesta parte: os pontos podem enganar.`;
+    ? `Ainda sem remates registados ${nesta}.`
+    : `Só ${plural(n, 'remate registado', 'remates registados')} ${nesta}: os pontos podem enganar.`;
 }
 
 /** O que se diz quando não há nada a corrigir. */
@@ -423,15 +444,15 @@ export const semPontosACorrigir = (relatorio) => (relatorio.poucosDados
 // ---------------------------------------------------------------------
 export function textoRelatorio(relatorio) {
   const { nos, eles, golos, parte } = relatorio;
-  const proxima = parte === 1 ? 'na 2.ª parte' : 'daqui para a frente';
+  const palavras = palavrasDaParte(parte);
   const linhas = [
-    `${parte === 1 ? 'Intervalo' : `${parte}.ª parte`} · ${nos.nome} ${golos.nos}–${golos.eles} ${eles.nome}`,
-    `Relatório da ${parte}.ª parte, para ${nos.nome}`,
+    `${palavras.cabecalho} · ${nos.nome} ${golos.nos}–${golos.eles} ${eles.nome}`,
+    `${palavras.relatorio}, para ${nos.nome}`,
     '',
   ];
   const aviso = avisoPoucosDados(relatorio);
   if (aviso) linhas.push(`(${aviso})`, '');
-  linhas.push(`A corrigir ${proxima}:`);
+  linhas.push(`A corrigir ${palavras.proxima}:`);
   if (relatorio.corrigir.length) relatorio.corrigir.forEach((p, i) => linhas.push(`${i + 1}. ${p.titulo}: ${p.detalhe}`));
   else linhas.push(semPontosACorrigir(relatorio));
   if (relatorio.manter.length) {

@@ -3,7 +3,7 @@
 //   node --no-warnings --test unidade/
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { relatorioIntervalo, textoRelatorio, avisoPoucosDados, semPontosACorrigir, PONTOS_A_CORRIGIR, PONTOS_A_MANTER, MINIMO_REMATES } from '../../frontend/js/relatorio-intervalo.js';
+import { relatorioIntervalo, textoRelatorio, avisoPoucosDados, semPontosACorrigir, palavrasDaParte, JOGO_TODO, PONTOS_A_CORRIGIR, PONTOS_A_MANTER, MINIMO_REMATES } from '../../frontend/js/relatorio-intervalo.js';
 
 const CASA = 1;
 const FORA = 2;
@@ -327,4 +327,65 @@ test('as frases do aviso e de «nada a corrigir» dependem de haver remates que 
   assert.equal(avisoPoucosDados(completo), null);
   assert.equal(semPontosACorrigir(completo), 'Nada de grave nos números. Continuar assim.');
   assert.equal(semPontosACorrigir(um), 'Ainda não há remates que cheguem para apontar pontos.');
+});
+
+// ------------------------- Jogo todo (o relatório do fim do jogo) -------------------------
+
+/** A 2.ª parte de um jogo: 3 golos da casa e 1 da equipa de fora, mais 2 perdas de bola de cada lado. */
+const segundaParte = () => [
+  ...varios(3, CASA, 'GOLO', { parte: 2 }), remate(CASA, 'FORA', { parte: 2 }),
+  remate(FORA, 'GOLO', { parte: 2 }), remate(FORA, 'DEFESA', { parte: 2 }),
+];
+
+test('o relatório do jogo todo soma as duas partes', () => {
+  const dados = estado([...base(), ...segundaParte()], { outrosEventosPorParte: [
+    outro(CASA, 'PERDA_BOLA', 2), outro(CASA, 'PERDA_BOLA', 3, 2), outro(FORA, 'PERDA_BOLA', 1), outro(FORA, 'PERDA_BOLA', 4, 2),
+  ] });
+  const rel = relatorioIntervalo(dados, CASA, JOGO_TODO);
+  assert.equal(rel.parte, JOGO_TODO);
+  assert.deepEqual(rel.golos, { nos: 7, eles: 5 });
+  assert.equal(rel.remates, 22);
+  const linha = (rotulo) => rel.numeros.find((n) => n.rotulo === rotulo);
+  assert.deepEqual([linha('Golos').nos, linha('Golos').eles], ['7', '5']);
+  assert.deepEqual([linha('Remates').nos, linha('Remates').eles], ['12', '10']);
+  assert.deepEqual([linha('Perdas de bola').nos, linha('Perdas de bola').eles], ['5', '5']);
+  // As partes sozinhas continuam a contar só a sua
+  assert.deepEqual(relatorioIntervalo(dados, CASA, 1).golos, { nos: 4, eles: 4 });
+  assert.deepEqual(relatorioIntervalo(dados, CASA, 2).golos, { nos: 3, eles: 1 });
+});
+
+test('o relatório do jogo todo vale também para a equipa de fora e sem remates', () => {
+  const dados = estado([...base(), ...segundaParte()]);
+  assert.deepEqual(relatorioIntervalo(dados, FORA, JOGO_TODO).golos, { nos: 5, eles: 7 });
+  const vazio = relatorioIntervalo(estado([]), CASA, JOGO_TODO);
+  assert.deepEqual(vazio.golos, { nos: 0, eles: 0 });
+  assert.equal(vazio.poucosDados, true);
+});
+
+test('as palavras do relatório mudam com a parte e com o jogo todo', () => {
+  assert.equal(palavrasDaParte(1).cabecalho, 'Intervalo');
+  assert.equal(palavrasDaParte(1).proxima, 'na 2.ª parte');
+  assert.equal(palavrasDaParte(2).cabecalho, '2.ª parte');
+  assert.equal(palavrasDaParte(2).proxima, 'daqui para a frente');
+  assert.equal(palavrasDaParte(JOGO_TODO).cabecalho, 'Fim do jogo');
+  assert.equal(palavrasDaParte(JOGO_TODO).proxima, 'no próximo jogo');
+  assert.equal(palavrasDaParte(JOGO_TODO).rotulo, 'Jogo todo');
+  assert.equal(palavrasDaParte(JOGO_TODO).tituloTopo, 'Relatório do jogo');
+});
+
+test('o texto do jogo todo fala do jogo e não do intervalo', () => {
+  const rel = relatorioIntervalo(estado([...base(), ...segundaParte()]), CASA, JOGO_TODO);
+  const linhas = textoRelatorio(rel).split('\n');
+  assert.equal(linhas[0], 'Fim do jogo · Águias 7–5 Leões');
+  assert.equal(linhas[1], 'Relatório do jogo todo, para Águias');
+  assert.ok(linhas.includes('A corrigir no próximo jogo:'));
+  assert.ok(linhas.includes('Golos: 7 – 5'));
+  assert.ok(!linhas.some((l) => /intervalo|2\.ª parte/i.test(l)), 'nada de «intervalo» nem «2.ª parte» no fim do jogo');
+  const poucos = textoRelatorio(relatorioIntervalo(estado(base().slice(0, 4)), CASA, JOGO_TODO));
+  assert.match(poucos, /\(Só 4 remates registados neste jogo: os pontos podem enganar\.\)/);
+});
+
+test('o aviso de poucos dados fala do jogo ou da parte conforme o relatório', () => {
+  assert.equal(avisoPoucosDados(relatorioIntervalo(estado([remate(CASA, 'GOLO')]), CASA, JOGO_TODO)), 'Só 1 remate registado neste jogo: os pontos podem enganar.');
+  assert.equal(avisoPoucosDados(relatorioIntervalo(estado([]), CASA, JOGO_TODO)), 'Ainda sem remates registados neste jogo.');
 });

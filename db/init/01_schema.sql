@@ -67,12 +67,13 @@ LANGUAGE sql IMMUTABLE STRICT AS $$
 $$;
 
 -- Faixa de distância: ATE_6M | DE_6_A_9M | LINHA_9M (9 a 11 m) | MAIS_9M
+-- (public. à frente de zona_distancia_m: o pg_restore corre com o search_path vazio; ver 23_copias_de_seguranca.sql)
 CREATE FUNCTION zona_distancia(x NUMERIC, y NUMERIC) RETURNS VARCHAR
 LANGUAGE sql IMMUTABLE STRICT AS $$
     SELECT CASE
-        WHEN zona_distancia_m(x, y) < 6  THEN 'ATE_6M'
-        WHEN zona_distancia_m(x, y) < 9  THEN 'DE_6_A_9M'
-        WHEN zona_distancia_m(x, y) < 11 THEN 'LINHA_9M'
+        WHEN public.zona_distancia_m(x, y) < 6  THEN 'ATE_6M'
+        WHEN public.zona_distancia_m(x, y) < 9  THEN 'DE_6_A_9M'
+        WHEN public.zona_distancia_m(x, y) < 11 THEN 'LINHA_9M'
         ELSE 'MAIS_9M'
     END
 $$;

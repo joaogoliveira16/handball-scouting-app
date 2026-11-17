@@ -103,12 +103,16 @@ public class Utilizador
     public int Id { get; set; }
     public string Nome { get; set; } = "";
     public string Email { get; set; } = "";
+    /// <summary>A conta administra a app (ver a área de administração).</summary>
+    public bool Admin { get; set; }
 }
 
 public class UtilizadorComHash : Utilizador
 {
     public string PalavraPasseHash { get; set; } = "";
     public bool EmailVerificado { get; set; }
+    /// <summary>Um admin desativou a conta: não entra.</summary>
+    public bool Desativado { get; set; }
 }
 
 public class TipoEvento

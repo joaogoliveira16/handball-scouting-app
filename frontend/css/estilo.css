@@ -236,8 +236,19 @@ h3 { font: 600 1.05rem/1.2 var(--fonte); }
 .cartao > h2:first-child { margin-top: 0; }
 
 /* ---------- Banco (adjunto) ---------- */
-.banco { display: grid; grid-template-columns: minmax(300px, 1fr) minmax(320px, 1fr); gap: 20px; padding: 18px 20px 90px; align-items: start; }
-@media (max-width: 760px) { .banco { grid-template-columns: minmax(0, 1fr); } }
+/* Duas colunas: à esquerda o mapa e, por baixo, os últimos eventos; à direita o que se toca (jogador, resultado, outros eventos).
+   Assim o tablet na vertical não deixa um buraco por baixo do mapa e o que se toca cabe todo no ecrã. */
+.banco {
+  display: grid; grid-template-columns: minmax(300px, 1fr) minmax(320px, 1fr); grid-template-rows: auto 1fr; gap: 0 20px;
+  grid-template-areas: "mapa controlos" "eventos controlos"; padding: 18px 20px 90px; align-items: start;
+}
+.banco-mapa { grid-area: mapa; }
+.banco-controlos { grid-area: controlos; }
+.banco-eventos { grid-area: eventos; }
+/* telemóvel: um só bloco por ordem de uso (mapa, o que se toca, últimos eventos) */
+@media (max-width: 760px) {
+  .banco { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; grid-template-areas: "mapa" "controlos" "eventos"; }
+}
 
 .a-atacar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
 .a-atacar button {
@@ -409,6 +420,17 @@ h3 { font: 600 1.05rem/1.2 var(--fonte); }
 .jogo-linha .meta { color: var(--suave); font-size: 0.95rem; margin-top: 2px; }
 .jogo-linha .acoes-jogo { grid-column: 1 / -1; }
 .acoes-jogo { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+/* «Mais»: as ações menos usadas de um jogo. Em ecrã largo ficam todas à vista, como se «Mais» não existisse */
+.mais-acoes summary { list-style: none; cursor: pointer; user-select: none; }
+.mais-acoes summary::-webkit-details-marker { display: none; }
+.mais-acoes summary::after { content: "▾"; margin-left: 6px; }
+.mais-acoes[open] summary::after { content: "▴"; }
+.mais-lista { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.mais-acoes[open] { flex-basis: 100%; }
+@media (min-width: 900px) {
+  .mais-acoes, .mais-lista { display: contents; }
+  .mais-acoes summary { display: none; }
+}
 
 /* primeiros passos (quando a conta ainda está vazia) */
 .estado-vazio { background: var(--superficie); border: 1px solid var(--linha); border-radius: var(--raio); padding: 26px; }
@@ -619,6 +641,7 @@ table.tabela td.suave { color: var(--suave); }
 .entrar-caixa form { display: grid; gap: 16px; }
 .entrar-caixa form label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 0.95rem; }
 .entrar-caixa form label small { color: var(--suave); font-weight: 400; }
+.entrar-caixa form .nota-privacidade { margin: 0; text-align: center; }
 .entrar-caixa .botao.primario { min-height: 52px; font-size: 1.05rem; }
 .campo-palavra-passe { position: relative; display: flex; }
 .campo-palavra-passe input { flex: 1; padding-right: 92px; }
@@ -646,6 +669,13 @@ table.tabela td.suave { color: var(--suave); }
 .caixa-centro .botao.primario { min-height: 52px; font-size: 1.05rem; }
 .caixa-centro .botao-link.primario { min-width: 160px; }
 .caixa-centro .entrar-rodape { margin-top: 22px; }
+/* páginas de texto corrido (política de privacidade) */
+.texto-legal { line-height: 1.6; }
+.texto-legal h1 { margin-bottom: 6px; }
+.texto-legal h2 { margin: 30px 0 8px; font: 700 1.3rem/1.2 var(--fonte-num); }
+.texto-legal p, .texto-legal ul { margin: 0 0 12px; }
+.texto-legal ul { padding-left: 22px; display: grid; gap: 6px; }
+.texto-legal code { padding: 1px 5px; border-radius: 4px; background: var(--realce); font-size: 0.92em; }
 .nota-ok { margin: 0 0 18px; padding: 10px 14px; border-radius: var(--raio-controlo); background: #e6f6ec; color: #14622f; font-weight: 600; }
 .nota-ok[hidden] { display: none; }
 
@@ -695,6 +725,20 @@ table.tabela td.suave { color: var(--suave); }
 .sem-acesso { grid-column: 1 / -1; width: 100%; max-width: 520px; margin: 12vh auto; padding: 0 20px; text-align: left; }
 .sem-acesso h1 { font: 700 2.4rem/1 var(--fonte-num); margin-bottom: 10px; }
 .sem-acesso p { color: var(--suave); margin: 0 0 18px; }
+
+/* Intervalo e fim do jogo: faixa por baixo do marcador com o relatório pronto */
+.faixa-marco {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding: 8px 16px;
+  background: var(--alerta-fundo); border-bottom: 1px solid #ecc766; color: var(--alerta); font-weight: 600;
+}
+.faixa-marco[hidden] { display: none; }
+.faixa-marco .marco-nota { flex: 1; font-weight: 500; }
+.faixa-marco .botao-faixa, .faixa-marco button {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: var(--raio-controlo);
+  border: 1px solid var(--tinta); background: var(--tinta); color: #fff; font-weight: 600; text-decoration: none;
+}
+.faixa-marco .botao-faixa { background: #fff; color: var(--tinta); }
+.faixa-marco button.suave { background: transparent; color: var(--alerta); border-color: transparent; }
 
 /* Jogo terminado: faixa por baixo do marcador e registo fechado no banco */
 .faixa-terminado {
@@ -843,6 +887,7 @@ table.tabela th[aria-sort="descending"], table.tabela th[aria-sort="ascending"] 
   .placar .eq { max-width: 11ch; font-size: 1rem; }
   .slot-escudo .escudo { width: 34px; height: 34px; }
   .pagina, .dash, .banco { padding-left: 12px; padding-right: 12px; }
+  .barra { min-width: 44px; }
   .dash { grid-template-columns: minmax(0, 1fr); }
   .cartoes-equipa { grid-template-columns: minmax(0, 1fr); }
   .barra-acoes { gap: 8px; }
@@ -991,6 +1036,72 @@ table.numeros-intervalo th { vertical-align: bottom; }
   .pontos.explorar li { background: none !important; border: 1px solid #888; border-left: 6px solid #000; }
   .pontos.explorar li::before { color: #000; }
   .resultado-jogo.res-V, .resultado-jogo.res-D { color: #000; }
+}
+
+/* ---------- Administração (admin.html) ---------- */
+.pagina.pagina-larga { max-width: 1240px; }
+.admin { margin-top: 22px; }
+.admin .numeros { margin: 0 0 16px; gap: 28px; }
+.admin .faixa-email { margin: 0 0 16px; line-height: 1.5; }
+.admin .faixa-email .botao { margin-left: 6px; }
+.admin-barra { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; margin: 0 0 14px; }
+.admin-barra .separador-abas { margin-bottom: 0; }
+.admin-pesquisa { flex: 0 1 320px; min-width: min(100%, 240px); }
+.admin-lista { padding: 6px 16px 14px; }
+.admin-lista > .vazio { padding: 14px 0 6px; }
+.nota-limite { margin: 10px 0 0; font-size: 0.92rem; }
+.texto-suave { color: var(--suave); }
+
+table.tabela-admin td { vertical-align: middle; }
+table.tabela-admin td.nome strong { font-weight: 600; }
+table.tabela-admin td.nome .tu { margin-left: 8px; }
+table.tabela-admin td.email { overflow-wrap: break-word; }
+table.tabela-admin .etiqueta { white-space: nowrap; }
+table.tabela-admin tr.desativada td { color: var(--suave); }
+table.tabela-admin tr.desativada td.nome strong { text-decoration: line-through; text-decoration-thickness: 1px; }
+table.tabela-admin td.acoes-conta { text-align: right; }
+table.tabela-admin .acoes-linha { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+table.tabela-admin .botao.pequeno { min-height: 36px; padding: 0 11px; font-size: 0.9rem; }
+table.tabela-admin td.acesso { white-space: nowrap; color: var(--suave); }
+table.tabela-admin tr.linha-edicao td { padding: 0; background: var(--realce); }
+.form-edicao { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 16px; align-items: end; padding: 14px 12px; }
+.form-edicao label { display: grid; gap: 4px; font-weight: 500; color: var(--suave); }
+.form-edicao .nota-edicao, .form-edicao .erro-edicao, .form-edicao .acoes-edicao { grid-column: 1 / -1; margin: 0; }
+.form-edicao .nota-edicao { color: var(--suave); font-size: 0.92rem; }
+.form-edicao .erro-edicao { color: var(--perigo); font-weight: 600; }
+.form-edicao .acoes-edicao { display: flex; gap: 8px; flex-wrap: wrap; }
+table.tabela-admin td.data { white-space: nowrap; color: var(--suave); }
+table.tabela-admin td.jogo strong { font-weight: 600; margin-right: 8px; }
+table.tabela-admin td.jogo small { display: block; margin-top: 2px; }
+table.tabela-admin td.jogo .etiqueta.terminado { margin-left: 0; }
+
+.etiqueta.estado-ativo { color: var(--ok); background: #e6f6ec; }
+.etiqueta.estado-por_confirmar { color: var(--alerta); background: var(--alerta-fundo); }
+.etiqueta.estado-desativado { color: var(--perigo); background: var(--perigo-fundo); }
+.etiqueta.papel-admin { color: #fff; background: var(--tinta); }
+.etiqueta.papel-normal { color: var(--suave); background: var(--realce); }
+.etiqueta.tipo-evento { color: var(--texto-casa); background: rgba(var(--cor-casa-rgb), 0.12); }
+.etiqueta.tipo-conta { color: var(--texto-fora); background: rgba(var(--cor-fora-rgb), 0.12); }
+.etiqueta.tipo-jogo { color: var(--ok); background: #e6f6ec; }
+
+.registo-lista { list-style: none; margin: 0; padding: 0; }
+.registo-linha { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 4px 16px; padding: 12px 0; border-bottom: 1px solid var(--linha); }
+.registo-linha:last-child { border-bottom: 0; }
+.registo-quando { color: var(--suave); font-variant-numeric: tabular-nums; white-space: nowrap; padding-top: 2px; }
+.registo-detalhe { margin: 4px 0 0; overflow-wrap: anywhere; }
+.registo-ligacao { display: inline-block; margin-top: 4px; font-weight: 600; }
+#nota-admin { margin: 0 0 12px; }
+
+@media (max-width: 720px) {
+  table.tabela-admin, table.tabela-admin tbody { display: block; }
+  table.tabela-admin thead { display: none; }
+  table.tabela-admin tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 12px 0; border-bottom: 1px solid var(--linha); }
+  table.tabela-admin td { display: block; padding: 0; border: 0; }
+  table.tabela-admin td.nome, table.tabela-admin td.jogo, table.tabela-admin td.email, table.tabela-admin td.acoes-conta, table.tabela-admin td.celula-edicao { flex: 1 1 100%; text-align: left; }
+  table.tabela-admin td[data-rotulo]::before { content: attr(data-rotulo) ": "; color: var(--suave); font-weight: 500; }
+  table.tabela-admin td.num { text-align: left; }
+  table.tabela-admin .acoes-linha { justify-content: flex-start; margin-top: 6px; }
+  .registo-linha { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ---------- Movimento reduzido ---------- */

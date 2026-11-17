@@ -19,6 +19,8 @@ export function escudo(equipaId, versao, tamanho = 'pequeno') {
   if (versao == null || equipaId == null) return null;
   return h('img', {
     class: `escudo escudo-${tamanho}`, src: urlEscudo(equipaId, versao), alt: '', 'aria-hidden': 'true',
+    loading: tamanho === 'pequeno' ? 'lazy' : null,   // os das listas só carregam quando aparecem; o do placar e o da equipa estão sempre à vista
+    decoding: 'async',
     onerror: (e) => e.target.remove(),   // se a imagem não carregar, fica só o nome
   });
 }

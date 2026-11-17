@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0e1b33">
   <title>Entrar · Scouting de Andebol</title>
+  <link rel="preload" href="fonts/barlow-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/barlow-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/barlow-condensed-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/estilo.css">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -68,7 +71,7 @@
           <label>Email
             <input id="registo-email" type="email" name="email" autocomplete="username" inputmode="email" maxlength="160" required>
           </label>
-          <label>Palavra-passe <small>Pelo menos 8 caracteres.</small>
+          <label>Palavra-passe <small>Pelo menos 8 caracteres, com uma letra e um número.</small>
             <span class="campo-palavra-passe">
               <input id="registo-senha" type="password" name="senha" autocomplete="new-password" minlength="8" maxlength="128" required>
               <button type="button" class="ver-senha" aria-pressed="false" aria-controls="registo-senha">Mostrar</button>
@@ -77,6 +80,7 @@
           <p class="erro-formulario" id="erro-registo" role="alert"></p>
           <button class="botao suave pequeno" type="button" id="reenviar-registo" hidden>Reenviar email de confirmação</button>
           <button class="botao primario" type="submit" id="botao-registo">Criar conta</button>
+          <p class="entrar-rodape nota-privacidade">Ao criar a conta, os teus dados são tratados como explica a <a href="privacidade.html">política de privacidade</a>.</p>
         </form>
         </div>
 
@@ -110,6 +114,7 @@
           <p>Só queres ver um jogo em direto? Não precisas de conta.</p>
           <a class="botao-link" id="entrar-convidado" href="convidado.html">Entrar como convidado</a>
         </div>
+        <p class="entrar-rodape"><a href="privacidade.html">Política de privacidade</a></p>
       </div>
     </section>
   </main>

@@ -9,10 +9,12 @@ on:
 permissions:
   contents: read
 
+# Os jobs usam o Ubuntu 24.04 e não o «ubuntu-latest»: passou a ser o 26.04, onde o Playwright 1.56 não instala o Chromium
+# e o pg_dump já é mais novo do que o PostgreSQL 16 dos testes (o restauro falha em «transaction_timeout»).
 jobs:
   api:
     name: API (.NET) - compilar e testar
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -22,9 +24,40 @@ jobs:
       - run: dotnet build api/HandballScouting.sln --no-restore -c Release
       - run: dotnet test api/HandballScouting.sln --no-build -c Release
 
+  dependencias:
+    name: Segurança - dependências com falhas conhecidas
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # O «dotnet list package --vulnerable» devolve sempre 0, mesmo com falhas: por isso o resultado é lido a seguir.
+      # Inclui as bibliotecas que as nossas puxam (--include-transitive).
+      - name: API - bibliotecas .NET com vulnerabilidades conhecidas
+        run: |
+          dotnet restore api/HandballScouting.sln
+          dotnet list api/HandballScouting.sln package --vulnerable --include-transitive 2>&1 | tee vulnerabilidades.txt
+          if grep -qi "has the following vulnerable packages" vulnerabilidades.txt; then
+            echo "::error title=Dependências .NET vulneráveis::Há bibliotecas com vulnerabilidades conhecidas (lista acima). Atualiza-as no .csproj."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+
+      # Só as de gravidade alta ou crítica: estas bibliotecas são das ferramentas de teste e não vão para a app
+      - name: Testes - bibliotecas npm com vulnerabilidades conhecidas
+        working-directory: tests
+        run: npm audit --audit-level=high
+
   base-de-dados:
     name: Base de dados - esquema, dados e consultas
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -64,9 +97,12 @@ jobs:
       - name: Atualizar uma base de dados antiga (contas que já existiam ficam confirmadas)
         run: bash db/tests/atualizacao.sh
 
+      - name: Cópia de segurança e restauro (pg_dump e pg_restore como nos scripts/)
+        run: bash db/tests/copia_de_seguranca.sh
+
   integracao:
     name: Integração - API real, Excel e browser
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
       postgres:
@@ -175,7 +211,7 @@ jobs:
 
   docker:
     name: Imagens Docker
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [api, base-de-dados, integracao]
     permissions:
       contents: read

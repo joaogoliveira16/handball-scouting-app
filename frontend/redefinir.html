@@ -8,6 +8,9 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="referrer" content="no-referrer">
   <title>Palavra-passe nova · Scouting de Andebol</title>
+  <link rel="preload" href="fonts/barlow-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/barlow-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/barlow-condensed-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/estilo.css">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -22,7 +25,7 @@
       <h1>Escolhe a palavra-passe nova</h1>
       <p class="sub">Vais usá-la para entrar a partir de agora. Sais de todos os dispositivos onde tinhas a conta aberta.</p>
       <form id="form-nova" class="cartao" novalidate>
-        <label>Palavra-passe nova <small>Pelo menos 8 caracteres.</small>
+        <label>Palavra-passe nova <small>Pelo menos 8 caracteres, com uma letra e um número.</small>
           <span class="campo-palavra-passe">
             <input id="nova-senha" type="password" name="senha" autocomplete="new-password" minlength="8" maxlength="128" required>
             <button type="button" class="ver-senha" id="ver-nova" aria-pressed="false" aria-controls="nova-senha">Mostrar</button>

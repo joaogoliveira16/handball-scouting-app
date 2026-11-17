@@ -237,6 +237,7 @@ ligarFormulario(formRegisto, {
     if (!REGEX_EMAIL.test(email)) return 'Escreve um email válido.';
     if (senha.length < 8) return 'A palavra-passe tem de ter pelo menos 8 caracteres.';
     if (!senha.trim()) return 'A palavra-passe não pode ter só espaços.';
+    if (!/\p{L}/u.test(senha) || !/\p{Nd}/u.test(senha)) return 'A palavra-passe tem de ter pelo menos uma letra e um número.';
     return null;
   },
   corpo: () => ({

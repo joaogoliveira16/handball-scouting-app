@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0e1b33">
   <title>Banco · Scouting de Andebol</title>
+  <link rel="preload" href="fonts/barlow-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/barlow-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/barlow-condensed-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/estilo.css">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -44,6 +47,15 @@
     <button id="btn-fim-timeout" type="button" title="Acabar o time-out e pôr o relógio de jogo a andar">Retomar o jogo</button>
   </div>
 
+  <!-- Aparece aos 30:00 da 1.ª parte (intervalo) e aos 60:00 da 2.ª (fim do jogo): o relógio pára e o relatório está pronto -->
+  <div class="faixa-marco" id="faixa-marco" role="status" hidden>
+    <b id="marco-titulo"></b>
+    <span class="marco-nota" id="marco-nota"></span>
+    <a class="botao-faixa" id="marco-relatorio" href="#" target="_blank" rel="noopener">Ver relatório</a>
+    <button id="marco-acao" type="button"></button>
+    <button id="marco-fechar" type="button" class="suave" title="Fechar este aviso">Fechar</button>
+  </div>
+
   <!-- Aparece quando o jogo foi terminado: o registo fica fechado até o reabrirem -->
   <div class="faixa-terminado" id="faixa-terminado" role="status" hidden>
     <b>Jogo terminado</b>
@@ -52,13 +64,13 @@
   </div>
 
   <main class="banco">
-    <section>
+    <section class="banco-mapa">
       <div class="a-atacar" id="seletor-equipa"></div>
       <svg id="campo" class="campo"></svg>
       <div class="dica" id="dica"></div>
     </section>
 
-    <section>
+    <section class="banco-controlos">
       <h2 style="margin-top:0">1 · Jogador que rematou</h2>
       <p class="nota-convocatoria" id="nota-convocatoria" hidden></p>
       <div class="grelha-jogadores" id="jogadores"></div>
@@ -78,7 +90,9 @@
 
       <h2>Outros eventos</h2>
       <div class="outros" id="outros"></div>
+    </section>
 
+    <section class="banco-eventos">
       <h2 class="titulo-com-acao">
         <span>Últimos eventos</span>
         <button type="button" id="btn-desfazer">↶ Desfazer último</button>
