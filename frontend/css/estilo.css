@@ -619,6 +619,7 @@ table.tabela td.suave { color: var(--suave); }
 .entrar-caixa form { display: grid; gap: 16px; }
 .entrar-caixa form label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 0.95rem; }
 .entrar-caixa form label small { color: var(--suave); font-weight: 400; }
+.entrar-caixa form .nota-privacidade { margin: 0; text-align: center; }
 .entrar-caixa .botao.primario { min-height: 52px; font-size: 1.05rem; }
 .campo-palavra-passe { position: relative; display: flex; }
 .campo-palavra-passe input { flex: 1; padding-right: 92px; }
@@ -646,6 +647,13 @@ table.tabela td.suave { color: var(--suave); }
 .caixa-centro .botao.primario { min-height: 52px; font-size: 1.05rem; }
 .caixa-centro .botao-link.primario { min-width: 160px; }
 .caixa-centro .entrar-rodape { margin-top: 22px; }
+/* páginas de texto corrido (política de privacidade) */
+.texto-legal { line-height: 1.6; }
+.texto-legal h1 { margin-bottom: 6px; }
+.texto-legal h2 { margin: 30px 0 8px; font: 700 1.3rem/1.2 var(--fonte-num); }
+.texto-legal p, .texto-legal ul { margin: 0 0 12px; }
+.texto-legal ul { padding-left: 22px; display: grid; gap: 6px; }
+.texto-legal code { padding: 1px 5px; border-radius: 4px; background: var(--realce); font-size: 0.92em; }
 .nota-ok { margin: 0 0 18px; padding: 10px 14px; border-radius: var(--raio-controlo); background: #e6f6ec; color: #14622f; font-weight: 600; }
 .nota-ok[hidden] { display: none; }
 

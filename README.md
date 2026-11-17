@@ -84,10 +84,11 @@ Por omissão a app só abre no teu computador (`http://localhost:8080`). Para a 
 
 ### Antes de abrir ao público (qualquer opção)
 
-- **Palavra-passe da base de dados**: põe uma forte em `POSTGRES_PASSWORD` no `.env` antes de criares a base de dados. Se já a tens criada, muda-a assim e só depois atualiza o `.env`: `docker compose exec db psql -U scouting -d scouting -c "ALTER USER scouting PASSWORD 'a-nova-palavra-passe'"` e `docker compose up -d`.
+- **Palavra-passe da base de dados**: põe uma forte em `POSTGRES_PASSWORD` no `.env` antes de criares a base de dados (num servidor, o `scripts/servidor.sh iniciar` recusa arrancar sem ela). Se já a tens criada, muda-a assim e só depois atualiza o `.env`: `docker compose exec db psql -U scouting -d scouting -c "ALTER USER scouting PASSWORD 'a-nova-palavra-passe'"` e `docker compose up -d`.
 - **`URL_PUBLICO`**: o endereço https que as pessoas usam. Vai dentro das ligações dos emails.
 - **Emails a sério** (`EMAIL_*`, ver *Email*): sem isso ninguém recebe a ligação para confirmar a conta.
 - **`ADMIN_EMAILS`**: o email da tua conta de admin.
+- **Email de contacto da política de privacidade**: em `frontend/privacidade.html` troca `PREENCHER-EMAIL-DE-CONTACTO` (aparece duas vezes) pelo email a que as pessoas podem escrever sobre os seus dados. Usa um endereço da app ou do clube, não o teu pessoal. A página abre em `/privacidade.html` e está ligada à página de entrada.
 - **Registo aberto**: qualquer pessoa que chegue ao endereço pode criar uma conta (tem de confirmar o email). Vigia a lista na administração.
 - **Cópias de segurança**: corre `scripts/backup` com regularidade e guarda os ficheiros fora da máquina onde a app corre.
 
@@ -151,7 +152,7 @@ Para a app ficar no ar sem o teu computador ligado, mantendo o endereço e o tú
 1. **Servidor.** Cria a máquina (com IP público e uma chave SSH), e liga-te: `ssh -i chave.key ubuntu@IP`. No Windows, se o SSH recusar a chave por ter permissões a mais: `icacls chave.key /inheritance:r` e `icacls chave.key /grant:r "%USERNAME%:R"`.
 2. **Instalar** (no servidor): `curl -fsSL https://raw.githubusercontent.com/joaogoliveira16/handball-scouting-app/administracao/scripts/servidor.sh -o servidor.sh && bash servidor.sh preparar`. Instala o Docker, o git e o cloudflared e descarrega o projeto para `~/handball-scouting-app`. Sai e entra outra vez por SSH.
 3. **Levar os dados** (no PC): para a app com `docker compose stop api` e faz a cópia com `scripts\backup.ps1`. Copia o `.env` e a cópia para o servidor: `ssh -i chave.key ubuntu@IP "mkdir -p handball-scouting-app/backups"`, `scp -i chave.key .env ubuntu@IP:handball-scouting-app/.env` e `scp -i chave.key backups\FICHEIRO.dump ubuntu@IP:handball-scouting-app/backups/`.
-4. **Restaurar e arrancar** (no servidor, dentro da pasta do projeto): `bash scripts/restaurar.sh backups/FICHEIRO.dump --sim` e `bash scripts/servidor.sh iniciar`. O `iniciar` põe `INTERFACE_WEB=127.0.0.1` no `.env` e arranca tudo.
+4. **Restaurar e arrancar** (no servidor, dentro da pasta do projeto): `bash scripts/restaurar.sh backups/FICHEIRO.dump --sim` e `bash scripts/servidor.sh iniciar`. O `iniciar` põe `INTERFACE_WEB=127.0.0.1` no `.env` e arranca tudo. Os dois **recusam continuar se a `POSTGRES_PASSWORD` do `.env` faltar, for a de fábrica (`scouting`, `muda-esta-palavra-passe`) ou tiver menos de 12 caracteres** (o `restaurar.sh` só exige isto quando a base de dados ainda não existe, como num servidor novo): nesse caso escreve a forma de gerar uma, `echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env`. Faz isto antes de restaurar, porque a palavra-passe só é aplicada quando a base de dados é criada.
 5. **Mudar o túnel**: no PC, para o túnel (PowerShell de administrador: `cloudflared service uninstall`). No servidor: `bash scripts/servidor.sh tunel` e cola o token do mesmo túnel (Cloudflare > Networking > Tunnels). O túnel deve aparecer como *Healthy* e o endereço abre a partir do servidor. Só depois paras a app no PC (`docker compose down`, sem `-v`, para guardares os dados do PC como cópia).
 6. **Cópias**: agenda no servidor `crontab -e` com `0 3 * * * cd ~/handball-scouting-app && bash scripts/backup.sh`, e copia a pasta `backups/` para outro sítio com regularidade (um servidor grátis pode desaparecer).
 
@@ -511,8 +512,8 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
 db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões, escudos, superioridade numérica, fila sem rede, golos na baliza, administração e cópias de segurança (correm por ordem)
 db/tests/              testes SQL
-scripts/               cópia de segurança e restauro da base de dados (`backup` e `restaurar`, em bash e PowerShell; `internet.ps1` abre a app na internet com a Cloudflare; `email.ps1` configura o Gmail no `.env`; `servidor.sh` prepara um servidor Ubuntu)
-frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard, administração), JS, CSS e fontes; `sw.js` (service worker) e `manifest.webmanifest` para abrir sem rede; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
+scripts/               cópia de segurança e restauro da base de dados (`backup` e `restaurar`, em bash e PowerShell; `palavra-passe-bd.sh` é a verificação da palavra-passe da base de dados que o `servidor.sh` e o `restaurar.sh` usam; `internet.ps1` abre a app na internet com a Cloudflare; `email.ps1` configura o Gmail no `.env`; `servidor.sh` prepara um servidor Ubuntu)
+frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, privacidade, convidado, jogos, equipas, convocatória, banco, dashboard, administração), JS, CSS e fontes; `sw.js` (service worker) e `manifest.webmanifest` para abrir sem rede; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
 tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)
 docker-compose.yml     os 3 contentores (mais o `migrar`, que atualiza a base de dados em cada arranque)
 .github/workflows/     CI

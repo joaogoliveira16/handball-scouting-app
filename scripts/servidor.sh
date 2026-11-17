@@ -77,6 +77,8 @@ iniciar() {
   [ -f .env ] || erro "falta o ficheiro .env em $PASTA. Copia-o do teu PC."
   sed -i 's/\r$//' .env                 # o .env feito no Windows traz fins de linha CRLF
   if [ -n "$(tail -c1 .env)" ]; then echo >> .env; fi   # garante o fim de linha no último registo
+  . scripts/palavra-passe-bd.sh
+  exigir_palavra_passe_forte .env || exit 1   # a base de dados está na internet (pelo túnel): nada de palavra-passe de fábrica
   definir INTERFACE_WEB 127.0.0.1       # a porta 8080 só abre dentro do servidor: o mundo entra pelo túnel
   dc up -d --build
   echo

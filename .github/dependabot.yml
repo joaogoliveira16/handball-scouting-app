@@ -1,0 +1,72 @@
+# O Dependabot abre, todas as semanas, um pull request por cada atualização das bibliotecas e das imagens que a app usa
+# (as correções de segurança vêm à parte e logo que saem, se estiverem ativas em Settings > Code security do repositório).
+# Só funciona a partir do ramo principal (main): este ficheiro tem de lá estar.
+#
+# Não cobre o que está copiado à mão para frontend/lib/ (o cliente SignalR e o leitor de imagens Tesseract): esses atualizam-se
+# a mão, e o frontend não tem mais dependências (JS e CSS sem npm).
+version: 2
+
+updates:
+  # A API (.NET): Dapper, Npgsql e as bibliotecas dos testes
+  - package-ecosystem: nuget
+    directory: /api
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      nuget:
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(api)"
+
+  # As bibliotecas dos testes do browser e da API (Playwright, pg, SignalR)
+  - package-ecosystem: npm
+    directory: /tests
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm:
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(tests)"
+
+  # As imagens base dos Dockerfiles (.NET e nginx)
+  - package-ecosystem: docker
+    directory: /api
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "deps(docker)"
+
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "deps(docker)"
+
+  # A imagem do PostgreSQL e das outras no docker-compose.yml
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "deps(docker)"
+
+  # As ações do GitHub usadas no CI (checkout, setup-dotnet...)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps(ci)"

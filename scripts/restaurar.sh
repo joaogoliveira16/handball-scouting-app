@@ -4,6 +4,7 @@
 # Sem --sim pergunta antes. Pára a API durante a restauração (para não haver ligações abertas) e volta a arrancá-la;
 # se a cópia for de uma versão mais antiga, o serviço "migrar" atualiza a base de dados ao arrancar.
 # A restauração é feita numa só transação: se algo falhar, a base de dados fica como estava.
+# Num servidor novo (sem base de dados ainda) recusa continuar se o .env não tiver uma POSTGRES_PASSWORD forte.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -21,6 +22,13 @@ if [ "${2:-}" != "--sim" ]; then
     echo "Cancelado: nada foi alterado."
     exit 1
   fi
+fi
+
+# Se a base de dados ainda não existe, o `up -d db` abaixo cria-a com a POSTGRES_PASSWORD do .env: não a deixa nascer com a
+# palavra-passe de fábrica. (Se já existe, já tem a sua palavra-passe e o .env não a muda: não há nada a exigir aqui.)
+if [ -z "$(docker volume ls -q --filter label=com.docker.compose.project=handball-scouting --filter label=com.docker.compose.volume=dados_pg)" ]; then
+  . scripts/palavra-passe-bd.sh
+  exigir_palavra_passe_forte .env || exit 1
 fi
 
 docker compose up -d db
