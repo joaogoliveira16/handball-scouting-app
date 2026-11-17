@@ -2,7 +2,8 @@ using Dapper;
 using HandballScouting.Api;
 using HandballScouting.Api.Excel;
 using HandballScouting.Api.Hubs;
-using Microsoft.AspNetCore.SignalR;
+using System.IO.Compression;
+using Microsoft.AspNetCore.ResponseCompression;
 using Npgsql;
 
 // coluna "golos_casa" -> propriedade GolosCasa
@@ -26,8 +27,24 @@ builder.Services.AddScoped<CadastroService>();
 builder.Services.AddScoped<ContaService>();
 builder.Services.AddScoped<AcessoService>();
 builder.Services.AddSignalR();
+// Depois de gravar, o estado novo segue para os dashboards em segundo plano (o pedido não fica à espera)
+builder.Services.AddSingleton<DifusorEstado>();
+
+// Respostas da API comprimidas (brotli ou gzip, conforme o Accept-Encoding do browser). O JSON das estatísticas
+// encolhe para menos de um décimo. Os ficheiros Excel já vêm comprimidos (são um zip) e ficam como estão.
+builder.Services.AddResponseCompression(o =>
+{
+    o.EnableForHttps = true;
+    o.Providers.Add<BrotliCompressionProvider>();
+    o.Providers.Add<GzipCompressionProvider>();
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(o => o.Level = CompressionLevel.Optimal);
+builder.Services.Configure<GzipCompressionProviderOptions>(o => o.Level = CompressionLevel.Optimal);
 
 var app = builder.Build();
+
+// Só as rotas /api: o tempo real (/hub) vai por WebSocket e não passa por aqui
+app.UseWhen(c => c.Request.Path.StartsWithSegments("/api"), a => a.UseResponseCompression());
 
 if (!app.Services.GetRequiredService<OpcoesEmail>().Configurado)
     app.Logger.LogWarning("Envio de emails não configurado (falta Email__Host): as contas novas não recebem o email de confirmação.");
@@ -45,8 +62,12 @@ api.MapGet("/saude", async (NpgsqlDataSource dados) =>
     return Results.Ok(new { estado = "ok" });
 });
 
-api.MapGet("/tipos-evento", async (EstatisticasService est, CancellationToken ct) =>
-    Results.Ok(await est.TiposEventoAsync(ct)));
+// Os tipos de evento só mudam com uma versão nova da app: o browser guarda-os uma hora em vez de os pedir em cada página
+api.MapGet("/tipos-evento", async (HttpContext http, EstatisticasService est, CancellationToken ct) =>
+{
+    http.Response.Headers.CacheControl = "public, max-age=3600";
+    return Results.Ok(await est.TiposEventoAsync(ct));
+});
 
 // O escudo de uma equipa. É só o símbolo do clube, por isso qualquer pessoa o pode ver (quem tem o link de um jogo
 // também vê os escudos das equipas). O endereço traz ?v=versão: com ela a imagem fica um dia na cache do browser e,
@@ -205,14 +226,14 @@ protegido.MapGet("/jogos", async (HttpContext http, EstatisticasService est, Can
 
 protegido.MapPost("/jogos/{id:int}/eventos", async (
     int id, NovoEventoRequest pedido, HttpContext http,
-    EventosService eventos, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+    EventosService eventos, DifusorEstado difusor, CancellationToken ct) =>
 {
     var resultado = await eventos.RegistarAsync(http.ContaAtual().Id, id, pedido, ct);
     if (!resultado.Ok)
         return Results.Json(new { erro = resultado.Erro }, statusCode: resultado.Status);
 
     // Também num reenvio: se o aviso da primeira vez falhou, os dashboards ficam atualizados à segunda
-    await EmitirEstadoAsync(id, est, hub);
+    difusor.Agendar(id);
     return resultado.Repetido
         ? Results.Ok(new { id = resultado.Id, repetido = true })
         : Results.Created($"/api/jogos/{id}/eventos/{resultado.Id}", new { id = resultado.Id });
@@ -226,13 +247,13 @@ protegido.MapGet("/jogos/{id:int}/eventos", async (int id, HttpContext http, Eve
 
 protegido.MapPut("/jogos/{id:int}/eventos/{eventoId:long}", async (
     int id, long eventoId, NovoEventoRequest pedido, HttpContext http,
-    EventosService eventos, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+    EventosService eventos, DifusorEstado difusor, CancellationToken ct) =>
 {
     var resultado = await eventos.AtualizarAsync(http.ContaAtual().Id, id, eventoId, pedido, ct);
     if (!resultado.Ok)
         return Results.Json(new { erro = resultado.Erro }, statusCode: resultado.Status);
 
-    await EmitirEstadoAsync(id, est, hub);   // os dashboards abertos passam a mostrar os números corrigidos
+    difusor.Agendar(id);   // os dashboards abertos passam a mostrar os números corrigidos
     return Results.NoContent();
 });
 
@@ -240,24 +261,24 @@ protegido.MapPut("/jogos/{id:int}/eventos/{eventoId:long}", async (
 // Só os avisos que mudam alguma coisa vão para os dashboards.
 protegido.MapPut("/jogos/{id:int}/relogio", async (
     int id, RelogioRequest pedido, HttpContext http,
-    EventosService eventos, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+    EventosService eventos, DifusorEstado difusor, CancellationToken ct) =>
 {
     var resultado = await eventos.GuardarRelogioAsync(http.ContaAtual().Id, id, pedido, ct);
     if (!resultado.Ok)
         return Results.Json(new { erro = resultado.Erro }, statusCode: resultado.Status);
 
-    if (resultado.Mudou) await EmitirEstadoAsync(id, est, hub);
+    if (resultado.Mudou) difusor.Agendar(id);
     return Results.NoContent();
 });
 
 protegido.MapDelete("/jogos/{id:int}/eventos/{eventoId:long}", async (
     int id, long eventoId, HttpContext http,
-    EventosService eventos, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+    EventosService eventos, DifusorEstado difusor, CancellationToken ct) =>
 {
     if (!await eventos.ApagarAsync(http.ContaAtual().Id, id, eventoId, ct))
         return Results.NotFound(new { erro = "Evento não encontrado." });
 
-    await EmitirEstadoAsync(id, est, hub);
+    difusor.Agendar(id);
     return Results.NoContent();
 });
 
@@ -337,6 +358,14 @@ protegido.MapPost("/equipas/{id:int}/jogadores", async (int id, JogadorRequest p
         : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
 });
 
+// Vários jogadores de uma vez (a lista lida de uma foto): um só pedido e uma só escrita na base de dados.
+// Cada jogador tem o seu resultado (id ou erro), como se fossem pedidos à parte.
+protegido.MapPost("/equipas/{id:int}/jogadores/lote", async (int id, LoteJogadoresRequest pedido, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
+{
+    var r = await cadastro.CriarJogadoresAsync(http.ContaAtual().Id, id, pedido, ct);
+    return r.Ok ? Results.Ok(new { resultados = r.Resultados }) : Results.Json(new { erro = r.Erro }, statusCode: r.Status);
+});
+
 protegido.MapPut("/jogadores/{id:int}", async (int id, JogadorRequest pedido, HttpContext http, CadastroService cadastro, CancellationToken ct) =>
 {
     var r = await cadastro.AtualizarJogadorAsync(http.ContaAtual().Id, id, pedido, ct);
@@ -370,21 +399,21 @@ protegido.MapPut("/jogos/{id:int}/visibilidade", async (int id, VisibilidadeRequ
 // Corrigir um jogo (equipas, data, local), marcá-lo como terminado ou apagá-lo. Só o dono.
 protegido.MapPut("/jogos/{id:int}", async (
     int id, NovoJogoRequest pedido, HttpContext http,
-    CadastroService cadastro, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+    CadastroService cadastro, DifusorEstado difusor, CancellationToken ct) =>
 {
     var r = await cadastro.AtualizarJogoAsync(http.ContaAtual().Id, id, pedido, ct);
     if (!r.Ok) return Results.Json(new { erro = r.Erro }, statusCode: r.Status);
-    await EmitirEstadoAsync(id, est, hub);
+    difusor.Agendar(id);
     return Results.NoContent();
 });
 
 protegido.MapPut("/jogos/{id:int}/terminado", async (
     int id, TerminarJogoRequest pedido, HttpContext http,
-    CadastroService cadastro, EstatisticasService est, IHubContext<JogoHub> hub, CancellationToken ct) =>
+    CadastroService cadastro, DifusorEstado difusor, CancellationToken ct) =>
 {
     var r = await cadastro.TerminarJogoAsync(http.ContaAtual().Id, id, pedido, ct);
     if (!r.Ok) return Results.Json(new { erro = r.Erro }, statusCode: r.Status);
-    await EmitirEstadoAsync(id, est, hub);   // os bancos e dashboards abertos passam a mostrar «terminado»
+    difusor.Agendar(id);   // os bancos e dashboards abertos passam a mostrar «terminado»
     return Results.NoContent();
 });
 
@@ -421,13 +450,4 @@ static async Task<byte[]> LerCorpoAteAsync(Stream corpo, int limite, Cancellatio
         total += lidos;
     }
     return memoria[..total];
-}
-
-// Depois de gravar, envia o estado atualizado a todos os ecrãs ligados a este jogo.
-// Corre sem o token do pedido: o evento já foi gravado e os dashboards têm de o receber.
-static async Task EmitirEstadoAsync(int jogoId, EstatisticasService est, IHubContext<JogoHub> hub)
-{
-    var estado = await est.ObterAsync(jogoId);
-    if (estado is not null)
-        await hub.Clients.Group(JogoHub.Grupo(jogoId)).SendAsync("EstatisticasAtualizadas", estado);
 }

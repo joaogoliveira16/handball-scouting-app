@@ -114,7 +114,7 @@ await passo('Contas: sem sessão, registo, entrada, saída', async () => {
   // Sem sessão: tudo o que é da conta pede entrada (401); um jogo alheio "não existe" (404)
   const protegidas = [
     ['GET', '/api/conta'], ['GET', '/api/jogos'], ['GET', '/api/equipas'], ['POST', '/api/equipas'],
-    ['GET', '/api/equipas/1/jogadores'], ['GET', '/api/equipas/1/estatisticas'], ['POST', '/api/equipas/1/jogadores'], ['PUT', '/api/jogadores/4'], ['DELETE', '/api/jogadores/4'],
+    ['GET', '/api/equipas/1/jogadores'], ['GET', '/api/equipas/1/estatisticas'], ['POST', '/api/equipas/1/jogadores'], ['POST', '/api/equipas/1/jogadores/lote'], ['PUT', '/api/jogadores/4'], ['DELETE', '/api/jogadores/4'],
     ['GET', '/api/jogos/2/eventos'], ['PUT', '/api/jogos/2/eventos/1'], ['POST', '/api/jogos'], ['PUT', '/api/jogos/2'], ['PUT', '/api/jogos/2/terminado'], ['DELETE', '/api/jogos/2'], ['GET', '/api/jogos/2/convocados'], ['PUT', '/api/jogos/2/convocados'],
     ['POST', '/api/jogos/2/eventos'], ['DELETE', '/api/jogos/2/eventos/1'],
   ];
@@ -531,6 +531,27 @@ await passo('Equipas e jogadores (cadastro)', async () => {
   ok(comEventos.status === 409, 'apagar jogador com eventos = 409', descricao(comEventos));
   const doExemplo = (await http('GET', '/api/equipas/1/jogadores')).json ?? [];
   ok(doExemplo.find((j) => j.id === 4)?.eventos > 0, 'o plantel de exemplo mostra os eventos de cada jogador');
+
+  // vários de uma vez (a lista lida de uma foto): um só pedido, cada jogador com o seu resultado, pela ordem do pedido
+  const lote = await http('POST', `/api/equipas/${equipaA}/jogadores/lote`, { jogadores: [
+    { numero: 40, nome: ' Lote Um ', posicao: 'PE' },
+    { numero: 1, nome: 'Repete o 1', posicao: 'LE' },          // a equipa já tem o 1
+    { numero: 41, nome: 'Lote Dois', posicao: 'PV' },
+    { numero: 40, nome: 'Repete no lote', posicao: 'CE' },     // o 40 entrou duas linhas acima
+    { numero: 0, nome: 'Inválido', posicao: 'CE' },
+  ] });
+  const res = lote.json?.resultados ?? [];
+  ok(lote.status === 200 && res.length === 5, 'POST jogadores/lote = 200 com um resultado por jogador', descricao(lote));
+  ok(res[0]?.id > 0 && res[2]?.id > 0 && res[0].numero === 40 && res[2].numero === 41, 'lote: os jogadores novos entram e trazem o id', JSON.stringify(res));
+  ok(res[1]?.id == null && res[1]?.erro === 'Já existe um jogador com esse número nesta equipa.', 'lote: número que a equipa já tem fica de fora, com o erro do pedido à parte', JSON.stringify(res[1]));
+  ok(res[3]?.id == null && /Já existe/.test(res[3]?.erro ?? ''), 'lote: número repetido no próprio lote: entra só o primeiro', JSON.stringify(res[3]));
+  ok(res[4]?.id == null && /numero/.test(res[4]?.erro ?? ''), 'lote: jogador inválido fica com o erro da validação', JSON.stringify(res[4]));
+  const depoisDoLote = (await http('GET', `/api/equipas/${equipaA}/jogadores`)).json ?? [];
+  ok(depoisDoLote.find((j) => j.numero === 40)?.nome === 'Lote Um' && depoisDoLote.find((j) => j.numero === 41)?.posicao === 'PV',
+    'lote: os jogadores ficam no plantel (nome sem espaços)', JSON.stringify(depoisDoLote));
+  ok((await http('POST', '/api/equipas/99999/jogadores/lote', { jogadores: [] })).status === 404, 'lote numa equipa inexistente = 404');
+  ok((await http('POST', `/api/equipas/${equipaA}/jogadores/lote`, {})).status === 400, 'lote sem jogadores = 400');
+  for (const j of depoisDoLote.filter((x) => x.numero === 40 || x.numero === 41)) await http('DELETE', `/api/jogadores/${j.id}`);
 
   // segunda equipa com guarda-redes e remateiro, para o jogo
   const criadaB = await http('POST', '/api/equipas', { nome: `Teste B ${sufixo}` });

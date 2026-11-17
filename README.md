@@ -37,7 +37,7 @@ Abre **http://localhost:8080** e cria a tua conta (separador *Criar conta*). O e
 - **No tablet**: liga-o à mesma rede do computador e abre `http://<IP-do-computador>:8080`.
 - **Configuração** (porta, palavra-passe, email): copia `.env.example` para `.env`.
 - **Recomeçar do zero**: `docker compose down -v` apaga a base de dados; ao arrancar de novo os scripts de `db/init` voltam a correr.
-- **Já tinhas a app a correr de uma versão anterior?** Basta `git pull` e `docker compose up -d --build`. O serviço `migrar` atualiza sozinho a base de dados em cada arranque (convocatória, local na baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, uma equipa por conta, expulsões, escudos e superioridade numérica; são scripts que se podem repetir sem problema) e **não apaga nada**. As contas que já existiam ficam logo confirmadas. Se ainda não havia nenhuma conta, a primeira que criares e confirmares fica com as equipas e os jogos que já existiam.
+- **Já tinhas a app a correr de uma versão anterior?** Basta `git pull` e `docker compose up -d --build`. O serviço `migrar` atualiza sozinho a base de dados em cada arranque (convocatória, local na baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, uma equipa por conta, expulsões, escudos, superioridade numérica e índices de desempenho; são scripts que se podem repetir sem problema) e **não apaga nada**. As contas que já existiam ficam logo confirmadas. Se ainda não havia nenhuma conta, a primeira que criares e confirmares fica com as equipas e os jogos que já existiam.
 
 ## Contas e partilha
 
@@ -283,6 +283,7 @@ As rotas de **conta** e as rotas de **leitura de um jogo** estão abertas; todas
 | GET | `/api/equipas/{id}/estatisticas.xlsx` | Excel da página Estatísticas, com os mesmos filtros: `?local=casa` ou `fora`, `?parte=1` ou `2` e `?ultimos=N` (1 a 200; os N jogos mais recentes, contados depois do local). Filtro que não existe = 400 *(só o dono)* |
 | GET | `/api/equipas/{id}/adversario` | O que se sabe de uma equipa pelos jogos registados da conta, para o relatório do próximo adversário: `{ equipaId, nome, jogadores, jogos, remates, outrosEventos }`. `jogos` são os da equipa com eventos (como em `/estatisticas`), `remates` são os remates desses jogos **dos dois lados** (cada um com `jogoId`, `equipaId`, jogador, `guardaRedesId`, resultado, situação, `corredor`, `distancia`, local na baliza, `sistemaDefensivo` e `parte`) e `outrosEventos` conta, por jogo, equipa e tipo, os eventos que não são remates (sem os avisos do 7×6). 404 se a equipa não é da conta *(só o dono)* |
 | POST | `/api/equipas/{id}/jogadores` | Adiciona um jogador: `{ "numero", "nome", "posicao" }` |
+| POST | `/api/equipas/{id}/jogadores/lote` | Adiciona vários de uma vez (a lista lida de uma foto): `{ "jogadores": [...] }`; devolve `{ "resultados": [{ "numero", "id" }` ou `{ "numero", "erro" }] }`, pela ordem do pedido |
 | PUT | `/api/jogadores/{id}` | Edita um jogador |
 | DELETE | `/api/jogadores/{id}` | Apaga um jogador (409 se tiver eventos) |
 | POST | `/api/jogos/{id}/eventos` | Regista um evento |
@@ -387,7 +388,7 @@ O workflow `.github/workflows/ci.yml` corre em cada push para `main` e em cada p
 
 ```
 api/                   API ASP.NET Core (Program.cs, SignalR, consultas em Sql/, Excel/) e testes xUnit
-db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões, escudos, superioridade numérica, fila sem rede e golos na baliza (correm por ordem)
+db/init/               esquema, dados base, equipas/jogadores, demo, convocatória, baliza, contas, confirmação do email, recuperação da palavra-passe, jogos abertos a convidados, equipa da conta, expulsões, escudos, superioridade numérica, fila sem rede, golos na baliza e índices de desempenho (correm por ordem)
 db/tests/              testes SQL
 frontend/              páginas (entrar, confirmar email, redefinir palavra-passe, convidado, jogos, equipas, convocatória, banco, dashboard), JS, CSS e fontes; `sw.js` (service worker) e `manifest.webmanifest` para abrir sem rede; lib/ tem o cliente SignalR e o leitor de imagens (Tesseract)
 tests/                 testes de integração da API, do Excel e de browser (Node + Playwright)

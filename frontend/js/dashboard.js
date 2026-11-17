@@ -482,9 +482,15 @@ function atualizarRelogio() {
 }
 setInterval(atualizarRelogio, 500);
 
+// O tempo real pode ligar antes de se saber quem está a ver (ver o arranque, mais abaixo): até lá o estado fica
+// guardado e só se desenha quando se souber se é o dono, para o treinador-assistente não aparecer depois do resto.
+let quemVeConhecido = false;
+let negadoAntesDeSaber = false;
+
 function receber(dados) {
   estado.dados = dados;
   estado.recebidoEm = Date.now();
+  if (!quemVeConhecido) return;
   desenhar();
   lembrarComoConvidado(dados);
 }
@@ -522,7 +528,10 @@ function mostrarEstadoLigacao(estadoLigacao) {
   const el = document.getElementById('ligacao');
   el.className = `ligacao ${estadoLigacao === 'ligado' ? 'ok' : estadoLigacao}`;
   el.textContent = TEXTO_ESTADO[estadoLigacao];
-  if (estadoLigacao === 'negado') mostrarSemAcesso(conta);
+  if (estadoLigacao === 'negado') {
+    if (quemVeConhecido) mostrarSemAcesso(conta);
+    else negadoAntesDeSaber = true;
+  }
 }
 
 async function copiarLink() {
@@ -530,6 +539,10 @@ async function copiarLink() {
   if (await copiarTexto(link)) avisar('Ligação copiada. Quem a abrir vê este jogo em direto, sem conta.');
   else window.prompt('Copia esta ligação para partilhar o jogo em direto:', link);
 }
+
+// Com o código do link no endereço, o tempo real liga já, ao mesmo tempo que se pergunta pela conta
+const ligarJa = Boolean(codigo);
+if (ligarJa) ligar(jogoId, codigo, receber, mostrarEstadoLigacao);
 
 // Quem tem conta volta à lista de jogos e pode copiar o link; quem veio só pelo link (convidado) volta à área de
 // convidado, vê o jogo e pode exportar
@@ -562,6 +575,14 @@ if (codigo) {
 
 document.getElementById('excel-jogo').href = urlExcel(jogoId, null, codigo);
 
+// Já se sabe quem está a ver: desenha o que o tempo real tenha mandado entretanto
+quemVeConhecido = true;
+if (negadoAntesDeSaber) mostrarSemAcesso(conta);
+else if (estado.dados) {
+  desenhar();
+  lembrarComoConvidado(estado.dados);
+}
+
 /** O relatório do intervalo abre já para a equipa que se está a ver aqui. */
 function atualizarLigacaoIntervalo() {
   const parametrosRelatorio = new URLSearchParams({ jogo: jogoId });
@@ -570,4 +591,4 @@ function atualizarLigacaoIntervalo() {
   document.getElementById('intervalo').href = `intervalo.html?${parametrosRelatorio}`;
 }
 
-ligar(jogoId, codigo, receber, mostrarEstadoLigacao);
+if (!ligarJa) ligar(jogoId, codigo, receber, mostrarEstadoLigacao);

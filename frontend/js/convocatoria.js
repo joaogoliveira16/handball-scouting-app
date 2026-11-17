@@ -1,6 +1,6 @@
 // Convocatória: escolher, antes do jogo, os jogadores convocados de cada equipa.
 import { h, substituir, avisar } from './dom.js';
-import { obter, enviar, ROTULO_POSICAO, urlExcel } from './api.js';
+import { obter, antecipar, enviar, criarJogadores, ROTULO_POSICAO, urlExcel } from './api.js';
 import { exigirConta } from './conta.js';
 import { abrirLeituraDeFoto } from './foto-lista.js';
 import { escudo } from './escudo.js';
@@ -8,6 +8,8 @@ import { escudo } from './escudo.js';
 const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
 if (!jogoId) location.replace('./');
 
+// O jogo pede-se já, ao mesmo tempo que a conta (não depende dela)
+const primeiroJogo = antecipar(`/api/jogos/${jogoId}`);
 await exigirConta();
 
 const conteudo = document.getElementById('conteudo');
@@ -93,17 +95,20 @@ async function lerDeFoto(equipa) {
   const falhas = [];
   let novos = 0;
   try {
-    for (const linha of resultado.jogadores) {
-      if (linha.jogadorId) { ids.add(linha.jogadorId); continue; }
-      try {
-        const { id } = await enviar('POST', `/api/equipas/${equipa.id}/jogadores`, { numero: linha.numero, nome: linha.nome, posicao: linha.posicao });
-        estado.jogo.jogadores.push({ id, equipaId: equipa.id, numero: linha.numero, nome: linha.nome, posicao: linha.posicao, convocado: false });
-        ids.add(id);
-        novos += 1;
-      } catch (erro) {
-        falhas.push(`#${linha.numero} ${linha.nome} (${erro.message})`);
+    for (const linha of resultado.jogadores) if (linha.jogadorId) ids.add(linha.jogadorId);
+    // Os que ainda não existem na equipa criam-se todos num só pedido, cada um com o seu resultado
+    const porCriar = resultado.jogadores.filter((linha) => !linha.jogadorId);
+    const criados = porCriar.length ? await criarJogadores(equipa.id, porCriar) : [];
+    porCriar.forEach((linha, i) => {
+      const id = criados[i]?.id;
+      if (id == null) {
+        falhas.push(`#${linha.numero} ${linha.nome} (${criados[i]?.erro ?? 'sem resposta'})`);
+        return;
       }
-    }
+      estado.jogo.jogadores.push({ id, equipaId: equipa.id, numero: linha.numero, nome: linha.nome, posicao: linha.posicao, convocado: false });
+      ids.add(id);
+      novos += 1;
+    });
     for (const j of plantelDe(equipa.id)) estado.selecionados.delete(j.id);
     for (const id of ids) estado.selecionados.add(id);
     estado.semLista.delete(equipa.id);   // a seleção agora é explícita
@@ -204,7 +209,7 @@ function desenhar() {
 // Arranque
 // ---------------------------------------------------------------------
 try {
-  estado.jogo = await obter(`/api/jogos/${jogoId}`);
+  estado.jogo = await (primeiroJogo ?? obter(`/api/jogos/${jogoId}`));
   estado.max = estado.jogo.maxConvocados ?? 16;
   document.title = `Convocatória · ${estado.jogo.casaNome} vs ${estado.jogo.foraNome}`;
   document.getElementById('titulo').textContent = 'Convocatória';

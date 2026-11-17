@@ -1,7 +1,7 @@
 // Estatísticas dos jogadores da equipa da conta, somadas em todos os jogos registados. Clicar num jogador mostra jogo a jogo.
 // As contas estão em estatisticas-jogadores.js (testado à parte); aqui só se desenha.
 import { h, substituir, avisar } from './dom.js';
-import { obter, ROTULO_POSICAO, urlExcelEquipa } from './api.js';
+import { obter, antecipar, ROTULO_POSICAO, urlExcelEquipa } from './api.js';
 import { exigirConta } from './conta.js';
 import { escudo } from './escudo.js';
 import {
@@ -9,6 +9,8 @@ import {
 } from './estatisticas-jogadores.js';
 import { graficoLinhas } from './grafico.js';
 
+// As equipas pedem-se já, ao mesmo tempo que a conta (não dependem dela)
+const primeirasEquipas = antecipar('/api/equipas');
 await exigirConta();
 
 const raiz = document.getElementById('estatisticas');
@@ -265,7 +267,7 @@ function mostrarVazio(titulo, texto, ligacao) {
 async function carregar() {
   let equipas;
   try {
-    equipas = await obter('/api/equipas');
+    equipas = await (primeirasEquipas ?? obter('/api/equipas'));
   } catch (erro) {
     substituir(raiz, h('p', { class: 'aviso-inline erro', role: 'alert' }, `Não foi possível carregar as equipas: ${erro.message}`));
     return;

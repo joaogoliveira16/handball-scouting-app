@@ -97,53 +97,60 @@ public class EstatisticasService(NpgsqlDataSource dados, SqlLoader sql)
         return jogo;
     }
 
+    /// <summary>As consultas do estado de um jogo, pela ordem em que se lêem em <see cref="ObterAsync"/>.</summary>
+    private static readonly string[] ConsultasDoEstado =
+    [
+        "equipas_resumo", "jogadores_stats", "por_corredor", "por_distancia", "por_parte", "guarda_redes", "parcial",
+        "outros_eventos", "outros_eventos_por_parte", "sancoes", "ultimos_eventos", "remates_mapa", "jogo_terminado",
+        "relogio_obter", "ultimo_segundo", "suspensoes", "sete_seis", "timeouts",
+    ];
+
     /// <summary>Estado completo do jogo (null se o jogo não existir).</summary>
     public async Task<EstatisticasJogo?> ObterAsync(int jogoId, CancellationToken ct = default)
     {
         await using var con = await dados.OpenConnectionAsync(ct);
-        var p = new { jogoId };
 
-        var equipas = (await Consulta<ResumoEquipa>(con, "equipas_resumo", p, ct)).ToList();
+        // Todas as consultas seguem num só pedido à base de dados (em vez de uma ida e volta por consulta)
+        await using var r = await con.QueryMultipleAsync(new CommandDefinition(sql.Juntas(ConsultasDoEstado),
+            new { jogoId, minutos = ParcialMinutos, limite = 15 }, cancellationToken: ct));
+
+        var equipas = (await r.ReadAsync<ResumoEquipa>()).ToList();
         if (equipas.Count == 0) return null;
 
-        // A mesma ligação não corre comandos em paralelo, por isso as consultas são sequenciais
         var estatisticas = new EstatisticasJogo
         {
             JogoId = jogoId,
             AtualizadoEm = DateTimeOffset.UtcNow,
             Equipas = equipas,
-            Jogadores = (await Consulta<EstatJogador>(con, "jogadores_stats", p, ct)).ToList(),
-            PorCorredor = (await Consulta<EstatZona>(con, "por_corredor", p, ct)).ToList(),
-            PorDistancia = (await Consulta<EstatZona>(con, "por_distancia", p, ct)).ToList(),
-            PorParte = (await Consulta<EstatParte>(con, "por_parte", p, ct)).ToList(),
-            GuardaRedes = (await Consulta<EstatGuardaRedes>(con, "guarda_redes", p, ct)).ToList(),
+            Jogadores = (await r.ReadAsync<EstatJogador>()).ToList(),
+            PorCorredor = (await r.ReadAsync<EstatZona>()).ToList(),
+            PorDistancia = (await r.ReadAsync<EstatZona>()).ToList(),
+            PorParte = (await r.ReadAsync<EstatParte>()).ToList(),
+            GuardaRedes = (await r.ReadAsync<EstatGuardaRedes>()).ToList(),
             ParcialMinutos = ParcialMinutos,
-            Parcial = (await Consulta<ParcialEquipa>(con, "parcial", new { jogoId, minutos = ParcialMinutos }, ct)).ToList(),
-            OutrosEventos = (await Consulta<OutroEvento>(con, "outros_eventos", p, ct)).ToList(),
-            OutrosEventosPorParte = (await Consulta<OutroEventoParte>(con, "outros_eventos_por_parte", p, ct)).ToList(),
-            Sancoes = (await Consulta<SancaoJogador>(con, "sancoes", p, ct)).ToList(),
-            UltimosEventos = (await Consulta<EventoResumo>(con, "ultimos_eventos", new { jogoId, limite = 15 }, ct)).ToList(),
-            Remates = (await Consulta<RemateMapa>(con, "remates_mapa", p, ct)).ToList(),
-            TerminadoEm = await con.ExecuteScalarAsync<DateTime?>(new CommandDefinition(sql["jogo_terminado"], p, cancellationToken: ct))
+            Parcial = (await r.ReadAsync<ParcialEquipa>()).ToList(),
+            OutrosEventos = (await r.ReadAsync<OutroEvento>()).ToList(),
+            OutrosEventosPorParte = (await r.ReadAsync<OutroEventoParte>()).ToList(),
+            Sancoes = (await r.ReadAsync<SancaoJogador>()).ToList(),
+            UltimosEventos = (await r.ReadAsync<EventoResumo>()).ToList(),
+            Remates = (await r.ReadAsync<RemateMapa>()).ToList(),
+            TerminadoEm = await r.ReadSingleOrDefaultAsync<DateTime?>()
         };
 
         // Relógio: o que o tablet do banco avisou; sem aviso (jogos antigos), vale o último evento registado
-        var relogio = await con.QuerySingleOrDefaultAsync<RelogioJogo>(
-            new CommandDefinition(sql["relogio_obter"], p, cancellationToken: ct));
-        var ultimoEvento = await con.ExecuteScalarAsync<int>(
-            new CommandDefinition(sql["ultimo_segundo"], p, cancellationToken: ct));
+        var relogio = await r.ReadSingleOrDefaultAsync<RelogioJogo>();
+        var ultimoEvento = await r.ReadSingleOrDefaultAsync<int>();
         estatisticas.Relogio = relogio ?? new RelogioJogo { Segundo = ultimoEvento };
 
         estatisticas.Numerica = Numerica.Calcular(
             equipas[0].EquipaId, equipas[1].EquipaId,
-            (await Consulta<SuspensaoJogo>(con, "suspensoes", p, ct)).ToList(),
-            (await Consulta<SeteSeisEvento>(con, "sete_seis", p, ct)).ToList(),
+            (await r.ReadAsync<SuspensaoJogo>()).ToList(),
+            (await r.ReadAsync<SeteSeisEvento>()).ToList(),
             estatisticas.Remates, estatisticas.Relogio.Segundo,
             relogioUsado: relogio is not null || ultimoEvento > 0);
 
         // Treinador-assistente: regras sobre tudo o que acima ficou calculado
-        estatisticas.Assistente = Assistente.Calcular(
-            estatisticas, (await Consulta<TimeoutJogo>(con, "timeouts", p, ct)).ToList());
+        estatisticas.Assistente = Assistente.Calcular(estatisticas, (await r.ReadAsync<TimeoutJogo>()).ToList());
         return estatisticas;
     }
 
