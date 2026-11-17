@@ -71,3 +71,35 @@ test('nenhuma página tem scripts nem manipuladores em linha (a CSP bloqueava-os
     assert.ok(!/href\s*=\s*["']javascript:/i.test(html), `${pagina} tem um endereço javascript:`);
   }
 });
+
+test('o nginx comprime o texto e deixa as letras um ano na cache e os ícones uma semana', () => {
+  assert.match(conf, /^\s*gzip on;/m);
+  assert.match(conf, /^\s*gzip_proxied any;/m, 'sem isto o JSON da API que passa pelo túnel não se comprime');
+  const tipos = /gzip_types\s+([^;]+);/.exec(conf.slice(conf.indexOf('server {'), conf.indexOf('location')))?.[1].split(/\s+/) ?? [];
+  for (const tipo of ['text/css', 'text/javascript', 'application/javascript', 'application/json', 'image/svg+xml']) assert.ok(tipos.includes(tipo), `não comprime ${tipo}`);
+  assert.ok(!tipos.some((t) => /spreadsheet|image\/(png|jpeg|webp)|woff/.test(t)), 'comprimir ficheiros já comprimidos só gasta CPU');
+  const bloco = (nome) => locations().find((l) => l.nome === nome)?.corpo ?? '';
+  assert.match(bloco('/fonts/'), /Cache-Control "public, max-age=31536000, immutable"/);
+  assert.match(bloco('/icons/'), /Cache-Control "public, max-age=604800"/);
+  // o resto (páginas, JS, CSS) não tem nomes com versão: tem de perguntar sempre se mudou
+  assert.match(bloco('/'), /Cache-Control "no-cache"/);
+});
+
+test('todas as páginas pedem logo no início as letras que usam ao desenhar (senão o texto salta quando elas chegam)', () => {
+  const LETRAS = ['barlow-latin-400-normal', 'barlow-latin-600-normal', 'barlow-condensed-latin-700-normal'];
+  const paginas = fs.readdirSync(FRONTEND).filter((f) => f.endsWith('.html') && ler(f).includes('css/estilo.css'));
+  assert.ok(paginas.length >= 15);
+  for (const pagina of paginas) {
+    const html = ler(pagina);
+    const css = html.indexOf('<link rel="stylesheet" href="css/estilo.css">');
+    for (const letra of LETRAS) {
+      const linha = `<link rel="preload" href="fonts/${letra}.woff2" as="font" type="font/woff2" crossorigin>`;
+      assert.ok(html.includes(linha), `${pagina} não pede a letra ${letra} no início`);
+      assert.ok(html.indexOf(linha) < css, `${pagina}: o pedido da letra ${letra} tem de vir antes do CSS`);
+    }
+  }
+  for (const letra of LETRAS) assert.ok(fs.existsSync(path.join(FRONTEND, 'fonts', `${letra}.woff2`)), `falta o ficheiro ${letra}`);
+  // e o CSS usa-as com o mesmo peso (400, 600, condensada 700)
+  const css = ler('css/estilo.css');
+  for (const letra of LETRAS) assert.ok(css.includes(`fonts/${letra}.woff2`), `o CSS não declara ${letra}`);
+});
