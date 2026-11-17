@@ -93,6 +93,52 @@ public class CadastroService(NpgsqlDataSource dados, SqlLoader sql)
         }
     }
 
+    /// <summary>Máximo de jogadores num lote (um plantel lido de uma foto tem bem menos).</summary>
+    public const int MaxLote = 60;
+
+    /// <summary>
+    /// Cria vários jogadores de uma vez, numa só escrita. Cada um tem o mesmo resultado que teria num pedido à parte:
+    /// os inválidos e os que repetem um número que a equipa já tem (ou que outro do lote já usou) ficam com o erro.
+    /// </summary>
+    public async Task<ResultadoLote> CriarJogadoresAsync(int donoId, int equipaId, LoteJogadoresRequest pedido, CancellationToken ct = default)
+    {
+        if (pedido.Jogadores is null) return ResultadoLote.Falha(400, "jogadores é obrigatório.");
+        if (pedido.Jogadores.Count > MaxLote) return ResultadoLote.Falha(400, $"no máximo {MaxLote} jogadores de cada vez.");
+
+        await using var con = await dados.OpenConnectionAsync(ct);
+        if (!await con.ExecuteScalarAsync<bool>(Cmd(sql["equipa_existe"], new { equipaId, donoId }, ct)))
+            return ResultadoLote.Falha(404, "Equipa não encontrada.");
+
+        var resultados = new ResultadoJogadorLote?[pedido.Jogadores.Count];
+        var validos = new List<(int Indice, JogadorRequest Jogador)>();
+        for (var i = 0; i < pedido.Jogadores.Count; i++)
+        {
+            var j = pedido.Jogadores[i] ?? new JogadorRequest(0, null, null);
+            var erros = CadastroValidador.ValidarJogador(j);
+            if (erros.Count > 0) resultados[i] = new ResultadoJogadorLote(j.Numero, null, string.Join(" ", erros));
+            else validos.Add((i, j));
+        }
+
+        // O primeiro de cada número entra; os que o repetem (na equipa ou no próprio lote) ficam de fora
+        var criados = validos.Count == 0
+            ? new Dictionary<int, int>()
+            : (await con.QueryAsync<(int Id, int Numero)>(Cmd(sql["inserir_jogadores"], new
+            {
+                equipaId,
+                numeros = validos.Select(v => v.Jogador.Numero).ToArray(),
+                nomes = validos.Select(v => v.Jogador.Nome!.Trim()).ToArray(),
+                posicoes = validos.Select(v => v.Jogador.Posicao!).ToArray(),
+            }, ct))).ToDictionary(c => c.Numero, c => c.Id);
+
+        foreach (var (indice, jogador) in validos)
+        {
+            resultados[indice] = criados.Remove(jogador.Numero, out var id)
+                ? new ResultadoJogadorLote(jogador.Numero, id, null)
+                : new ResultadoJogadorLote(jogador.Numero, null, "Já existe um jogador com esse número nesta equipa.");
+        }
+        return ResultadoLote.Sucesso(resultados.Select(r => r!).ToList());
+    }
+
     public async Task<ResultadoRegisto> AtualizarJogadorAsync(int donoId, int jogadorId, JogadorRequest pedido, CancellationToken ct = default)
     {
         var erros = CadastroValidador.ValidarJogador(pedido);

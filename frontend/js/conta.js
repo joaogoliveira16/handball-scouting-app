@@ -1,15 +1,32 @@
 // Conta do utilizador: quem está com sessão iniciada, menu da conta e saída.
 import { h } from './dom.js';
 
+// Este browser tinha sessão da última vez que se perguntou? Só serve para as páginas pedirem logo os seus dados, ao
+// mesmo tempo que a conta (ver antecipar em api.js); quem decide se há sessão continua a ser o servidor.
+const CHAVE_SESSAO = 'scouting.sessao';
+
+export function sessaoProvavel() {
+  try { return localStorage.getItem(CHAVE_SESSAO) === '1'; } catch { return false; }
+}
+
+export function lembrarSessao(temSessao) {
+  try {
+    if (temSessao) localStorage.setItem(CHAVE_SESSAO, '1');
+    else localStorage.removeItem(CHAVE_SESSAO);
+  } catch { /* sem armazenamento: as páginas só não antecipam os pedidos */ }
+}
+
 /** A conta da sessão atual, ou null se não houver sessão. Falha só se a API não responder. */
 export async function obterConta() {
   const resposta = await fetch('/api/conta', { cache: 'no-store' });
   if (resposta.status === 401) {
+    lembrarSessao(false);
     // Lê (e deita fora) o corpo da resposta: um corpo por ler deixa o pedido "a decorrer" no browser
     await resposta.text().catch(() => {});
     return null;
   }
   if (!resposta.ok) throw new Error(`Erro ${resposta.status}`);
+  lembrarSessao(true);
   return resposta.json();
 }
 
@@ -21,6 +38,7 @@ function paginaAtual() {
 
 /** Leva para a página de entrada. A promise devolvida nunca termina (a página vai ser substituída). */
 export function irParaEntrar() {
+  lembrarSessao(false);
   const voltar = paginaAtual();
   location.assign(voltar === './' ? 'entrar.html' : `entrar.html?voltar=${encodeURIComponent(voltar)}`);
   return new Promise(() => {});
@@ -39,6 +57,7 @@ export function mostrarMenu(conta) {
 
 async function sair(evento) {
   evento.currentTarget.disabled = true;
+  lembrarSessao(false);
   try {
     await fetch('/api/conta/sair', { method: 'POST' });
   } catch { /* sem rede: o cookie fica, mas a página de entrada trata disso */ }

@@ -1,5 +1,5 @@
 // Pedidos HTTP à API e pequenos utilitários partilhados pelas páginas.
-import { irParaEntrar } from './conta.js';
+import { irParaEntrar, sessaoProvavel } from './conta.js';
 
 /** Sessão terminada (401) fora das rotas da conta: volta à página de entrada. */
 async function resposta401(resposta, url) {
@@ -13,6 +13,19 @@ export async function obter(url) {
   return resposta.json();
 }
 
+/**
+ * Faz já um pedido GET e devolve a promessa, para a página a usar mais tarde: assim os pedidos que não dependem uns
+ * dos outros (a conta, as equipas, os jogos...) seguem ao mesmo tempo, em vez de um à espera do outro.
+ * Um erro só aparece a quem esperar pela promessa. Num browser sem sessão (quem nunca entrou ou já saiu) não pede nada
+ * e devolve undefined: a página vai para a entrada e os pedidos seriam recusados; quem chama faz o pedido normal.
+ */
+export function antecipar(url) {
+  if (!sessaoProvavel()) return undefined;
+  const pedido = obter(url);
+  pedido.catch(() => {});
+  return pedido;
+}
+
 export async function enviar(metodo, url, corpo) {
   const resposta = await fetch(url, {
     method: metodo,
@@ -22,6 +35,22 @@ export async function enviar(metodo, url, corpo) {
   await resposta401(resposta, url);
   if (!resposta.ok) throw await erroDe(resposta);
   return resposta.status === 204 ? null : resposta.json();
+}
+
+/**
+ * Cria vários jogadores de uma equipa num só pedido (a lista lida de uma foto). Devolve, pela mesma ordem, o que
+ * aconteceu a cada um: { numero, id } se entrou ou { numero, erro } se não (número repetido, dados inválidos...).
+ * Se o pedido todo falhar (sem rede, sessão terminada...), cada jogador fica com esse erro.
+ */
+export async function criarJogadores(equipaId, jogadores) {
+  try {
+    const { resultados } = await enviar('POST', `/api/equipas/${equipaId}/jogadores/lote`, {
+      jogadores: jogadores.map((j) => ({ numero: j.numero, nome: j.nome, posicao: j.posicao })),
+    });
+    return resultados;
+  } catch (erro) {
+    return jogadores.map((j) => ({ numero: j.numero, id: null, erro: erro.message }));
+  }
 }
 
 /** Envia um ficheiro (por exemplo a imagem de um escudo) como corpo do pedido, sem JSON. */

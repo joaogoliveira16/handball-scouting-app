@@ -2,18 +2,21 @@
 // as defesas e as zonas, para o treinador ler no tablet, imprimir ou copiar como texto. As contas estão em
 // relatorio-adversario.js (testado à parte); aqui só se desenha.
 import { h, substituir, avisar, copiarTexto } from './dom.js';
-import { obter, ROTULO_SISTEMA, ROTULO_ZONA_BALIZA, ROTULO_CORREDOR, ROTULO_POSICAO, ORDEM_CORREDOR } from './api.js';
+import { obter, antecipar, ROTULO_SISTEMA, ROTULO_ZONA_BALIZA, ROTULO_CORREDOR, ROTULO_POSICAO, ORDEM_CORREDOR } from './api.js';
 import { exigirConta } from './conta.js';
 import { escudo } from './escudo.js';
 import { relatorioAdversario, textoRelatorio, avisoPoucosDados, semPontos, descricaoDosJogos } from './relatorio-adversario.js';
 
-await exigirConta();
-
 const parametros = new URLSearchParams(location.search);
+
+// As equipas pedem-se já, ao mesmo tempo que a conta (não dependem dela)
+const equipaDoEndereco = Number(parametros.get('equipa')) || null;
+const primeirasEquipas = antecipar('/api/equipas');
+await exigirConta();
 
 const estado = {
   equipas: [],                                  // as equipas da conta; a da conta tem propria = true
-  equipaId: Number(parametros.get('equipa')) || null,
+  equipaId: equipaDoEndereco,
   contraNos: parametros.get('contra') === 'nos', // só os jogos contra a equipa da conta
   dados: null,                                  // o que a API devolveu para a equipa escolhida
   relatorio: null,
@@ -278,7 +281,7 @@ async function copiar() {
 // Arranque
 // ---------------------------------------------------------------------
 try {
-  estado.equipas = await obter('/api/equipas');
+  estado.equipas = await (primeirasEquipas ?? obter('/api/equipas'));
   // Sem equipa no endereço (ou de outra conta): a primeira adversária, senão a da conta
   if (!estado.equipas.some((e) => e.id === estado.equipaId)) {
     estado.equipaId = (estado.equipas.find((e) => !e.propria) ?? estado.equipas[0])?.id ?? null;

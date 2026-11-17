@@ -1,11 +1,14 @@
 // A equipa da conta e o seu plantel: adicionar, editar e apagar jogadores. Os adversários não se listam aqui:
 // criam-se ao criar o jogo e abrem-se a partir da convocatória (equipas.html?equipa=ID).
 import { h, substituir, avisar } from './dom.js';
-import { obter, enviar, enviarFicheiro, POSICOES, ROTULO_POSICAO } from './api.js';
+import { obter, antecipar, enviar, enviarFicheiro, criarJogadores, POSICOES, ROTULO_POSICAO } from './api.js';
 import { exigirConta } from './conta.js';
 import { escudo, iniciais, prepararEscudo } from './escudo.js';
 import { abrirLeituraDeFoto } from './foto-lista.js';
 
+// As equipas pedem-se já, ao mesmo tempo que a conta (não dependem dela)
+const equipaDoEndereco = Number(new URLSearchParams(location.search).get('equipa')) || null;
+let equipasAntecipadas = antecipar('/api/equipas');
 await exigirConta();
 
 const estado = {
@@ -203,7 +206,9 @@ function desenharPlantel() {
 // Dados
 // ---------------------------------------------------------------------
 async function carregarEquipas() {
-  estado.equipas = await obter('/api/equipas');
+  const antecipado = equipasAntecipadas;
+  equipasAntecipadas = undefined;
+  estado.equipas = await (antecipado ?? obter('/api/equipas'));
   if (!estado.equipas.some((e) => e.id === estado.adversarioId && !e.propria)) estado.adversarioId = null;
   if (!equipasVisiveis().some((e) => e.id === estado.equipaId)) estado.equipaId = equipaDaConta()?.id ?? null;
   desenharEquipas();
@@ -239,12 +244,20 @@ async function guardarJogador(evento) {
   const editava = estado.aEditar !== null;
   botaoGuardar.disabled = true;
   try {
-    if (editava) await enviar('PUT', `/api/jogadores/${estado.aEditar.id}`, corpo);
-    else await enviar('POST', `/api/equipas/${estado.equipaId}/jogadores`, corpo);
+    // O servidor confirma (número repetido, etc.) e o plantel muda logo, sem esperar por o voltar a pedir
+    if (editava) {
+      await enviar('PUT', `/api/jogadores/${estado.aEditar.id}`, corpo);
+      const id = estado.aEditar.id;
+      estado.jogadores = estado.jogadores.map((j) => (j.id === id ? { ...j, ...corpo } : j));
+    } else {
+      const { id } = await enviar('POST', `/api/equipas/${estado.equipaId}/jogadores`, corpo);
+      estado.jogadores = [...estado.jogadores, { id, equipaId: estado.equipaId, eventos: 0, ...corpo }];
+    }
     avisar(editava ? 'Jogador atualizado.' : `#${corpo.numero} ${corpo.nome} adicionado.`);
-    await Promise.all([carregarJogadores(), carregarEquipas()]);
+    desenharPlantel();
     iniciarFormulario(null);
     if (!editava) campoNome.focus(); // para adicionar vários jogadores seguidos
+    atualizarEmSegundoPlano();
   } catch (erro) {
     erroJogador.textContent = erro.message;
   } finally {
@@ -266,14 +279,12 @@ async function lerDeFoto() {
   const falhas = [];
   let novos = 0;
   try {
-    for (const j of resultado.jogadores) {
-      try {
-        await enviar('POST', `/api/equipas/${equipa.id}/jogadores`, { numero: j.numero, nome: j.nome, posicao: j.posicao });
-        novos += 1;
-      } catch (erro) {
-        falhas.push(`#${j.numero} ${j.nome} (${erro.message})`);
-      }
-    }
+    // Todos num só pedido (e numa só escrita na base de dados), cada um com o seu resultado
+    const resultados = await criarJogadores(equipa.id, resultado.jogadores);
+    resultado.jogadores.forEach((j, i) => {
+      if (resultados[i]?.id != null) novos += 1;
+      else falhas.push(`#${j.numero} ${j.nome} (${resultados[i]?.erro ?? 'sem resposta'})`);
+    });
   } finally {
     aLerFoto = false;
     botaoFoto.disabled = false;
@@ -289,14 +300,25 @@ async function lerDeFoto() {
   else avisar(`${adicionados}.`);
 }
 
+/** Volta a pedir o plantel e as equipas (contagens de jogadores) sem prender a página; um erro aqui não se mostra. */
+function atualizarEmSegundoPlano() {
+  Promise.all([carregarJogadores(), carregarEquipas()]).catch(() => {});
+}
+
 async function apagarJogador(jogador) {
   if (!confirm(`Apagar #${jogador.numero} ${jogador.nome}?`)) return;
+  // Sai logo do plantel; se o servidor recusar, volta e aparece o erro
+  const antes = estado.jogadores;
+  estado.jogadores = antes.filter((j) => j.id !== jogador.id);
+  desenharPlantel();
+  if (estado.aEditar?.id === jogador.id) iniciarFormulario(null);
+  avisar('Jogador apagado.');
   try {
     await enviar('DELETE', `/api/jogadores/${jogador.id}`);
-    avisar('Jogador apagado.');
-    await Promise.all([carregarJogadores(), carregarEquipas()]);
-    if (estado.aEditar?.id === jogador.id) iniciarFormulario(null);
+    atualizarEmSegundoPlano();
   } catch (erro) {
+    if (!estado.jogadores.some((j) => j.id === jogador.id)) estado.jogadores = [...estado.jogadores, jogador];
+    desenharPlantel();
     avisar(erro.message, { erro: true });
   }
 }
@@ -321,9 +343,8 @@ formEquipa.addEventListener('submit', async (evento) => {
 // Arranque
 // ---------------------------------------------------------------------
 try {
-  const pedida = Number(new URLSearchParams(location.search).get('equipa'));
-  estado.equipaId = pedida || null;
-  estado.adversarioId = pedida || null;   // se for a da conta, carregarEquipas() larga-o
+  estado.equipaId = equipaDoEndereco;
+  estado.adversarioId = equipaDoEndereco;   // se for a da conta, carregarEquipas() larga-o
   await carregarEquipas();
   await carregarJogadores();
   iniciarFormulario(null);

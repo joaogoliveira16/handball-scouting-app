@@ -2,7 +2,7 @@
 // As contas do formulário estão em eventos-jogo.js (testado à parte); aqui só se desenha.
 import { h, substituir, avisar } from './dom.js';
 import {
-  obter, enviar, RESULTADOS, ROTULO_RESULTADO, SITUACOES, ROTULO_SITUACAO, SISTEMAS_DEFENSIVOS, ROTULO_SISTEMA, ROTULO_ZONA_BALIZA, urlExcel,
+  obter, antecipar, enviar, RESULTADOS, ROTULO_RESULTADO, SITUACOES, ROTULO_SITUACAO, SISTEMAS_DEFENSIVOS, ROTULO_SISTEMA, ROTULO_ZONA_BALIZA, urlExcel,
 } from './api.js';
 import { exigirConta } from './conta.js';
 import { criarCampo, novoSvgCampo } from './campo.js';
@@ -16,6 +16,8 @@ import {
 const jogoId = Number(new URLSearchParams(location.search).get('jogo'));
 if (!jogoId) location.replace('./');
 
+// O jogo, os tipos de evento e os eventos pedem-se já, ao mesmo tempo que a conta (não dependem dela)
+const primeirosDados = [`/api/jogos/${jogoId}`, '/api/tipos-evento', `/api/jogos/${jogoId}/eventos`].map(antecipar);
 await exigirConta();
 
 const conteudo = document.getElementById('conteudo');
@@ -58,11 +60,17 @@ function descricaoCurta(e) {
 
 async function apagarEvento(e) {
   if (!confirm(`Apagar este evento (${descricaoCurta(e)})? Não dá para desfazer.`)) return;
+  // Sai logo da lista; se o servidor recusar, volta ao mesmo sítio e aparece o erro
+  const posicao = estado.eventos.indexOf(e);
+  estado.eventos = estado.eventos.filter((x) => x.id !== e.id);
+  desenhar();
+  avisar('Evento apagado.');
   try {
     await enviar('DELETE', `/api/jogos/${jogoId}/eventos/${e.id}`);
-    await carregarEventos();
-    avisar('Evento apagado.');
+    carregarEventos().catch(() => {});
   } catch (erro) {
+    if (!estado.eventos.some((x) => x.id === e.id)) estado.eventos.splice(Math.max(0, posicao), 0, e);
+    desenhar();
     avisar(`Não foi possível apagar: ${erro.message}`, { erro: true });
   }
 }
@@ -330,11 +338,8 @@ function abrirEdicao(evento) {
 // Arranque
 // ---------------------------------------------------------------------
 try {
-  [estado.jogo, estado.tipos, estado.eventos] = await Promise.all([
-    obter(`/api/jogos/${jogoId}`),
-    obter('/api/tipos-evento'),
-    obter(`/api/jogos/${jogoId}/eventos`),
-  ]);
+  [estado.jogo, estado.tipos, estado.eventos] = await Promise.all([`/api/jogos/${jogoId}`, '/api/tipos-evento', `/api/jogos/${jogoId}/eventos`]
+    .map((url, i) => primeirosDados[i] ?? obter(url)));
   document.title = `Eventos · ${estado.jogo.casaNome} vs ${estado.jogo.foraNome} · Scouting de Andebol`;
   desenhar();
 } catch (erro) {

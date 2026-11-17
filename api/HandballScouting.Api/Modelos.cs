@@ -67,6 +67,18 @@ public record NovaEquipaRequest(string? Nome);
 
 public record JogadorRequest(int Numero, string? Nome, string? Posicao);
 
+/// <summary>Vários jogadores novos de uma vez (a lista lida de uma foto).</summary>
+public record LoteJogadoresRequest(List<JogadorRequest>? Jogadores);
+
+/// <summary>O que aconteceu a cada jogador de um lote, pela mesma ordem do pedido: o id novo ou o erro.</summary>
+public record ResultadoJogadorLote(int Numero, int? Id, string? Erro);
+
+public record ResultadoLote(bool Ok, int Status, string? Erro, List<ResultadoJogadorLote>? Resultados)
+{
+    public static ResultadoLote Sucesso(List<ResultadoJogadorLote> resultados) => new(true, 200, null, resultados);
+    public static ResultadoLote Falha(int status, string erro) => new(false, status, erro, null);
+}
+
 public record NovoJogoRequest(int CasaId, int ForaId, string? Local, DateTimeOffset? DataHora);
 
 public record ConvocatoriaRequest(List<int>? JogadorIds);

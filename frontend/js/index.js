@@ -1,12 +1,15 @@
 // Lista de jogos, criação de um jogo novo e link de partilha do dashboard.
 import { h, substituir, avisar, copiarTexto } from './dom.js';
-import { obter, enviar, urlExcel, urlPartilha } from './api.js';
+import { obter, enviar, urlExcel, urlPartilha, antecipar } from './api.js';
 import { exigirConta } from './conta.js';
 import { escudo } from './escudo.js';
 import { criarFila, criarEnvio } from './fila.js';
 import { registarOffline, jogosGuardados } from './offline.js';
 
 registarOffline();
+// As equipas e os jogos pedem-se já, ao mesmo tempo que a conta (não dependem dela)
+const primeirasEquipas = antecipar('/api/equipas');
+const primeirosJogos = antecipar('/api/jogos');
 // Sem rede a conta não responde: não deixa a lista presa à espera
 await Promise.race([exigirConta(), new Promise((resolve) => setTimeout(resolve, 6000))]);
 
@@ -51,22 +54,28 @@ async function partilhar(jogo) {
   }
 }
 
-/** O dono mostra ou esconde o jogo na lista de jogos da área de convidado. */
-async function mudarVisibilidade(jogo, caixa) {
+/**
+ * O dono mostra ou esconde o jogo na lista de jogos da área de convidado. A caixa muda logo (sem esperar pelo
+ * servidor); se o servidor recusar, volta ao que estava e aparece o erro. Os pedidos do mesmo jogo seguem por ordem.
+ */
+const visibilidadePorEnviar = new Map();   // jogo -> último pedido (o seguinte espera por ele)
+function mudarVisibilidade(jogo, caixa) {
   const visivel = caixa.checked;
-  caixa.disabled = true;
-  try {
-    await enviar('PUT', `/api/jogos/${jogo.id}/visibilidade`, { visivel });
-    jogo.visivelConvidados = visivel;
-    avisar(visivel
-      ? 'Este jogo aparece na área de convidado durante 24 horas.'
-      : 'Jogo escondido: só quem tem a ligação o vê.');
-  } catch (erro) {
-    caixa.checked = !visivel;
-    avisar(`Não foi possível mudar: ${erro.message}`, { erro: true });
-  } finally {
-    caixa.disabled = false;
-  }
+  const anterior = !visivel;
+  jogo.visivelConvidados = visivel;
+  avisar(visivel
+    ? 'Este jogo aparece na área de convidado durante 24 horas.'
+    : 'Jogo escondido: só quem tem a ligação o vê.');
+  const pedido = (visibilidadePorEnviar.get(jogo.id) ?? Promise.resolve())
+    .then(() => enviar('PUT', `/api/jogos/${jogo.id}/visibilidade`, { visivel }))
+    .catch((erro) => {
+      if (jogo.visivelConvidados === visivel) {
+        jogo.visivelConvidados = anterior;
+        caixa.checked = anterior;
+      }
+      avisar(`Não foi possível mudar: ${erro.message}`, { erro: true });
+    });
+  visibilidadePorEnviar.set(jogo.id, pedido);
 }
 
 let jogosAtuais = [];
@@ -82,25 +91,34 @@ const comoValorLocal = (iso) => {   // para o campo «data e hora» (hora local 
 async function terminarJogo(jogo, terminado) {
   const nome = `${jogo.casaNome} vs ${jogo.foraNome}`;
   if (terminado && !confirm(`Terminar o jogo ${nome}? O banco deixa de registar eventos (podes reabri-lo).`)) return;
+  // A lista muda logo; se o servidor recusar, volta ao que estava
+  const anterior = jogo.terminadoEm;
+  jogo.terminadoEm = terminado ? new Date().toISOString() : null;
+  desenharJogos();
+  avisar(terminado ? 'Jogo terminado.' : 'Jogo reaberto.');
   try {
     await enviar('PUT', `/api/jogos/${jogo.id}/terminado`, { terminado });
-    jogo.terminadoEm = terminado ? new Date().toISOString() : null;
-    desenharJogos();
-    avisar(terminado ? 'Jogo terminado.' : 'Jogo reaberto.');
   } catch (erro) {
+    jogo.terminadoEm = anterior;
+    desenharJogos();
     avisar(`Não foi possível mudar: ${erro.message}`, { erro: true });
   }
 }
 
 async function apagarJogo(jogo) {
   if (!confirm(`Apagar o jogo ${jogo.casaNome} vs ${jogo.foraNome} e todos os seus eventos? Não dá para desfazer.`)) return;
+  // Sai logo da lista; se o servidor recusar, volta ao mesmo sítio
+  const posicao = jogosAtuais.indexOf(jogo);
+  const estavaAEditar = aEditar.delete(jogo.id);
+  jogosAtuais = jogosAtuais.filter((j) => j.id !== jogo.id);
+  desenharJogos();
+  avisar('Jogo apagado.');
   try {
     await enviar('DELETE', `/api/jogos/${jogo.id}`);
-    jogosAtuais = jogosAtuais.filter((j) => j.id !== jogo.id);
-    aEditar.delete(jogo.id);
-    desenharJogos();
-    avisar('Jogo apagado.');
   } catch (erro) {
+    if (!jogosAtuais.some((j) => j.id === jogo.id)) jogosAtuais.splice(Math.max(0, posicao), 0, jogo);
+    if (estavaAEditar) aEditar.add(jogo.id);
+    desenharJogos();
     avisar(`Não foi possível apagar: ${erro.message}`, { erro: true });
   }
 }
@@ -218,9 +236,9 @@ function desenharJogos() {
     : estadoVazio(equipasDaConta));
 }
 
-async function carregarJogos(equipas) {
+async function carregarJogos(equipas, pedido = obter('/api/jogos')) {
   try {
-    jogosAtuais = await obter('/api/jogos');
+    jogosAtuais = await pedido;
     desenharJogos();
   } catch (erro) {
     const guardados = erro.status == null ? jogosGuardados() : [];
@@ -240,9 +258,9 @@ async function carregarJogos(equipas) {
   }
 }
 
-async function carregarEquipas() {
+async function carregarEquipas(pedido = obter('/api/equipas')) {
   try {
-    return await obter('/api/equipas');
+    return await pedido;
   } catch (erro) {
     erroJogo.textContent = `Não foi possível carregar as equipas: ${erro.message}`;
     novoJogo.hidden = false;
@@ -313,9 +331,9 @@ formulario.addEventListener('submit', async (evento) => {
   }
 });
 
-let equipasDaConta = await carregarEquipas();
+let equipasDaConta = await carregarEquipas(primeirasEquipas);
 prepararFormulario(equipasDaConta);
-await carregarJogos(equipasDaConta);
+await carregarJogos(equipasDaConta, primeirosJogos);
 
 desenharFila();
 if (fila.contar() > 0) envio.tentar();

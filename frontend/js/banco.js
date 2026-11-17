@@ -1,7 +1,7 @@
 // Página do banco (adjunto): toca no mapa, escolhe o jogador e carrega no resultado.
 import { h, substituir, avisar } from './dom.js';
 import {
-  obter, enviar, formatarTempo, RESULTADOS, ROTULO_RESULTADO, SITUACOES, ROTULO_ZONA_BALIZA, zonaBaliza,
+  obter, antecipar, enviar, formatarTempo, RESULTADOS, ROTULO_RESULTADO, SITUACOES, ROTULO_ZONA_BALIZA, zonaBaliza,
   SISTEMAS_DEFENSIVOS,
 } from './api.js';
 import { criarCampo } from './campo.js';
@@ -22,6 +22,8 @@ document.getElementById('ver-todos-eventos').href = `eventos.html?jogo=${jogoId}
 
 registarOffline();
 const esperar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// O jogo e os tipos de evento pedem-se já, ao mesmo tempo que a conta (não dependem dela)
+const primeirosDados = [antecipar(`/api/jogos/${jogoId}`), antecipar('/api/tipos-evento')];
 /** Sem rede (ou com a rede a arrastar-se) a conta não chega: não prende a página, o banco abre na mesma. */
 await Promise.race([exigirConta(), esperar(6000)]);
 
@@ -686,12 +688,11 @@ function comTempoLimite(promessa, ms = 6000) {
   return Promise.race([promessa, esperar(ms).then(() => { throw new Error('O servidor não respondeu.'); })]);
 }
 
-async function carregarJogo() {
+async function carregarJogo([pedidoJogo, pedidoTipos] = []) {
+  pedidoJogo ??= obter(`/api/jogos/${jogoId}`);
+  pedidoTipos ??= obter('/api/tipos-evento');
   try {
-    [estado.jogo, estado.tipos] = await Promise.all([
-      comTempoLimite(obter(`/api/jogos/${jogoId}`)),
-      comTempoLimite(obter('/api/tipos-evento')),
-    ]);
+    [estado.jogo, estado.tipos] = await Promise.all([comTempoLimite(pedidoJogo), comTempoLimite(pedidoTipos)]);
     guardarCache();
   } catch (erro) {
     // Só a falta de rede é desculpa para usar o que está guardado; um erro do servidor (jogo apagado...) não
@@ -769,13 +770,31 @@ setInterval(() => { if (relogio.iniciadoEm) sincronizarRelogio(); }, 30000);
 setInterval(() => { if (fila.contar() > 0) envio.tentar(); }, 15000);   // rede de segurança: a fila nunca fica esquecida
 if (relogio.iniciadoEm || relogio.acumuladoMs > 0) sincronizarRelogio(); // recarregou a página: volta a dizer ao servidor onde vai o relógio
 
-try {
-  await carregarJogo();
+let tempoRealLigado = false;
+function mostrarJogo() {
   document.title = `${estado.jogo.casaNome} vs ${estado.jogo.foraNome} · Banco`;
   recalcular();
   desenharTudo();
   desenharLigacao();
-  ligar(jogoId, null, receberEstatisticas, mostrarEstadoLigacao);
+  if (!tempoRealLigado) {
+    tempoRealLigado = true;
+    ligar(jogoId, null, receberEstatisticas, mostrarEstadoLigacao);
+  }
+}
+
+// Este tablet já abriu o jogo antes: mostra logo o que ficou guardado (o jogo, os jogadores e o último marcador)
+// enquanto chegam os dados atuais do servidor, em vez de deixar o banco vazio à espera
+const guardadoAoAbrir = lerCache();
+if (guardadoAoAbrir) {
+  estado.jogo = guardadoAoAbrir.jogo;
+  estado.tipos = guardadoAoAbrir.tipos;
+  estado.estatisticasServidor ??= guardadoAoAbrir.estatisticas;
+  mostrarJogo();
+}
+
+try {
+  await carregarJogo(primeirosDados);
+  mostrarJogo();
   if (fila.contar() > 0) envio.tentar();   // abriu o banco com eventos de antes por enviar
 } catch (erro) {
   substituir(document.querySelector('main'),

@@ -1,6 +1,6 @@
 // Entrar e criar conta. Quem cria a conta recebe um email com um link e só entra depois de o abrir.
 import { enviar } from './api.js';
-import { obterConta } from './conta.js';
+import { obterConta, lembrarSessao } from './conta.js';
 import { h } from './dom.js';
 
 const params = new URLSearchParams(location.search);
@@ -220,7 +220,7 @@ ligarFormulario(formEntrar, {
   erroId: 'erro-entrar', botaoId: 'botao-entrar', reenviarId: 'reenviar-entrar', emailId: 'entrar-email', enviarPara: '/api/conta/entrar',
   validar: () => (!valor('entrar-email').trim() || !valor('entrar-senha') ? 'Escreve o email e a palavra-passe.' : null),
   corpo: () => ({ email: valor('entrar-email').trim(), palavraPasse: valor('entrar-senha') }),
-  aoSucesso: () => location.replace(destino()),
+  aoSucesso: () => { lembrarSessao(true); location.replace(destino()); },
 });
 
 ligarFormulario(formRegisto, {
